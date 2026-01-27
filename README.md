@@ -1,1 +1,1 @@
-# Web Application for Connecting Relief Aid to People in Need
+# Website-to-support-people-in-need.
