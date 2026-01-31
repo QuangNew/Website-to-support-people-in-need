@@ -1,0 +1,80 @@
+{
+  "campaigns": [
+    {
+      "id": 1,
+      "name": "Chung lòng mùa lũ 2026",
+      "description": "Chiến dịch cứu trợ đồng bào miền Trung bị ảnh hưởng bởi lũ lụt",
+      "target": 500000000,
+      "raised": 387500000,
+      "donors": 1245,
+      "startDate": "2026-01-15",
+      "endDate": "2026-02-28",
+      "status": "active",
+      "image": "/images/campaigns/flood-relief.jpg"
+    },
+    {
+      "id": 2,
+      "name": "Áo ấm vùng cao",
+      "description": "Tặng áo ấm cho trẻ em vùng cao trong mùa đông",
+      "target": 200000000,
+      "raised": 200000000,
+      "donors": 856,
+      "startDate": "2025-11-01",
+      "endDate": "2026-01-31",
+      "status": "completed",
+      "image": "/images/campaigns/warm-clothes.jpg"
+    }
+  ],
+  "recentDonations": [
+    {
+      "id": 1,
+      "donor": "Công ty ABC",
+      "amount": 50000000,
+      "campaign": "Chung lòng mùa lũ 2026",
+      "timestamp": "2026-01-30T15:30:00",
+      "message": "Chung tay cùng đồng bào miền Trung"
+    },
+    {
+      "id": 2,
+      "donor": "Ẩn danh",
+      "amount": 5000000,
+      "campaign": "Chung lòng mùa lũ 2026",
+      "timestamp": "2026-01-30T14:15:00",
+      "message": null
+    },
+    {
+      "id": 3,
+      "donor": "Nguyễn Thị Mai",
+      "amount": 2000000,
+      "campaign": "Chung lòng mùa lũ 2026",
+      "timestamp": "2026-01-30T12:45:00",
+      "message": "Cầu mong mọi người bình an"
+    }
+  ],
+  "donationCategories": [
+    {
+      "id": "food",
+      "name": "Lương thực",
+      "icon": "fa-bowl-rice",
+      "items": ["Gạo", "Mì tôm", "Đồ hộp", "Nước uống"]
+    },
+    {
+      "id": "medical",
+      "name": "Y tế",
+      "icon": "fa-briefcase-medical",
+      "items": ["Thuốc", "Bông băng", "Dụng cụ sơ cứu"]
+    },
+    {
+      "id": "transport",
+      "name": "Vận chuyển",
+      "icon": "fa-truck-fast",
+      "items": ["Xe tải 1.5 tấn", "Xe tải 4 tấn", "Xuồng cứu hộ"]
+    },
+    {
+      "id": "shelter",
+      "name": "Chỗ ở",
+      "icon": "fa-house",
+      "items": ["Lều bạt", "Chăn màn", "Đệm ngủ"]
+    }
+  ]
+}

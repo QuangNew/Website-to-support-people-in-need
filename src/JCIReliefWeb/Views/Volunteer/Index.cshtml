@@ -1,0 +1,419 @@
+@{
+    ViewData["Title"] = "Đăng ký tình nguyện";
+}
+
+<div class="volunteer-page">
+    <div class="row g-4">
+        <!-- Registration Form -->
+        <div class="col-lg-7">
+            <div class="card">
+                <div class="card-header bg-success text-white">
+                    <h4 class="mb-0">
+                        <i class="fa-solid fa-hands-holding-heart me-2"></i>Đăng ký tình nguyện viên
+                    </h4>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-success">
+                        <i class="fa-solid fa-heart me-2"></i>
+                        Cảm ơn bạn đã quan tâm đến hoạt động tình nguyện! Vui lòng điền thông tin bên dưới.
+                    </div>
+
+                    <form id="volunteerForm">
+                        <!-- Personal Info -->
+                        <div class="form-section">
+                            <h5 class="section-title">
+                                <i class="fa-solid fa-user me-2"></i>Thông tin cá nhân
+                            </h5>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label">Họ và tên <span class="text-danger">*</span></label>
+                                    <input type="text" class="form-control" required>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Ngày sinh</label>
+                                    <input type="date" class="form-control">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Số điện thoại <span class="text-danger">*</span></label>
+                                    <input type="tel" class="form-control" required>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Email</label>
+                                    <input type="email" class="form-control">
+                                </div>
+                                <div class="col-12">
+                                    <label class="form-label">Địa chỉ</label>
+                                    <input type="text" class="form-control" placeholder="Thành phố/Tỉnh">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Skills -->
+                        <div class="form-section">
+                            <h5 class="section-title">
+                                <i class="fa-solid fa-star me-2"></i>Kỹ năng của bạn
+                            </h5>
+                            <p class="text-muted mb-3">Chọn các kỹ năng bạn có thể đóng góp:</p>
+                            
+                            <div class="skills-grid">
+                                <label class="skill-option">
+                                    <input type="checkbox" name="skills" value="first-aid">
+                                    <span class="skill-box">
+                                        <i class="fa-solid fa-kit-medical"></i>
+                                        <span class="skill-name">Sơ cứu</span>
+                                        <span class="skill-desc">Có chứng chỉ hoặc kinh nghiệm sơ cứu</span>
+                                    </span>
+                                </label>
+                                <label class="skill-option">
+                                    <input type="checkbox" name="skills" value="cooking">
+                                    <span class="skill-box">
+                                        <i class="fa-solid fa-utensils"></i>
+                                        <span class="skill-name">Nấu ăn</span>
+                                        <span class="skill-desc">Có thể nấu ăn cho số lượng lớn</span>
+                                    </span>
+                                </label>
+                                <label class="skill-option">
+                                    <input type="checkbox" name="skills" value="driving">
+                                    <span class="skill-box">
+                                        <i class="fa-solid fa-truck"></i>
+                                        <span class="skill-name">Lái xe</span>
+                                        <span class="skill-desc">Có bằng lái xe tải 1.5-4 tấn</span>
+                                    </span>
+                                </label>
+                                <label class="skill-option">
+                                    <input type="checkbox" name="skills" value="tech">
+                                    <span class="skill-box">
+                                        <i class="fa-solid fa-laptop"></i>
+                                        <span class="skill-name">Hỗ trợ kỹ thuật</span>
+                                        <span class="skill-desc">IT, truyền thông, điều phối</span>
+                                    </span>
+                                </label>
+                                <label class="skill-option">
+                                    <input type="checkbox" name="skills" value="medical">
+                                    <span class="skill-box">
+                                        <i class="fa-solid fa-user-doctor"></i>
+                                        <span class="skill-name">Y tế</span>
+                                        <span class="skill-desc">Bác sĩ, y tá, dược sĩ</span>
+                                    </span>
+                                </label>
+                                <label class="skill-option">
+                                    <input type="checkbox" name="skills" value="general">
+                                    <span class="skill-box">
+                                        <i class="fa-solid fa-hands-helping"></i>
+                                        <span class="skill-name">Hỗ trợ chung</span>
+                                        <span class="skill-desc">Phân phát hàng, dọn dẹp</span>
+                                    </span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Availability -->
+                        <div class="form-section">
+                            <h5 class="section-title">
+                                <i class="fa-solid fa-calendar me-2"></i>Thời gian có thể tham gia
+                            </h5>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label">Từ ngày</label>
+                                    <input type="date" class="form-control">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Đến ngày</label>
+                                    <input type="date" class="form-control">
+                                </div>
+                                <div class="col-12">
+                                    <label class="form-label">Ghi chú về thời gian</label>
+                                    <textarea class="form-control" rows="2" placeholder="VD: Chỉ có thể tham gia cuối tuần..."></textarea>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Agreement -->
+                        <div class="form-check mb-4">
+                            <input class="form-check-input" type="checkbox" id="agreement" required>
+                            <label class="form-check-label" for="agreement">
+                                Tôi cam kết tuân thủ quy định của tổ chức và tham gia đầy đủ các hoạt động đã đăng ký
+                            </label>
+                        </div>
+
+                        <button type="submit" class="btn btn-success btn-lg w-100">
+                            <i class="fa-solid fa-paper-plane me-2"></i>Đăng ký tình nguyện viên
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sidebar -->
+        <div class="col-lg-5">
+            <!-- Why Volunteer -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="fa-solid fa-circle-question me-2"></i>Tại sao nên tham gia?
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="benefit-list">
+                        <div class="benefit-item">
+                            <div class="benefit-icon">
+                                <i class="fa-solid fa-heart"></i>
+                            </div>
+                            <div class="benefit-text">
+                                <strong>Góp phần tạo nên sự thay đổi</strong>
+                                <p class="mb-0">Giúp đỡ trực tiếp những người cần được hỗ trợ</p>
+                            </div>
+                        </div>
+                        <div class="benefit-item">
+                            <div class="benefit-icon">
+                                <i class="fa-solid fa-users"></i>
+                            </div>
+                            <div class="benefit-text">
+                                <strong>Mở rộng mạng lưới</strong>
+                                <p class="mb-0">Kết nối với cộng đồng tình nguyện viên trên toàn quốc</p>
+                            </div>
+                        </div>
+                        <div class="benefit-item">
+                            <div class="benefit-icon">
+                                <i class="fa-solid fa-certificate"></i>
+                            </div>
+                            <div class="benefit-text">
+                                <strong>Chứng nhận tình nguyện</strong>
+                                <p class="mb-0">Nhận giấy chứng nhận cho các hoạt động tham gia</p>
+                            </div>
+                        </div>
+                        <div class="benefit-item">
+                            <div class="benefit-icon">
+                                <i class="fa-solid fa-graduation-cap"></i>
+                            </div>
+                            <div class="benefit-text">
+                                <strong>Học hỏi kỹ năng mới</strong>
+                                <p class="mb-0">Được đào tạo sơ cứu, kỹ năng mềm và nhiều hơn nữa</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Active Volunteers -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="fa-solid fa-users me-2"></i>Tình nguyện viên đang hoạt động
+                    </h5>
+                </div>
+                <div class="card-body p-0">
+                    <div class="volunteer-list" id="volunteerList">
+                        <!-- Dynamic content -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Stats -->
+            <div class="card">
+                <div class="card-body">
+                    <div class="row text-center g-3">
+                        <div class="col-4">
+                            <div class="mini-stat">
+                                <span class="mini-stat-value">156</span>
+                                <span class="mini-stat-label">TNV đăng ký</span>
+                            </div>
+                        </div>
+                        <div class="col-4">
+                            <div class="mini-stat">
+                                <span class="mini-stat-value">89</span>
+                                <span class="mini-stat-label">Đang hoạt động</span>
+                            </div>
+                        </div>
+                        <div class="col-4">
+                            <div class="mini-stat">
+                                <span class="mini-stat-value">324</span>
+                                <span class="mini-stat-label">Nhiệm vụ hoàn thành</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Styles {
+<style>
+    .form-section {
+        margin-bottom: 28px;
+        padding-bottom: 20px;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .section-title {
+        color: var(--text-primary);
+        margin-bottom: 16px;
+        font-weight: 600;
+    }
+
+    .skills-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+    }
+
+    .skill-option { cursor: pointer; }
+    .skill-option input { display: none; }
+
+    .skill-box {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        padding: 20px 16px;
+        border: 2px solid var(--border-color);
+        border-radius: 12px;
+        transition: all var(--transition-fast);
+    }
+
+    .skill-box i {
+        font-size: 2rem;
+        color: var(--text-secondary);
+        margin-bottom: 10px;
+    }
+
+    .skill-name {
+        font-weight: 600;
+        margin-bottom: 4px;
+    }
+
+    .skill-desc {
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+    }
+
+    .skill-option input:checked + .skill-box {
+        border-color: var(--success-color);
+        background: rgba(34, 197, 94, 0.05);
+    }
+
+    .skill-option input:checked + .skill-box i {
+        color: var(--success-color);
+    }
+
+    .benefit-list {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+    }
+
+    .benefit-item {
+        display: flex;
+        gap: 14px;
+    }
+
+    .benefit-icon {
+        width: 44px;
+        height: 44px;
+        background: rgba(34, 197, 94, 0.1);
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--success-color);
+        flex-shrink: 0;
+    }
+
+    .benefit-text p {
+        font-size: 0.875rem;
+        color: var(--text-secondary);
+    }
+
+    .volunteer-list {
+        max-height: 300px;
+        overflow-y: auto;
+    }
+
+    .volunteer-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .volunteer-avatar {
+        width: 44px;
+        height: 44px;
+        background: var(--primary-color);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-weight: 600;
+    }
+
+    .volunteer-info { flex: 1; }
+    .volunteer-name { font-weight: 600; }
+    .volunteer-skills { font-size: 0.8rem; color: var(--text-secondary); }
+
+    .mini-stat {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .mini-stat-value {
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: var(--success-color);
+    }
+
+    .mini-stat-label {
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+    }
+
+    @@media (max-width: 767.98px) {
+        .skills-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+}
+
+@section Scripts {
+<script>
+document.addEventListener('DOMContentLoaded', async function() {
+    // Load volunteers
+    const response = await fetch('/data/volunteers.json');
+    const data = await response.json();
+
+    const list = document.getElementById('volunteerList');
+    const skillLabels = {
+        'first-aid': 'Sơ cứu',
+        'cooking': 'Nấu ăn',
+        'driving': 'Lái xe',
+        'tech-support': 'IT'
+    };
+
+    data.volunteers.forEach(v => {
+        const skills = v.skills.map(s => skillLabels[s] || s).join(', ');
+        list.innerHTML += `
+            <div class="volunteer-item">
+                <div class="volunteer-avatar">${v.name.charAt(0)}</div>
+                <div class="volunteer-info">
+                    <div class="volunteer-name">${v.name}</div>
+                    <div class="volunteer-skills">
+                        <i class="fa-solid fa-star me-1"></i>${skills}
+                    </div>
+                </div>
+                <span class="status-badge ${v.status}">${v.status === 'available' ? 'Sẵn sàng' : 'Đang làm'}</span>
+            </div>
+        `;
+    });
+
+    // Form submit
+    document.getElementById('volunteerForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        JCIRelief.FormUtils.showToast('Đăng ký thành công! Chúng tôi sẽ liên hệ bạn sớm. 🎉', 'success');
+    });
+});
+</script>
+}
