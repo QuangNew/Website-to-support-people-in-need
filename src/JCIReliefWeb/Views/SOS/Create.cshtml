@@ -1,0 +1,263 @@
+@{
+    ViewData["Title"] = "Gửi yêu cầu SOS";
+}
+
+<div class="sos-create-page">
+    <div class="row justify-content-center">
+        <div class="col-lg-8">
+            <div class="card">
+                <div class="card-header bg-danger text-white">
+                    <h4 class="mb-0">
+                        <i class="fa-solid fa-triangle-exclamation me-2"></i>Gửi yêu cầu cứu trợ khẩn cấp
+                    </h4>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-info">
+                        <i class="fa-solid fa-circle-info me-2"></i>
+                        Vui lòng điền đầy đủ thông tin để chúng tôi có thể hỗ trợ bạn nhanh nhất.
+                        <br>
+                        <strong>Trường hợp khẩn cấp:</strong> Gọi ngay <a href="tel:115">115</a> (Cấp cứu) hoặc <a href="tel:113">113</a> (Công an)
+                    </div>
+
+                    <form id="sosForm">
+                        <!-- Personal Info -->
+                        <div class="form-section">
+                            <h5 class="section-title">
+                                <i class="fa-solid fa-user me-2"></i>Thông tin liên hệ
+                            </h5>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label">Họ và tên <span class="text-danger">*</span></label>
+                                    <input type="text" class="form-control" required>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Số điện thoại <span class="text-danger">*</span></label>
+                                    <input type="tel" class="form-control" placeholder="0905xxxxxx" required>
+                                </div>
+                                <div class="col-12">
+                                    <label class="form-label">Số người cần hỗ trợ</label>
+                                    <input type="number" class="form-control" min="1" value="1">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Location -->
+                        <div class="form-section">
+                            <h5 class="section-title">
+                                <i class="fa-solid fa-location-dot me-2"></i>Vị trí
+                            </h5>
+                            <div class="row g-3">
+                                <div class="col-12">
+                                    <label class="form-label">Địa chỉ chi tiết <span class="text-danger">*</span></label>
+                                    <div class="input-group">
+                                        <input type="text" class="form-control" placeholder="Số nhà, đường, thôn/xóm, xã/phường..." required>
+                                        <button class="btn btn-outline-primary" type="button" id="getGPS">
+                                            <i class="fa-solid fa-location-crosshairs me-1"></i>GPS
+                                        </button>
+                                    </div>
+                                    <div class="form-text" id="gpsCoords"></div>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Tỉnh/Thành phố</label>
+                                    <select class="form-select">
+                                        <option>Chọn tỉnh/thành</option>
+                                        <option>Đà Nẵng</option>
+                                        <option>Quảng Nam</option>
+                                        <option>Quảng Ngãi</option>
+                                        <option>Thừa Thiên Huế</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Quận/Huyện</label>
+                                    <select class="form-select">
+                                        <option>Chọn quận/huyện</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Xã/Phường</label>
+                                    <select class="form-select">
+                                        <option>Chọn xã/phường</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Needs -->
+                        <div class="form-section">
+                            <h5 class="section-title">
+                                <i class="fa-solid fa-boxes-stacked me-2"></i>Nhu cầu cứu trợ
+                            </h5>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label">Loại hỗ trợ cần thiết <span class="text-danger">*</span></label>
+                                    <div class="need-options">
+                                        <label class="need-option">
+                                            <input type="checkbox" name="needs" value="food">
+                                            <span class="need-box">
+                                                <i class="fa-solid fa-bowl-rice"></i>
+                                                <span>Lương thực</span>
+                                            </span>
+                                        </label>
+                                        <label class="need-option">
+                                            <input type="checkbox" name="needs" value="medical">
+                                            <span class="need-box">
+                                                <i class="fa-solid fa-kit-medical"></i>
+                                                <span>Y tế</span>
+                                            </span>
+                                        </label>
+                                        <label class="need-option">
+                                            <input type="checkbox" name="needs" value="transport">
+                                            <span class="need-box">
+                                                <i class="fa-solid fa-truck"></i>
+                                                <span>Vận chuyển</span>
+                                            </span>
+                                        </label>
+                                        <label class="need-option">
+                                            <input type="checkbox" name="needs" value="shelter">
+                                            <span class="need-box">
+                                                <i class="fa-solid fa-house"></i>
+                                                <span>Chỗ ở</span>
+                                            </span>
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Mực nước hiện tại</label>
+                                    <select class="form-select" id="floodLevel">
+                                        <option value="low">Thấp (dưới 0.5m)</option>
+                                        <option value="medium">Trung bình (0.5m - 1m)</option>
+                                        <option value="high">Cao (1m - 2m)</option>
+                                        <option value="critical">Nguy hiểm (trên 2m)</option>
+                                    </select>
+                                    <div class="flood-visual mt-2">
+                                        <div class="flood-bar" id="floodBar"></div>
+                                    </div>
+                                </div>
+                                <div class="col-12">
+                                    <label class="form-label">Mô tả chi tiết tình huống</label>
+                                    <textarea class="form-control" rows="4" placeholder="Mô tả hoàn cảnh, số người, tình trạng sức khỏe, nhu cầu cụ thể..."></textarea>
+                                </div>
+                                <div class="col-12">
+                                    <label class="form-label">Hình ảnh (nếu có)</label>
+                                    <input type="file" class="form-control" accept="image/*" multiple>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Submit -->
+                        <div class="d-flex gap-3 justify-content-end">
+                            <a href="/SOS" class="btn btn-outline-secondary btn-lg">Hủy</a>
+                            <button type="submit" class="btn btn-danger btn-lg">
+                                <i class="fa-solid fa-paper-plane me-2"></i>Gửi yêu cầu SOS
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Styles {
+<style>
+    .form-section {
+        margin-bottom: 32px;
+        padding-bottom: 24px;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .section-title {
+        color: var(--text-primary);
+        margin-bottom: 16px;
+        font-weight: 600;
+    }
+
+    .need-options {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+    }
+
+    .need-option {
+        cursor: pointer;
+    }
+
+    .need-option input {
+        display: none;
+    }
+
+    .need-box {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+        padding: 16px;
+        border: 2px solid var(--border-color);
+        border-radius: 12px;
+        transition: all var(--transition-fast);
+    }
+
+    .need-box i {
+        font-size: 1.5rem;
+        color: var(--text-secondary);
+    }
+
+    .need-option input:checked + .need-box {
+        border-color: var(--primary-color);
+        background: rgba(37, 99, 235, 0.05);
+    }
+
+    .need-option input:checked + .need-box i {
+        color: var(--primary-color);
+    }
+
+    .flood-visual {
+        height: 12px;
+        background: #e2e8f0;
+        border-radius: 6px;
+        overflow: hidden;
+    }
+
+    .flood-bar {
+        height: 100%;
+        width: 25%;
+        background: var(--success-color);
+        transition: all 0.3s ease;
+    }
+
+    .flood-bar.medium { width: 50%; background: var(--warning-color); }
+    .flood-bar.high { width: 75%; background: #f97316; }
+    .flood-bar.critical { width: 100%; background: var(--danger-color); }
+</style>
+}
+
+@section Scripts {
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // GPS button
+    document.getElementById('getGPS').addEventListener('click', function() {
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(function(pos) {
+                document.getElementById('gpsCoords').textContent = 
+                    `Tọa độ: ${pos.coords.latitude.toFixed(6)}, ${pos.coords.longitude.toFixed(6)}`;
+            });
+        }
+    });
+
+    // Flood level visual
+    const floodSelect = document.getElementById('floodLevel');
+    const floodBar = document.getElementById('floodBar');
+
+    floodSelect.addEventListener('change', function() {
+        floodBar.className = 'flood-bar ' + this.value;
+    });
+
+    // Form submit
+    document.getElementById('sosForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        JCIRelief.FormUtils.showToast('Đã gửi yêu cầu SOS thành công! Chúng tôi sẽ liên hệ sớm nhất.', 'success');
+        setTimeout(() => window.location.href = '/SOS', 2000);
+    });
+});
+</script>
+}

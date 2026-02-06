@@ -1,0 +1,364 @@
+@{
+    ViewData["Title"] = "Quản trị hệ thống";
+}
+
+<div class="admin-page">
+    <!-- Admin Header -->
+    <div class="admin-header mb-4">
+        <div class="row align-items-center">
+            <div class="col">
+                <h2 class="mb-1">Bảng điều khiển quản trị</h2>
+                <p class="text-muted mb-0">Tổng quan hoạt động chiến dịch cứu trợ</p>
+            </div>
+            <div class="col-auto">
+                <div class="btn-group">
+                    <button class="btn btn-outline-primary">
+                        <i class="fa-solid fa-download me-1"></i>Xuất báo cáo
+                    </button>
+                    <button class="btn btn-primary">
+                        <i class="fa-solid fa-plus me-1"></i>Tạo chiến dịch mới
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Stats Overview -->
+    <div class="row g-4 mb-4">
+        <div class="col-md-3">
+            <div class="stat-card">
+                <div class="stat-icon danger">
+                    <i class="fa-solid fa-triangle-exclamation"></i>
+                </div>
+                <div class="stat-value">24</div>
+                <div class="stat-label">Yêu cầu SOS</div>
+                <div class="stat-change text-danger">
+                    <i class="fa-solid fa-arrow-up me-1"></i>+8 hôm nay
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="stat-card">
+                <div class="stat-icon success">
+                    <i class="fa-solid fa-hand-holding-heart"></i>
+                </div>
+                <div class="stat-value">387.5M</div>
+                <div class="stat-label">Tổng quyên góp (VNĐ)</div>
+                <div class="stat-change text-success">
+                    <i class="fa-solid fa-arrow-up me-1"></i>+15% tuần này
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="stat-card">
+                <div class="stat-icon primary">
+                    <i class="fa-solid fa-users"></i>
+                </div>
+                <div class="stat-value">156</div>
+                <div class="stat-label">Tình nguyện viên</div>
+                <div class="stat-change text-primary">
+                    <i class="fa-solid fa-arrow-up me-1"></i>+12 mới
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="stat-card">
+                <div class="stat-icon warning">
+                    <i class="fa-solid fa-boxes-stacked"></i>
+                </div>
+                <div class="stat-value">8</div>
+                <div class="stat-label">Kho hoạt động</div>
+                <div class="stat-change text-warning">
+                    <i class="fa-solid fa-check me-1"></i>Đầy đủ
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <!-- Recent SOS Requests -->
+        <div class="col-lg-8">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">
+                        <i class="fa-solid fa-bell text-danger me-2"></i>Yêu cầu SOS cần xử lý
+                    </h5>
+                    <a href="/SOS" class="btn btn-sm btn-outline-primary">Xem tất cả</a>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table data-table mb-0">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Tiêu đề</th>
+                                    <th>Loại</th>
+                                    <th>Địa điểm</th>
+                                    <th>Trạng thái</th>
+                                    <th>Thời gian</th>
+                                    <th>Hành động</th>
+                                </tr>
+                            </thead>
+                            <tbody id="sosTableBody">
+                                <!-- Dynamic content -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent Donations -->
+            <div class="card mt-4">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">
+                        <i class="fa-solid fa-hand-holding-heart text-success me-2"></i>Quyên góp gần đây
+                    </h5>
+                    <a href="/Sponsor/History" class="btn btn-sm btn-outline-primary">Xem tất cả</a>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table data-table mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Mạnh thường quân</th>
+                                    <th>Số tiền</th>
+                                    <th>Chiến dịch</th>
+                                    <th>Thời gian</th>
+                                    <th>Trạng thái</th>
+                                </tr>
+                            </thead>
+                            <tbody id="donationsTableBody">
+                                <!-- Dynamic content -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sidebar -->
+        <div class="col-lg-4">
+            <!-- Campaign Progress -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="fa-solid fa-chart-pie me-2"></i>Tiến độ chiến dịch
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="campaign-mini mb-4">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="fw-bold">Chung lòng mùa lũ 2026</span>
+                            <span class="badge bg-success">Đang chạy</span>
+                        </div>
+                        <div class="progress mb-2" style="height: 10px;">
+                            <div class="progress-bar bg-primary" style="width: 77.5%"></div>
+                        </div>
+                        <div class="d-flex justify-content-between small text-muted">
+                            <span>387.5M / 500M VNĐ</span>
+                            <span>77.5%</span>
+                        </div>
+                    </div>
+
+                    <div class="campaign-mini">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="fw-bold">Áo ấm vùng cao</span>
+                            <span class="badge bg-secondary">Hoàn thành</span>
+                        </div>
+                        <div class="progress mb-2" style="height: 10px;">
+                            <div class="progress-bar bg-success" style="width: 100%"></div>
+                        </div>
+                        <div class="d-flex justify-content-between small text-muted">
+                            <span>200M / 200M VNĐ</span>
+                            <span>100%</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quick Actions -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="fa-solid fa-bolt me-2"></i>Quản lý nhanh
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="d-grid gap-2">
+                        <a href="/Admin/Users" class="btn btn-outline-primary text-start">
+                            <i class="fa-solid fa-users me-2"></i>Quản lý người dùng
+                        </a>
+                        <a href="/Admin/Campaigns" class="btn btn-outline-primary text-start">
+                            <i class="fa-solid fa-bullhorn me-2"></i>Quản lý chiến dịch
+                        </a>
+                        <a href="/Admin/Reports" class="btn btn-outline-primary text-start">
+                            <i class="fa-solid fa-chart-line me-2"></i>Báo cáo thống kê
+                        </a>
+                        <a href="/Map" class="btn btn-outline-primary text-start">
+                            <i class="fa-solid fa-map me-2"></i>Bản đồ cứu trợ
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- System Status -->
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="fa-solid fa-server me-2"></i>Trạng thái hệ thống
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="system-status">
+                        <div class="status-item">
+                            <span><i class="fa-solid fa-circle text-success me-2"></i>API Server</span>
+                            <span class="badge bg-success">Online</span>
+                        </div>
+                        <div class="status-item">
+                            <span><i class="fa-solid fa-circle text-success me-2"></i>Database</span>
+                            <span class="badge bg-success">Online</span>
+                        </div>
+                        <div class="status-item">
+                            <span><i class="fa-solid fa-circle text-success me-2"></i>Map Service</span>
+                            <span class="badge bg-success">Online</span>
+                        </div>
+                        <div class="status-item">
+                            <span><i class="fa-solid fa-circle text-success me-2"></i>AI Assistant</span>
+                            <span class="badge bg-success">Online</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Styles {
+<style>
+    .admin-header {
+        padding: 20px 0;
+    }
+
+    .stat-change {
+        font-size: 0.8rem;
+        margin-top: 8px;
+    }
+
+    .data-table th {
+        white-space: nowrap;
+        font-size: 0.85rem;
+    }
+
+    .data-table td {
+        vertical-align: middle;
+        font-size: 0.9rem;
+    }
+
+    .action-btns .btn {
+        padding: 4px 10px;
+        font-size: 0.8rem;
+    }
+
+    .campaign-mini {
+        padding-bottom: 16px;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .campaign-mini:last-child {
+        padding-bottom: 0;
+        border-bottom: none;
+    }
+
+    .system-status {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .status-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 0;
+    }
+</style>
+}
+
+@section Scripts {
+<script>
+document.addEventListener('DOMContentLoaded', async function() {
+    // Load SOS data
+    const markersRes = await fetch('/data/markers.json');
+    const markersData = await markersRes.json();
+
+    const sosTable = document.getElementById('sosTableBody');
+    const categoryLabels = {
+        food: 'Lương thực',
+        medical: 'Y tế',
+        transport: 'Vận chuyển',
+        shelter: 'Chỗ ở'
+    };
+    const statusLabels = {
+        urgent: 'Khẩn cấp',
+        pending: 'Đang xử lý',
+        resolved: 'Đã xong'
+    };
+
+    markersData.sosMarkers.forEach(item => {
+        sosTable.innerHTML += `
+            <tr>
+                <td>#${item.id}</td>
+                <td class="text-truncate" style="max-width: 150px;">${item.title}</td>
+                <td><span class="badge bg-secondary">${categoryLabels[item.category]}</span></td>
+                <td class="text-truncate" style="max-width: 120px;">${item.address}</td>
+                <td><span class="status-badge ${item.status}">${statusLabels[item.status]}</span></td>
+                <td>${JCIRelief.MapUtils.formatRelativeTime(item.timestamp)}</td>
+                <td>
+                    <div class="action-btns">
+                        <button class="btn btn-sm btn-outline-primary"><i class="fa-solid fa-eye"></i></button>
+                        <button class="btn btn-sm btn-outline-success"><i class="fa-solid fa-check"></i></button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    });
+
+    // Load donations data
+    const donationsRes = await fetch('/data/donations.json');
+    const donationsData = await donationsRes.json();
+
+    const donationsTable = document.getElementById('donationsTableBody');
+    donationsData.recentDonations.forEach(d => {
+        donationsTable.innerHTML += `
+            <tr>
+                <td>
+                    <div class="d-flex align-items-center gap-2">
+                        <div class="donor-avatar-sm">${d.donor === 'Ẩn danh' ? '?' : d.donor.charAt(0)}</div>
+                        ${d.donor}
+                    </div>
+                </td>
+                <td class="text-success fw-bold">${new Intl.NumberFormat('vi-VN').format(d.amount)} đ</td>
+                <td>${d.campaign}</td>
+                <td>${JCIRelief.MapUtils.formatRelativeTime(d.timestamp)}</td>
+                <td><span class="badge bg-success">Xác nhận</span></td>
+            </tr>
+        `;
+    });
+});
+</script>
+
+<style>
+    .donor-avatar-sm {
+        width: 32px;
+        height: 32px;
+        background: var(--primary-color);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-size: 0.8rem;
+        font-weight: 600;
+    }
+</style>
+}

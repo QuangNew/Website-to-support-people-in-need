@@ -1,0 +1,92 @@
+{
+  "posts": [
+    {
+      "id": 1,
+      "author": {
+        "name": "Theanh28 Entertainment",
+        "avatar": "/images/avatars/default.png",
+        "verified": true
+      },
+      "timestamp": "59 phút",
+      "content": "GIÁ VÀNG RƠI VỀ ĐÂU 4 🌍",
+      "category": "general",
+      "image": "/images/posts/gold-chart.png",
+      "reactions": {
+        "likes": 9300,
+        "comments": 1400,
+        "shares": 116
+      }
+    },
+    {
+      "id": 2,
+      "author": {
+        "name": "Nguyễn Văn Minh",
+        "avatar": "/images/avatars/default.png",
+        "verified": false
+      },
+      "timestamp": "2 giờ",
+      "content": "🆘 CẦN CỨU TRỢ KHẨN CẤP!\n\nGia đình tôi ở xã Đại Lộc, Quảng Nam đang bị ngập nặng. Nước đã lên đến 1.2m. Cần gạo, mì tôm và nước sạch cho 5 người. Xin hãy giúp đỡ!\n\n📍 Thôn 3, Xã Đại Lộc, Quảng Nam\n📞 0905.xxx.123",
+      "category": "livelihood",
+      "image": null,
+      "reactions": {
+        "likes": 234,
+        "comments": 89,
+        "shares": 156
+      },
+      "tags": ["cứu_trợ", "lũ_lụt", "quảng_nam"]
+    },
+    {
+      "id": 3,
+      "author": {
+        "name": "Hội Chữ Thập Đỏ Đà Nẵng",
+        "avatar": "/images/avatars/redcross.png",
+        "verified": true
+      },
+      "timestamp": "4 giờ",
+      "content": "🏥 CHIẾN DỊCH \"CHUNG LÒNG MÙA LŨ\" 2026\n\nChúng tôi đang cần tình nguyện viên có kỹ năng:\n✅ Sơ cứu (First Aid)\n✅ Nấu ăn tập thể\n✅ Lái xe tải 1.5-4 tấn\n✅ Hỗ trợ kỹ thuật\n\nĐăng ký ngay tại: cuutro.jci.vn/volunteer",
+      "category": "volunteer",
+      "image": "/images/posts/volunteer-banner.jpg",
+      "reactions": {
+        "likes": 1250,
+        "comments": 345,
+        "shares": 890
+      },
+      "tags": ["tình_nguyện", "JCI", "chiến_dịch"]
+    },
+    {
+      "id": 4,
+      "author": {
+        "name": "Trần Thị Lan",
+        "avatar": "/images/avatars/default.png",
+        "verified": false
+      },
+      "timestamp": "6 giờ",
+      "content": "Cảm ơn các mạnh thường quân đã hỗ trợ gia đình tôi qua cơn lũ vừa rồi. Nhờ có gạo và thuốc men kịp thời, cả gia đình 7 người đã vượt qua được khó khăn. Xin chân thành cảm ơn! 🙏❤️",
+      "category": "gratitude",
+      "image": "/images/posts/thank-you.jpg",
+      "reactions": {
+        "likes": 567,
+        "comments": 78,
+        "shares": 34
+      }
+    },
+    {
+      "id": 5,
+      "author": {
+        "name": "Bệnh viện Đa khoa Quảng Nam",
+        "avatar": "/images/avatars/hospital.png",
+        "verified": true
+      },
+      "timestamp": "8 giờ",
+      "content": "⚕️ THÔNG BÁO HỖ TRỢ Y TẾ\n\nBệnh viện đang tiếp nhận và điều trị miễn phí cho các nạn nhân lũ lụt:\n- Khám bệnh tổng quát\n- Cấp thuốc miễn phí\n- Tiêm phòng dịch bệnh\n\n📍 Địa chỉ: 01 Phan Bội Châu, Tam Kỳ\n⏰ Thời gian: 7h-21h hàng ngày",
+      "category": "medical",
+      "image": null,
+      "reactions": {
+        "likes": 2100,
+        "comments": 234,
+        "shares": 1560
+      },
+      "tags": ["y_tế", "miễn_phí", "quảng_nam"]
+    }
+  ]
+}

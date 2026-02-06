@@ -1,0 +1,423 @@
+@{
+    ViewData["Title"] = "Cộng đồng";
+}
+
+<div class="community-page">
+    <div class="row">
+        <!-- Main Feed -->
+        <div class="col-lg-8">
+            <div class="feed-container">
+                <!-- Create Post Card -->
+                <div class="card create-post-card">
+                    <div class="card-body">
+                        <div class="create-post-header">
+                            <div class="user-avatar-lg">
+                                <i class="fa-solid fa-user"></i>
+                            </div>
+                            <input type="text" class="post-input" placeholder="Bạn đang nghĩ gì?" data-bs-toggle="modal" data-bs-target="#createPostModal" readonly>
+                        </div>
+                        <div class="create-post-actions">
+                            <button class="post-action-btn photo" data-bs-toggle="modal" data-bs-target="#createPostModal">
+                                <i class="fa-solid fa-image"></i>
+                                <span>Ảnh và Video</span>
+                            </button>
+                            <button class="post-action-btn campaign" data-bs-toggle="modal" data-bs-target="#createPostModal">
+                                <i class="fa-solid fa-bullhorn"></i>
+                                <span>Chiến dịch</span>
+                            </button>
+                            <button class="post-action-btn donate" data-bs-toggle="modal" data-bs-target="#createPostModal">
+                                <i class="fa-solid fa-hand-holding-dollar"></i>
+                                <span>Quyên góp</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Posts Feed -->
+                <div id="postsFeed">
+                    <!-- Posts will be loaded dynamically -->
+                </div>
+
+                <!-- Loading Indicator -->
+                <div class="text-center py-4 d-none" id="loadingIndicator">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Đang tải...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sidebar -->
+        <div class="col-lg-4">
+            <!-- Active Campaign Card -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h6 class="mb-0">
+                        <i class="fa-solid fa-fire text-danger me-2"></i>Chiến dịch đang diễn ra
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <div class="campaign-highlight">
+                        <div class="campaign-image">
+                            <img src="https://via.placeholder.com/400x200/2563eb/ffffff?text=Chung+L%C3%B2ng+M%C3%B9a+L%C5%A9" alt="Campaign" class="img-fluid rounded">
+                            <span class="campaign-badge-overlay">
+                                <i class="fa-solid fa-circle text-success me-1" style="font-size: 8px;"></i>LIVE
+                            </span>
+                        </div>
+                        <h6 class="mt-3 mb-2">Chung lòng mùa lũ 2026</h6>
+                        <p class="text-muted small mb-3">Cùng chung tay hỗ trợ đồng bào miền Trung vượt qua mùa lũ</p>
+                        
+                        <div class="progress mb-2" style="height: 10px;">
+                            <div class="progress-bar bg-primary" style="width: 77.5%"></div>
+                        </div>
+                        <div class="d-flex justify-content-between small text-muted mb-3">
+                            <span>387.5M / 500M VNĐ</span>
+                            <span>77.5%</span>
+                        </div>
+                        
+                        <div class="d-flex gap-2">
+                            <a href="/Sponsor" class="btn btn-primary flex-fill">
+                                <i class="fa-solid fa-heart me-1"></i>Ủng hộ ngay
+                            </a>
+                            <button class="btn btn-outline-primary">
+                                <i class="fa-solid fa-share-nodes"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Categories -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h6 class="mb-0">
+                        <i class="fa-solid fa-tags me-2"></i>Danh mục
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <div class="category-list">
+                        <a href="#" class="category-item active" data-category="all">
+                            <span>Tất cả</span>
+                            <span class="badge bg-primary">156</span>
+                        </a>
+                        <a href="#" class="category-item" data-category="livelihood">
+                            <i class="fa-solid fa-house-chimney text-warning me-2"></i>
+                            <span>Sinh kế</span>
+                            <span class="badge bg-secondary">45</span>
+                        </a>
+                        <a href="#" class="category-item" data-category="medical">
+                            <i class="fa-solid fa-briefcase-medical text-danger me-2"></i>
+                            <span>Y tế</span>
+                            <span class="badge bg-secondary">32</span>
+                        </a>
+                        <a href="#" class="category-item" data-category="education">
+                            <i class="fa-solid fa-graduation-cap text-info me-2"></i>
+                            <span>Giáo dục</span>
+                            <span class="badge bg-secondary">28</span>
+                        </a>
+                        <a href="#" class="category-item" data-category="volunteer">
+                            <i class="fa-solid fa-hands-holding-heart text-success me-2"></i>
+                            <span>Tình nguyện</span>
+                            <span class="badge bg-secondary">51</span>
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent Donations -->
+            <div class="card">
+                <div class="card-header">
+                    <h6 class="mb-0">
+                        <i class="fa-solid fa-hand-holding-heart text-success me-2"></i>Quyên góp gần đây
+                    </h6>
+                </div>
+                <div class="card-body p-0">
+                    <div class="donation-list" id="recentDonations">
+                        <!-- Dynamic content -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Create Post Modal -->
+<div class="modal fade" id="createPostModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Tạo bài viết</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="d-flex align-items-center gap-3 mb-3">
+                    <div class="user-avatar-lg">
+                        <i class="fa-solid fa-user"></i>
+                    </div>
+                    <div>
+                        <div class="fw-bold">Người dùng Demo</div>
+                        <select class="form-select form-select-sm" style="width: auto;">
+                            <option>🌍 Công khai</option>
+                            <option>👥 Bạn bè</option>
+                            <option>🔒 Chỉ mình tôi</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <textarea class="form-control border-0" rows="5" placeholder="Bạn đang nghĩ gì?" style="resize: none;"></textarea>
+                
+                <div class="post-category-select mt-3">
+                    <label class="form-label">Danh mục bài viết:</label>
+                    <div class="d-flex flex-wrap gap-2">
+                        <button type="button" class="btn btn-outline-primary btn-sm active">Chung</button>
+                        <button type="button" class="btn btn-outline-warning btn-sm">Sinh kế</button>
+                        <button type="button" class="btn btn-outline-danger btn-sm">Y tế</button>
+                        <button type="button" class="btn btn-outline-info btn-sm">Giáo dục</button>
+                        <button type="button" class="btn btn-outline-success btn-sm">Tình nguyện</button>
+                    </div>
+                </div>
+                
+                <div class="upload-area mt-3 p-4 border rounded text-center" style="border-style: dashed !important;">
+                    <i class="fa-solid fa-cloud-arrow-up fa-2x text-muted mb-2"></i>
+                    <p class="mb-1">Kéo thả hình ảnh hoặc video vào đây</p>
+                    <p class="small text-muted">hoặc <a href="#">chọn từ máy tính</a></p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                <button type="button" class="btn btn-primary">
+                    <i class="fa-solid fa-paper-plane me-1"></i>Đăng bài
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Styles {
+<style>
+    .campaign-highlight {
+        position: relative;
+    }
+
+    .campaign-image {
+        position: relative;
+    }
+
+    .campaign-badge-overlay {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        background: rgba(0,0,0,0.7);
+        color: white;
+        padding: 4px 10px;
+        border-radius: 15px;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    .category-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .category-item {
+        display: flex;
+        align-items: center;
+        padding: 10px 12px;
+        border-radius: 8px;
+        text-decoration: none;
+        color: var(--text-primary);
+        transition: all var(--transition-fast);
+    }
+
+    .category-item:hover {
+        background: var(--bg-color);
+    }
+
+    .category-item.active {
+        background: rgba(37, 99, 235, 0.1);
+        color: var(--primary-color);
+    }
+
+    .category-item span:first-of-type {
+        flex: 1;
+    }
+
+    .donation-list {
+        max-height: 400px;
+        overflow-y: auto;
+    }
+
+    .donation-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .donation-item:last-child {
+        border-bottom: none;
+    }
+
+    .donation-avatar {
+        width: 40px;
+        height: 40px;
+        background: var(--primary-color);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-weight: 600;
+    }
+
+    .donation-info {
+        flex: 1;
+    }
+
+    .donation-name {
+        font-weight: 500;
+        font-size: 0.9rem;
+    }
+
+    .donation-amount {
+        color: var(--success-color);
+        font-weight: 600;
+    }
+
+    .donation-time {
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+    }
+</style>
+}
+
+@section Scripts {
+<script>
+document.addEventListener('DOMContentLoaded', async function() {
+    // Load posts
+    const response = await fetch('/data/posts.json');
+    const data = await response.json();
+    
+    const postsFeed = document.getElementById('postsFeed');
+    
+    data.posts.forEach(post => {
+        const postCard = createPostCard(post);
+        postsFeed.innerHTML += postCard;
+    });
+
+    // Load recent donations
+    const donationsResponse = await fetch('/data/donations.json');
+    const donationsData = await donationsResponse.json();
+    
+    const donationsList = document.getElementById('recentDonations');
+    donationsData.recentDonations.forEach(donation => {
+        donationsList.innerHTML += `
+            <div class="donation-item">
+                <div class="donation-avatar">
+                    ${donation.donor === 'Ẩn danh' ? '?' : donation.donor.charAt(0)}
+                </div>
+                <div class="donation-info">
+                    <div class="donation-name">${donation.donor}</div>
+                    <div class="donation-amount">${formatCurrency(donation.amount)}</div>
+                </div>
+                <div class="donation-time">${JCIRelief.MapUtils.formatRelativeTime(donation.timestamp)}</div>
+            </div>
+        `;
+    });
+
+    // Category filter
+    document.querySelectorAll('.category-item').forEach(item => {
+        item.addEventListener('click', function(e) {
+            e.preventDefault();
+            document.querySelectorAll('.category-item').forEach(i => i.classList.remove('active'));
+            this.classList.add('active');
+            // Filter posts by category (demo only)
+            JCIRelief.FormUtils.showToast(`Đã lọc theo danh mục: ${this.querySelector('span').textContent}`, 'info');
+        });
+    });
+
+    // Initialize lazy loading
+    JCIRelief.LazyLoader.init(postsFeed, async (page) => {
+        // Simulate loading more posts
+        return [];
+    });
+});
+
+function createPostCard(post) {
+    const categoryIcons = {
+        livelihood: '🏠',
+        medical: '🏥',
+        education: '📚',
+        volunteer: '🤝',
+        general: '📢',
+        gratitude: '🙏'
+    };
+
+    const tags = post.tags ? post.tags.map(tag => `<span class="post-tag">#${tag}</span>`).join('') : '';
+    
+    return `
+        <div class="card post-card">
+            <div class="card-body">
+                <div class="post-header">
+                    <div class="post-avatar">
+                        <i class="fa-solid fa-user"></i>
+                    </div>
+                    <div class="post-meta">
+                        <div class="post-author">
+                            ${post.author.name}
+                            ${post.author.verified ? '<i class="fa-solid fa-circle-check verified-badge"></i>' : ''}
+                        </div>
+                        <div class="post-time">
+                            ${categoryIcons[post.category] || '📢'} ${post.timestamp}
+                        </div>
+                    </div>
+                    <button class="post-menu">
+                        <i class="fa-solid fa-ellipsis"></i>
+                    </button>
+                </div>
+
+                <div class="post-content">${post.content}</div>
+                
+                ${tags ? `<div class="post-tags">${tags}</div>` : ''}
+                
+                ${post.image ? `<img src="https://via.placeholder.com/600x300/f0f0f0/666?text=Image+Preview" class="post-image" alt="Post image">` : ''}
+
+                <div class="post-stats">
+                    <span><i class="fa-solid fa-thumbs-up text-primary me-1"></i>${formatNumber(post.reactions.likes)}</span>
+                    <span>${formatNumber(post.reactions.comments)} bình luận · ${formatNumber(post.reactions.shares)} lượt chia sẻ</span>
+                </div>
+
+                <div class="post-actions">
+                    <button class="post-action">
+                        <i class="fa-regular fa-thumbs-up"></i>
+                        <span>Thích</span>
+                    </button>
+                    <button class="post-action">
+                        <i class="fa-regular fa-comment"></i>
+                        <span>Bình luận</span>
+                    </button>
+                    <button class="post-action">
+                        <i class="fa-solid fa-share"></i>
+                        <span>Chia sẻ</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function formatNumber(num) {
+    if (num >= 1000) {
+        return (num / 1000).toFixed(1) + 'K';
+    }
+    return num;
+}
+
+function formatCurrency(amount) {
+    return new Intl.NumberFormat('vi-VN').format(amount) + ' VNĐ';
+}
+</script>
+}
