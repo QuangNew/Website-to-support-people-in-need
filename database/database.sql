@@ -35,9 +35,9 @@ CREATE TABLE Users (
     Username VARCHAR(50) NOT NULL UNIQUE, -- Unique để không trùng tên đăng nhập
     PasswordHash VARCHAR(255) NOT NULL,   -- Lưu chuỗi băm, không lưu text thuần
     FullName NVARCHAR(100) NOT NULL,      -- NVARCHAR hỗ trợ tiếng Việt
-    VerificationStatus INT NOT NULL DEFAULT 0, -- 0: Unverified, 1: Verified
     PhoneNumber VARCHAR(15) NULL,
     CreatedAt DATETIME DEFAULT GETDATE()  -- Mặc định lấy giờ hệ thống
+    Email VARCHAR(50) NOT NULL
 );
 GO
 
