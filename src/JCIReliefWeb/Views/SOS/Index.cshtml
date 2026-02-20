@@ -1,0 +1,199 @@
+@{
+    ViewData["Title"] = "Cần giúp đỡ";
+}
+
+<div class="sos-page">
+    <!-- Header Actions -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2 class="mb-1">Danh sách yêu cầu SOS</h2>
+            <p class="text-muted mb-0">Những hoàn cảnh đang cần được hỗ trợ</p>
+        </div>
+        <a href="/SOS/Create" class="btn btn-danger btn-lg">
+            <i class="fa-solid fa-paper-plane me-2"></i>Gửi yêu cầu SOS
+        </a>
+    </div>
+
+    <!-- Filters -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <label class="form-label">Trạng thái</label>
+                    <select class="form-select" id="filterStatus">
+                        <option value="">Tất cả</option>
+                        <option value="urgent">Khẩn cấp</option>
+                        <option value="pending">Đang xử lý</option>
+                        <option value="resolved">Đã giải quyết</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Danh mục</label>
+                    <select class="form-select" id="filterCategory">
+                        <option value="">Tất cả</option>
+                        <option value="food">Lương thực</option>
+                        <option value="medical">Y tế</option>
+                        <option value="transport">Vận chuyển</option>
+                        <option value="shelter">Chỗ ở</option>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Tìm kiếm</label>
+                    <input type="text" class="form-control" placeholder="Nhập từ khóa...">
+                </div>
+                <div class="col-md-2 d-flex align-items-end">
+                    <button class="btn btn-primary w-100">
+                        <i class="fa-solid fa-filter me-1"></i>Lọc
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SOS Cards Grid -->
+    <div class="row g-4" id="sosCardsGrid">
+        <!-- Dynamic content loaded via JS -->
+    </div>
+</div>
+
+@section Styles {
+<style>
+    .sos-card {
+        border-left: 4px solid var(--danger-color);
+        transition: all var(--transition-fast);
+    }
+
+    .sos-card:hover {
+        transform: translateY(-4px);
+        box-shadow: var(--shadow-md);
+    }
+
+    .sos-card.urgent {
+        border-left-color: var(--danger-color);
+    }
+
+    .sos-card.pending {
+        border-left-color: var(--warning-color);
+    }
+
+    .sos-card.resolved {
+        border-left-color: var(--success-color);
+    }
+
+    .sos-card-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: start;
+        margin-bottom: 12px;
+    }
+
+    .sos-category-badge {
+        padding: 4px 12px;
+        border-radius: 15px;
+        font-size: 0.8rem;
+        font-weight: 500;
+    }
+
+    .sos-category-badge.food { background: #fef3c7; color: #d97706; }
+    .sos-category-badge.medical { background: #fce7f3; color: #db2777; }
+    .sos-category-badge.transport { background: #dbeafe; color: #2563eb; }
+    .sos-category-badge.shelter { background: #d1fae5; color: #059669; }
+
+    .sos-flood-level {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        background: var(--bg-color);
+        border-radius: 8px;
+        margin-bottom: 12px;
+    }
+
+    .flood-level-indicator {
+        width: 8px;
+        height: 24px;
+        border-radius: 4px;
+    }
+
+    .flood-level-indicator.low { background: var(--success-color); }
+    .flood-level-indicator.medium { background: var(--warning-color); }
+    .flood-level-indicator.high { background: #f97316; }
+    .flood-level-indicator.critical { background: var(--danger-color); }
+</style>
+}
+
+@section Scripts {
+<script>
+document.addEventListener('DOMContentLoaded', async function() {
+    const response = await fetch('/data/markers.json');
+    const data = await response.json();
+
+    const grid = document.getElementById('sosCardsGrid');
+    const categoryLabels = {
+        food: 'Lương thực',
+        medical: 'Y tế',
+        transport: 'Vận chuyển',
+        shelter: 'Chỗ ở'
+    };
+
+    const floodLabels = {
+        low: 'Thấp (< 0.5m)',
+        medium: 'Trung bình (0.5-1m)',
+        high: 'Cao (1-2m)',
+        critical: 'Nguy hiểm (> 2m)'
+    };
+
+    const statusLabels = {
+        urgent: 'Khẩn cấp',
+        pending: 'Đang xử lý',
+        resolved: 'Đã giải quyết'
+    };
+
+    data.sosMarkers.forEach(item => {
+        grid.innerHTML += `
+            <div class="col-md-6 col-lg-4">
+                <div class="card sos-card ${item.status}">
+                    <div class="card-body">
+                        <div class="sos-card-header">
+                            <span class="status-badge ${item.status}">${statusLabels[item.status]}</span>
+                            <span class="sos-category-badge ${item.category}">${categoryLabels[item.category]}</span>
+                        </div>
+                        
+                        <h5 class="card-title">${item.title}</h5>
+                        
+                        <div class="sos-flood-level">
+                            <div class="flood-level-indicator ${item.floodLevel}"></div>
+                            <div>
+                                <small class="text-muted">Mực nước</small>
+                                <div class="fw-bold">${floodLabels[item.floodLevel]}</div>
+                            </div>
+                        </div>
+                        
+                        <p class="text-muted mb-2">
+                            <i class="fa-solid fa-location-dot me-2"></i>${item.address}
+                        </p>
+                        <p class="text-muted mb-3">
+                            <i class="fa-solid fa-phone me-2"></i>${item.contact}
+                        </p>
+                        
+                        <div class="d-flex justify-content-between align-items-center">
+                            <small class="text-muted">
+                                <i class="fa-regular fa-clock me-1"></i>${JCIRelief.MapUtils.formatRelativeTime(item.timestamp)}
+                            </small>
+                            <div class="btn-group btn-group-sm">
+                                <button class="btn btn-outline-primary">
+                                    <i class="fa-solid fa-route"></i>
+                                </button>
+                                <button class="btn btn-outline-success">
+                                    <i class="fa-solid fa-hand-holding-heart"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+});
+</script>
+}

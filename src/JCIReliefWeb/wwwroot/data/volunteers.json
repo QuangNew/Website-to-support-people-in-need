@@ -1,0 +1,69 @@
+{
+  "volunteers": [
+    {
+      "id": 1,
+      "name": "Nguyễn Văn An",
+      "avatar": "/images/avatars/default.png",
+      "phone": "0905xxx111",
+      "email": "an.nguyen@email.com",
+      "skills": ["first-aid", "driving"],
+      "location": "Đà Nẵng",
+      "status": "available",
+      "missionsCompleted": 12,
+      "rating": 4.8,
+      "joinedDate": "2024-06-15"
+    },
+    {
+      "id": 2,
+      "name": "Trần Thị Bình",
+      "avatar": "/images/avatars/default.png",
+      "phone": "0912xxx222",
+      "email": "binh.tran@email.com",
+      "skills": ["cooking", "first-aid"],
+      "location": "Quảng Nam",
+      "status": "on-mission",
+      "missionsCompleted": 8,
+      "rating": 4.9,
+      "joinedDate": "2024-08-20"
+    },
+    {
+      "id": 3,
+      "name": "Lê Hoàng Cường",
+      "avatar": "/images/avatars/default.png",
+      "phone": "0987xxx333",
+      "email": "cuong.le@email.com",
+      "skills": ["tech-support", "driving"],
+      "location": "Huế",
+      "status": "available",
+      "missionsCompleted": 5,
+      "rating": 4.7,
+      "joinedDate": "2025-01-10"
+    }
+  ],
+  "skillCategories": [
+    {
+      "id": "first-aid",
+      "name": "Sơ cứu",
+      "icon": "fa-kit-medical",
+      "description": "Có chứng chỉ hoặc kinh nghiệm sơ cứu cơ bản"
+    },
+    {
+      "id": "cooking",
+      "name": "Nấu ăn",
+      "icon": "fa-utensils",
+      "description": "Có thể nấu ăn cho số lượng lớn (50+ người)"
+    },
+    {
+      "id": "driving",
+      "name": "Lái xe",
+      "icon": "fa-truck",
+      "description": "Có bằng lái xe tải 1.5-4 tấn"
+    },
+    {
+      "id": "tech-support",
+      "name": "Hỗ trợ kỹ thuật",
+      "icon": "fa-laptop",
+      "description": "Có thể hỗ trợ IT, truyền thông, điều phối"
+    }
+  ]
+}

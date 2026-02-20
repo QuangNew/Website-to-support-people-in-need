@@ -480,3 +480,10 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+# NUnit
+*.VisualState.xml
+TestResult.xml
+nunit-*.xml
+
+.github/
+opencode.jsonc
