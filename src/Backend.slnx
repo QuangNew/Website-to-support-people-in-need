@@ -1,5 +1,0 @@
-<Solution>
-  <Project Path="Api/Api.csproj" />
-  <Project Path="Core/Core.csproj" />
-  <Project Path="Infrastructure/Infrastructure.csproj" />
-</Solution>
