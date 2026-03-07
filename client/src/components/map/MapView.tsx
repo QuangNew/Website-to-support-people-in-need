@@ -68,6 +68,7 @@ export default function MapView() {
   const {
     center, zoom, activeFilters, pings, zones, showZones,
     selectedPingId, selectPing, setCenter, setZoom, route,
+    flyToTarget, setFlyTo, sosDraftLocation,
   } = useMapStore();
   const { isDark } = useTheme();
 
@@ -79,6 +80,7 @@ export default function MapView() {
   const zoneLayersRef = useRef<L.Polygon[]>([]);
   const routeLayersRef = useRef<L.Polyline[]>([]);
   const routeMarkersRef = useRef<L.CircleMarker[]>([]);
+  const sosDraftMarkerRef = useRef<L.Marker | null>(null);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [errorMsg, setErrorMsg] = useState('');
 
@@ -168,6 +170,46 @@ export default function MapView() {
   }, [center]);
 
   useEffect(() => { syncCenter(); }, [syncCenter]);
+
+  // ─── Handle flyTo requests from other components ───
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !flyToTarget) return;
+    map.flyTo([flyToTarget.lat, flyToTarget.lng], flyToTarget.zoom ?? map.getZoom(), { duration: 1.2 });
+    setFlyTo(null);
+  }, [flyToTarget, setFlyTo]);
+
+  // ─── SOS draft marker (red pin when SOS form is open) ───
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    if (sosDraftLocation) {
+      const icon = L.divIcon({
+        className: '',
+        iconSize: [40, 40],
+        iconAnchor: [20, 40],
+        html: `<div class="sos-draft-pin"><svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="#ef4444" stroke="#fff" stroke-width="1.5"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3" fill="#fff"/></svg></div>`,
+      });
+
+      if (sosDraftMarkerRef.current) {
+        sosDraftMarkerRef.current.setLatLng([sosDraftLocation.lat, sosDraftLocation.lng]);
+        sosDraftMarkerRef.current.setIcon(icon);
+      } else {
+        const marker = L.marker([sosDraftLocation.lat, sosDraftLocation.lng], {
+          icon,
+          interactive: false,
+          zIndexOffset: 1000,
+        }).addTo(map);
+        sosDraftMarkerRef.current = marker;
+      }
+    } else {
+      if (sosDraftMarkerRef.current) {
+        sosDraftMarkerRef.current.remove();
+        sosDraftMarkerRef.current = null;
+      }
+    }
+  }, [sosDraftLocation]);
 
   // ─── Manage ping markers (with clustering) ───
   useEffect(() => {

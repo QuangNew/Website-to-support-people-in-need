@@ -77,13 +77,13 @@ public class MapController : ControllerBase
     // ─────────────────────────────────────
     /// <summary>
     /// Create a new ping on the map.
-    /// Only verified PersonInNeed or Sponsor roles can create pings (REQ-MAP-02).
+    /// Any authenticated user can create SOS pings.
     /// </summary>
     [HttpPost("pings")]
-    [Authorize(Policy = "RequireVerified")]
+    [Authorize]
     public async Task<ActionResult<PingResponseDto>> CreatePing([FromBody] CreatePingDto dto)
     {
-        var userId = User.FindFirst("UserId")?.Value;
+        var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
         if (string.IsNullOrEmpty(userId))
             return Unauthorized();
 
@@ -154,7 +154,7 @@ public class MapController : ControllerBase
     [Authorize(Policy = "RequirePersonInNeed")]
     public async Task<ActionResult<PingResponseDto>> ConfirmSafe(int id)
     {
-        var userId = User.FindFirst("UserId")?.Value;
+        var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
         var ping = await _pingRepo.GetPingWithFlagAsync(id);
 
         if (ping == null)

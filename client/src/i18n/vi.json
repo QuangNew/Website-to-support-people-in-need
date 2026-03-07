@@ -169,8 +169,17 @@
     "typeNeedHelp": "🆘 Cần giúp",
     "typeSupply": "📦 Muốn cho",
     "typeShelter": "🏠 Nơi trú ẩn",
-    "detailsPlaceholderSOS": "Ví dụ: Cần gạo và nước sạch cho 10 hộ dân, khu vực đang ngập...",
-    "detailsPlaceholderOther": "Mô tả hàng cứu trợ hoặc thông tin liên quan..."
+    "tagEvacuate": "🚨 Sơ tán",
+    "tagFood": "🍚 Thức ăn",
+    "tagMedical": "💊 Y tế",
+    "tagShelter": "🏠 Nơi trú",
+    "tagOther": "📋 Khác",
+    "detailsLabelOptional": "Mô tả chi tiết",
+    "detailsLabelRequired": "Mô tả chi tiết",
+    "smartPlaceholderDefault": "Cần gạo và nước sạch cho 10 hộ dân, khu vực đang ngập...",
+    "smartPlaceholderMedical": "Ghi rõ loại thuốc, tình trạng bệnh (VD: Đang sốt cao, cần Insulin...). Có thể ghi chú thêm những yêu cầu khác nếu có.",
+    "medicalRequired": "Vui lòng nhập thông tin thuốc/bệnh lý",
+    "submitting": "Đang xử lý..."
   },
   "admin": {
     "title": "Quản trị hệ thống",

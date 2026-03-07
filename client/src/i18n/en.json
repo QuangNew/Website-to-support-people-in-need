@@ -169,8 +169,17 @@
         "typeNeedHelp": "🆘 Need Help",
         "typeSupply": "📦 Offering",
         "typeShelter": "🏠 Shelter",
-        "detailsPlaceholderSOS": "E.g. Need rice and clean water for 10 households, area is flooded...",
-        "detailsPlaceholderOther": "Describe relief supplies or related information..."
+        "tagEvacuate": "🚨 Evacuate",
+        "tagFood": "🍚 Food",
+        "tagMedical": "💊 Medical",
+        "tagShelter": "🏠 Shelter",
+        "tagOther": "📋 Other",
+        "detailsLabelOptional": "Detailed description (Optional)",
+        "detailsLabelRequired": "Detailed description",
+        "smartPlaceholderDefault": "E.g. 2 children need formula milk, narrow alley inaccessible by large boats...",
+        "smartPlaceholderMedical": "REQUIRED: Specify medication, medical condition (e.g. high fever, need Insulin...). You may also note food needs here.",
+        "medicalRequired": "Please enter medication/medical condition details",
+        "submitting": "Processing..."
     },
     "admin": {
         "title": "System Administration",

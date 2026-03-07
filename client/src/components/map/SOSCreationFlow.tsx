@@ -1,107 +1,171 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { AlertTriangle, MapPin, X, Loader2, CheckCircle2, Navigation } from 'lucide-react';
 import { useMapStore } from '../../stores/mapStore';
 import { useAuthStore } from '../../stores/authStore';
 import { mapApi } from '../../services/api';
 import { useLanguage } from '../../contexts/LanguageContext';
 
-type Step = 'idle' | 'confirm_location' | 'details' | 'submitting' | 'success';
+type Step = 'idle' | 'form' | 'submitting' | 'success';
+
+type SOSTag = 'evacuate' | 'food' | 'medical' | 'shelter' | 'other';
 
 interface SOSLocation {
   lat: number;
   lng: number;
 }
 
+const TAG_COLORS: Record<SOSTag, { bg: string; border: string; text: string }> = {
+  evacuate: { bg: 'rgba(239,68,68,0.15)', border: '#ef4444', text: '#ef4444' },
+  food: { bg: 'rgba(34,197,94,0.15)', border: '#22c55e', text: '#22c55e' },
+  medical: { bg: 'rgba(59,130,246,0.15)', border: '#3b82f6', text: '#3b82f6' },
+  shelter: { bg: 'rgba(249,115,22,0.15)', border: '#f97316', text: '#f97316' },
+  other: { bg: 'rgba(156,163,175,0.15)', border: '#9ca3af', text: '#9ca3af' },
+};
+
+/** Trigger a short haptic vibration on mobile */
+function haptic(ms = 50) {
+  if (navigator.vibrate) navigator.vibrate(ms);
+}
+
 export default function SOSCreationFlow() {
   const { t } = useLanguage();
-  const { center, fetchPings } = useMapStore();
+  const { center, fetchPings, setFlyTo, setSosDraftLocation } = useMapStore();
   const { isAuthenticated } = useAuthStore();
   const setAuthModal = useMapStore((s) => s.setAuthModal);
 
   const [step, setStep] = useState<Step>('idle');
   const [location, setLocation] = useState<SOSLocation | null>(null);
   const [details, setDetails] = useState('');
-  const [sosType, setSosType] = useState<'SOS' | 'Supply' | 'Shelter'>('SOS');
+  const [selectedTags, setSelectedTags] = useState<SOSTag[]>([]);
   const [error, setError] = useState('');
-  const [detectingGPS, setDetectingGPS] = useState(false);
+  const [medicalError, setMedicalError] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Reset when closing
   const reset = useCallback(() => {
     setStep('idle');
     setLocation(null);
     setDetails('');
-    setSosType('SOS');
+    setSelectedTags([]);
     setError('');
-    setDetectingGPS(false);
-  }, []);
+    setMedicalError(false);
+    setIsSubmitting(false);
+    setSosDraftLocation(null);
+  }, [setSosDraftLocation]);
 
-  // Step 1: Click SOS button → check auth, then go to confirm_location
+  // Sync location with map center when user pans the map (real-time update)
+  useEffect(() => {
+    if (step === 'form' && center) {
+      setLocation({ lat: center.lat, lng: center.lng });
+      setSosDraftLocation({ lat: center.lat, lng: center.lng });
+    }
+  }, [step, center, setSosDraftLocation]);
+
+  // Click SOS button → check auth, detect GPS, open form
   const handleSOSClick = useCallback(() => {
     if (!isAuthenticated) {
       setAuthModal('login');
       return;
     }
-    // Default to current map center
-    setLocation({ lat: center.lat, lng: center.lng });
-    setStep('confirm_location');
-  }, [isAuthenticated, setAuthModal, center]);
 
-  // Auto-detect GPS
-  const detectGPS = useCallback(() => {
-    if (!navigator.geolocation) {
-      setError(t('sos.gpsNotSupported'));
-      return;
+    // Try GPS first, fallback to map center
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+          setLocation(loc);
+          setFlyTo({ ...loc, zoom: 15 });
+          setSosDraftLocation(loc);
+        },
+        () => {
+          setLocation({ lat: center.lat, lng: center.lng });
+          setSosDraftLocation({ lat: center.lat, lng: center.lng });
+        },
+        { enableHighAccuracy: true, timeout: 8000 }
+      );
+    } else {
+      setLocation({ lat: center.lat, lng: center.lng });
+      setSosDraftLocation({ lat: center.lat, lng: center.lng });
     }
-    setDetectingGPS(true);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        setDetectingGPS(false);
-      },
-      () => {
-        setError(t('sos.gpsError'));
-        setDetectingGPS(false);
-      },
-      { enableHighAccuracy: true, timeout: 10000 }
+
+    setStep('form');
+    haptic(80);
+  }, [isAuthenticated, setAuthModal, center, setFlyTo]);
+
+  // Toggle a tag
+  const toggleTag = useCallback((tag: SOSTag) => {
+    haptic();
+    setMedicalError(false);
+    setSelectedTags((prev) =>
+      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
     );
   }, []);
 
-  // Step 3: Submit
+  // Re-detect GPS
+  const redetectGPS = useCallback(() => {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        setLocation(loc);
+        setFlyTo({ ...loc, zoom: 15 });
+        setSosDraftLocation(loc);
+      },
+      () => {
+        setError(t('sos.gpsError'));
+      },
+      { enableHighAccuracy: true, timeout: 8000 }
+    );
+  }, [setFlyTo, setSosDraftLocation, t]);
+
+  // Submit
   const handleSubmit = useCallback(async () => {
     if (!location) return;
-    if (!details.trim() && sosType === 'SOS') {
-      setError(t('sos.describeRequired'));
+
+    // Validate: if medical tag selected, textarea must not be empty
+    if (selectedTags.includes('medical') && !details.trim()) {
+      setMedicalError(true);
+      textareaRef.current?.focus();
       return;
     }
 
+    setIsSubmitting(true);
     setStep('submitting');
     setError('');
+    haptic(100);
+
     try {
+      const type = selectedTags.includes('shelter') ? 'Shelter'
+        : selectedTags.includes('food') ? 'Supply'
+        : 'SOS';
+
       await mapApi.createPing({
         lat: location.lat,
         lng: location.lng,
-        type: sosType,
-        details: details.trim() || undefined,
+        type,
+        details: details.trim() || selectedTags.join(', ') || undefined,
       });
       setStep('success');
-      // Refresh pings to show the new marker
       await fetchPings();
-      // Auto-close after 2s
-      setTimeout(reset, 2000);
+      setTimeout(reset, 2500);
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { message?: string } } };
       setError(axiosErr?.response?.data?.message || t('sos.submitError'));
-      setStep('details');
+      setStep('form');
+      setIsSubmitting(false);
     }
-  }, [location, details, sosType, fetchPings, reset]);
+  }, [location, details, selectedTags, fetchPings, reset, t]);
 
-  // Close on Escape
+  // Escape to close
   useEffect(() => {
     if (step === 'idle') return;
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') reset(); };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [step, reset]);
+
+  const showMedicalTextarea = selectedTags.includes('medical');
 
   // ─── Floating SOS Button (always visible) ───
   if (step === 'idle') {
@@ -118,126 +182,115 @@ export default function SOSCreationFlow() {
   // ─── Success state ───
   if (step === 'success') {
     return (
-      <div className="sos-panel glass-card animate-fade-in">
-        <div style={{ textAlign: 'center', padding: 'var(--sp-6)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--sp-3)' }}>
-          <CheckCircle2 size={48} style={{ color: 'var(--color-success)' }} />
+      <div className="sos-panel sos-panel--v2 animate-fade-in">
+        <div className="sos-success-content">
+          <CheckCircle2 size={48} style={{ color: 'var(--success-500)' }} />
           <h3>{t('sos.success') || 'Đã gửi thành công!'}</h3>
-          <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
-            {t('sos.successDesc') || 'Yêu cầu của bạn đã được ghim trên bản đồ.'}
-          </p>
+          <p>{t('sos.successDesc') || 'Yêu cầu của bạn đã được ghim trên bản đồ.'}</p>
         </div>
       </div>
     );
   }
 
-  // ─── Step 2: Confirm Location ───
-  if (step === 'confirm_location') {
-    return (
-      <div className="sos-panel glass-card animate-slide-up">
-        <div className="sos-panel-header">
-          <h3><MapPin size={18} /> {t('sos.confirmLocation') || 'Xác nhận vị trí'}</h3>
-          <button className="btn-icon" onClick={reset} aria-label="Close"><X size={16} /></button>
-        </div>
-
-        <div className="sos-panel-body">
-          <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginBottom: 'var(--sp-3)' }}>
-            {t('sos.locationDesc') || 'Chọn vị trí của bạn trên bản đồ hoặc dùng GPS tự động.'}
-          </p>
-
-          {location && (
-            <div className="sos-coords">
-              <span>📍 {location.lat.toFixed(5)}, {location.lng.toFixed(5)}</span>
-            </div>
-          )}
-
-          <button
-            className="btn btn-secondary btn-sm"
-            onClick={detectGPS}
-            disabled={detectingGPS}
-            style={{ width: '100%', marginTop: 'var(--sp-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 'var(--sp-2)' }}
-          >
-            {detectingGPS ? <Loader2 size={14} className="animate-spin" /> : <Navigation size={14} />}
-            {detectingGPS ? t('sos.detectingGps') : t('sos.useGps')}
-          </button>
-
-          {error && <p className="text-danger" style={{ fontSize: 'var(--text-xs)', marginTop: 'var(--sp-2)' }}>{error}</p>}
-        </div>
-
-        <div className="sos-panel-footer">
-          <button className="btn btn-ghost btn-sm" onClick={reset}>{t('common.cancel') || 'Hủy'}</button>
-          <button className="btn btn-primary btn-sm" onClick={() => { setError(''); setStep('details'); }}>
-            {t('sos.next') || 'Tiếp theo'} →
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // ─── Step 3: Add Details + Submit ───
+  // ─── Main SOS Form (single-page) ───
   return (
-    <div className="sos-panel glass-card animate-slide-up">
+    <div className="sos-panel sos-panel--v2 animate-slide-up">
+      {/* Drag handle (mobile only, hidden on desktop via CSS) */}
+      <div className="sos-drag-handle"><div className="sos-drag-pill" /></div>
+
+      {/* Header */}
       <div className="sos-panel-header">
-        <h3><AlertTriangle size={18} /> {t('sos.addDetails') || 'Thêm chi tiết'}</h3>
-        <button className="btn-icon" onClick={reset} aria-label="Close"><X size={16} /></button>
+        <h3><AlertTriangle size={18} /> {t('sos.addDetails') || 'Kêu cứu SOS'}</h3>
+        <button className="btn-icon" onClick={reset} aria-label="Close"><X size={18} /></button>
       </div>
 
+      {/* Scrollable body */}
       <div className="sos-panel-body">
-        {/* Type selector */}
-        <label style={{ fontSize: 'var(--text-sm)', fontWeight: 600, marginBottom: 'var(--sp-1)', display: 'block' }}>
-          {t('sos.typeLabel') || 'Loại yêu cầu'}
+        {/* Live location bar */}
+        <button type="button" className="sos-location-bar" onClick={redetectGPS}>
+          <MapPin size={16} className="sos-location-icon" />
+          <span className="sos-location-text">
+            {location ? `${location.lat.toFixed(5)}, ${location.lng.toFixed(5)}` : t('sos.detectingGps')}
+          </span>
+          <Navigation size={14} className="sos-location-gps" />
+        </button>
+
+        {/* Tags */}
+        <label className="sos-section-label">
+          {t('sos.typeLabel') || 'Bạn cần gì?'}
         </label>
-        <div className="sos-type-selector">
-          {(['SOS', 'Supply', 'Shelter'] as const).map((type) => (
-            <button
-              key={type}
-              className={`btn btn-sm ${sosType === type ? 'sos-type-active' : 'btn-ghost'}`}
-              onClick={() => setSosType(type)}
-              style={sosType === type ? {
-                background: type === 'SOS' ? 'var(--color-danger)' : type === 'Supply' ? 'var(--color-success)' : 'var(--color-primary)',
-                color: 'white',
-              } : undefined}
-            >
-              {type === 'SOS' ? t('sos.typeNeedHelp') : type === 'Supply' ? t('sos.typeSupply') : t('sos.typeShelter')}
-            </button>
-          ))}
+        <div className="sos-tags-grid">
+          {([
+            { key: 'evacuate' as SOSTag, label: t('sos.tagEvacuate') || '🚨 Sơ tán' },
+            { key: 'food' as SOSTag, label: t('sos.tagFood') || '🍚 Thức ăn' },
+            { key: 'medical' as SOSTag, label: t('sos.tagMedical') || '💊 Y tế' },
+            { key: 'shelter' as SOSTag, label: t('sos.tagShelter') || '🏠 Nơi trú' },
+            { key: 'other' as SOSTag, label: t('sos.tagOther') || '📋 Khác' },
+          ]).map(({ key, label }) => {
+            const isActive = selectedTags.includes(key);
+            const colors = TAG_COLORS[key];
+            return (
+              <button
+                key={key}
+                className={`sos-tag-btn ${isActive ? 'sos-tag-btn--active' : ''}`}
+                onClick={() => toggleTag(key)}
+                style={isActive ? {
+                  background: colors.bg,
+                  borderColor: colors.border,
+                  color: colors.text,
+                } : undefined}
+              >
+                {label}
+              </button>
+            );
+          })}
         </div>
 
-        {/* Details textarea */}
-        <label style={{ fontSize: 'var(--text-sm)', fontWeight: 600, marginTop: 'var(--sp-3)', marginBottom: 'var(--sp-1)', display: 'block' }}>
-          {t('sos.detailsLabel') || 'Mô tả chi tiết'}
-          {sosType === 'SOS' && <span style={{ color: 'var(--color-danger)' }}> *</span>}
-        </label>
-        <textarea
-          className="input"
-          rows={3}
-          value={details}
-          onChange={(e) => setDetails(e.target.value)}
-          placeholder={sosType === 'SOS'
-            ? t('sos.detailsPlaceholderSOS')
-            : t('sos.detailsPlaceholderOther')
-          }
-          maxLength={500}
-          style={{ resize: 'vertical', minHeight: 80 }}
-        />
-        <div style={{ textAlign: 'right', fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
-          {details.length}/500
+        {/* Smart Textarea – always visible, adapts to selected tags */}
+        <div className="sos-details-section">
+          <label className="sos-section-label">
+            {showMedicalTextarea
+              ? <>{t('sos.detailsLabelRequired') || 'Mô tả chi tiết'} <span className="sos-required">*</span></>
+              : (t('sos.detailsLabelOptional') || 'Mô tả chi tiết (Không bắt buộc)')}
+          </label>
+          <textarea
+            ref={textareaRef}
+            className={`sos-textarea ${medicalError ? 'sos-textarea--error animate-shake' : ''}`}
+            rows={3}
+            value={details}
+            onChange={(e) => { setDetails(e.target.value); setMedicalError(false); }}
+            placeholder={showMedicalTextarea
+              ? (t('sos.smartPlaceholderMedical') || 'BẮT BUỘC: Ghi rõ loại thuốc, tình trạng bệnh (VD: Đang sốt cao, cần Insulin...).')
+              : (t('sos.smartPlaceholderDefault') || 'Ví dụ: Nhà có 2 trẻ em cần sữa, hẻm nhỏ xuồng to không vào được...')}
+            maxLength={500}
+          />
+          {medicalError && (
+            <p className="sos-error-text">{t('sos.medicalRequired') || 'Vui lòng nhập thông tin thuốc/bệnh lý'}</p>
+          )}
+          <div className="sos-char-count">{details.length}/500</div>
         </div>
 
-        {error && <p className="text-danger" style={{ fontSize: 'var(--text-xs)', marginTop: 'var(--sp-1)' }}>{error}</p>}
+        {error && <p className="sos-error-text" style={{ marginTop: 8 }}>{error}</p>}
       </div>
 
-      <div className="sos-panel-footer">
-        <button className="btn btn-ghost btn-sm" onClick={() => setStep('confirm_location')}>
-          ← {t('common.back') || 'Quay lại'}
-        </button>
+      {/* Sticky footer */}
+      <div className="sos-panel-footer sos-panel-footer--sticky">
         <button
-          className={`btn btn-sm ${sosType === 'SOS' ? 'btn-sos' : 'btn-primary'}`}
+          className="sos-submit-btn"
           onClick={handleSubmit}
-          disabled={step === 'submitting'}
-          style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}
+          disabled={isSubmitting}
         >
-          {step === 'submitting' ? <Loader2 size={14} className="animate-spin" /> : <AlertTriangle size={14} />}
-          {step === 'submitting' ? (t('common.loading') || 'Đang gửi...') : (t('sos.submit') || 'Gửi yêu cầu')}
+          {isSubmitting ? (
+            <>
+              <Loader2 size={20} className="animate-spin" />
+              <span>{t('sos.submitting') || 'Đang xử lý...'}</span>
+            </>
+          ) : (
+            <>
+              <AlertTriangle size={20} />
+              <span>{t('sos.submit') || 'Gửi yêu cầu'}</span>
+            </>
+          )}
         </button>
       </div>
     </div>

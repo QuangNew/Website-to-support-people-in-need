@@ -58,6 +58,13 @@ interface MapState {
     zones: ZoneData[];
     showZones: boolean;
 
+    // FlyTo
+    flyToTarget: { lat: number; lng: number; zoom?: number } | null;
+
+    // SOS draft marker
+    sosDraftLocation: { lat: number; lng: number } | null;
+    setSosDraftLocation: (loc: { lat: number; lng: number } | null) => void;
+
     // Routing
     route: RouteData | null;
     isRouting: boolean;
@@ -65,6 +72,7 @@ interface MapState {
 
     // Actions
     setCenter: (center: { lat: number; lng: number }) => void;
+    setFlyTo: (target: { lat: number; lng: number; zoom?: number } | null) => void;
     setZoom: (zoom: number) => void;
     toggleFilter: (filter: PingType) => void;
     setActivePanel: (panel: PanelType) => void;
@@ -162,12 +170,20 @@ export const useMapStore = create<MapState>((set) => ({
     zones: [],
     showZones: true,
 
+    // FlyTo
+    flyToTarget: null,
+
+    // SOS draft marker
+    sosDraftLocation: null,
+    setSosDraftLocation: (loc) => set({ sosDraftLocation: loc }),
+
     // Routing
     route: null,
     isRouting: false,
     routeError: null,
 
     setCenter: (center) => set({ center }),
+    setFlyTo: (target) => set({ flyToTarget: target }),
     setZoom: (zoom) => set({ zoom }),
     toggleFilter: (filter) => set((state) => ({
         activeFilters: state.activeFilters.includes(filter)

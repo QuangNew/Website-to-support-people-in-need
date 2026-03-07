@@ -1388,8 +1388,10 @@
 }
 
 /* ═══════════════════════════════════════════════════════
-   SOS CREATION FLOW
+   SOS CREATION FLOW — v2 Redesign
    ═══════════════════════════════════════════════════════ */
+
+/* ─── Floating SOS Button ─── */
 .sos-float-container {
   position: fixed;
   bottom: var(--sp-6);
@@ -1413,73 +1415,6 @@
   box-shadow: var(--shadow-xl), 0 0 60px rgba(239, 68, 68, 0.45);
 }
 
-.sos-panel {
-  position: fixed;
-  bottom: var(--sp-6);
-  right: var(--sp-6);
-  width: 360px;
-  max-height: 80vh;
-  z-index: 1001;
-  border-radius: var(--radius-xl);
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-
-.sos-panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--sp-4) var(--sp-4) var(--sp-2);
-}
-
-.sos-panel-header h3 {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  font-size: var(--text-base);
-  font-weight: 700;
-  margin: 0;
-}
-
-.sos-panel-body {
-  padding: var(--sp-2) var(--sp-4);
-  flex: 1;
-  overflow-y: auto;
-}
-
-.sos-panel-footer {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: var(--sp-3) var(--sp-4);
-  border-top: 1px solid var(--border-primary);
-}
-
-.sos-coords {
-  background: var(--bg-secondary);
-  padding: var(--sp-2) var(--sp-3);
-  border-radius: var(--radius-md);
-  font-family: var(--font-mono, monospace);
-  font-size: var(--text-xs);
-  text-align: center;
-}
-
-.sos-type-selector {
-  display: flex;
-  gap: var(--sp-2);
-  margin-bottom: var(--sp-2);
-}
-
-.sos-type-selector .btn {
-  flex: 1;
-  font-size: var(--text-xs);
-}
-
-.sos-type-active {
-  font-weight: 700 !important;
-}
-
 .animate-pulse-slow {
   animation: sosBlink 2s ease-in-out infinite;
 }
@@ -1491,6 +1426,319 @@
 @keyframes slideUp {
   from { opacity: 0; transform: translateY(20px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+/* ─── SOS Panel (v2) ─── */
+.sos-panel--v2 {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 380px;
+  z-index: 1001;
+  border-radius: 16px;
+  background: var(--glass-bg-solid, var(--bg-primary));
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.08));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  /* NO fixed height — hug contents */
+  max-height: 85vh;
+}
+
+/* Drag handle — hidden on desktop */
+.sos-drag-handle {
+  display: none;
+}
+
+.sos-drag-pill {
+  width: 40px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--text-muted, #6b7280);
+  opacity: 0.4;
+}
+
+/* ─── Header ─── */
+.sos-panel--v2 .sos-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px 8px;
+}
+
+.sos-panel--v2 .sos-panel-header h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: 700;
+  margin: 0;
+  color: var(--text-primary, #fff);
+}
+
+/* ─── Body (scrollable) ─── */
+.sos-panel--v2 .sos-panel-body {
+  padding: 8px 20px 12px;
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* ─── Live Location Bar ─── */
+.sos-location-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--bg-secondary, rgba(255,255,255,0.05));
+  border: 1px solid var(--glass-border, rgba(255,255,255,0.08));
+  cursor: pointer;
+  margin-bottom: 16px;
+  transition: background 0.15s ease;
+  font-family: var(--font-mono, monospace);
+  font-size: 13px;
+  color: var(--text-secondary, #94a3b8);
+}
+
+.sos-location-bar:hover {
+  background: var(--bg-tertiary, rgba(255,255,255,0.08));
+}
+
+.sos-location-icon {
+  color: var(--danger-500, #ef4444);
+  flex-shrink: 0;
+}
+
+.sos-location-text {
+  flex: 1;
+  text-align: left;
+}
+
+.sos-location-gps {
+  color: var(--text-muted, #6b7280);
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
+/* ─── Section Label ─── */
+.sos-section-label {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--text-primary, #fff);
+}
+
+.sos-required {
+  color: var(--danger-500, #ef4444);
+}
+
+/* ─── Tags Grid ─── */
+.sos-tags-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.sos-tag-btn {
+  min-height: 48px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: 1.5px solid var(--glass-border, rgba(255,255,255,0.12));
+  background: var(--bg-secondary, rgba(255,255,255,0.04));
+  color: var(--text-secondary, #94a3b8);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex: 1 0 calc(50% - 6px);
+  min-width: 0;
+  text-align: center;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.sos-tag-btn:hover {
+  background: var(--bg-tertiary, rgba(255,255,255,0.06));
+}
+
+.sos-tag-btn--active {
+  font-weight: 700;
+  border-width: 2px;
+}
+
+/* ─── Smart Textarea Section (always visible) ─── */
+.sos-details-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* ─── Textarea ─── */
+.sos-textarea {
+  width: 100%;
+  min-height: 72px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1.5px solid var(--glass-border, rgba(255,255,255,0.12));
+  background: var(--bg-secondary, rgba(255,255,255,0.04));
+  color: var(--text-primary, #fff);
+  font-size: 16px; /* 16px prevents iOS Safari auto-zoom */
+  font-family: inherit;
+  resize: vertical;
+  transition: border-color 0.15s ease;
+  outline: none;
+}
+
+.sos-textarea::placeholder {
+  color: var(--text-muted, #6b7280);
+}
+
+.sos-textarea:focus {
+  border-color: var(--primary-400, #fb923c);
+}
+
+.sos-textarea--error {
+  border-color: var(--danger-500, #ef4444) !important;
+}
+
+/* ─── Error / Char Count ─── */
+.sos-error-text {
+  font-size: 13px;
+  color: var(--danger-500, #ef4444);
+  margin: 6px 0 0;
+}
+
+.sos-char-count {
+  text-align: right;
+  font-size: 12px;
+  color: var(--text-muted, #6b7280);
+  margin-top: 4px;
+}
+
+/* ─── General Details ─── */
+.sos-general-details {
+  margin-top: 4px;
+}
+
+/* ─── SOS Draft Pin Marker ─── */
+.sos-draft-pin {
+  filter: drop-shadow(0 2px 6px rgba(239, 68, 68, 0.5));
+  animation: sosDraftBounce 1s ease-in-out infinite;
+}
+
+@keyframes sosDraftBounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+
+/* ─── Sticky Footer ─── */
+.sos-panel-footer--sticky {
+  position: sticky;
+  bottom: 0;
+  padding: 12px 20px 16px;
+  background: var(--glass-bg-solid, var(--bg-primary));
+  border-top: 1px solid var(--glass-border, rgba(255,255,255,0.08));
+}
+
+/* ─── Submit Button ─── */
+.sos-submit-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 56px;
+  padding: 14px 24px;
+  border: none;
+  border-radius: 12px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 17px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease, opacity 0.15s ease, transform 0.1s ease;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.sos-submit-btn:hover:not(:disabled) {
+  background: #dc2626;
+}
+
+.sos-submit-btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.sos-submit-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ─── Success Content ─── */
+.sos-success-content {
+  text-align: center;
+  padding: 32px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.sos-success-content h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.sos-success-content p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-secondary, #94a3b8);
+}
+
+/* ═══════════════════════════════════════════════════════
+   SOS PANEL — MOBILE (< 768px)
+   ═══════════════════════════════════════════════════════ */
+@media (max-width: 767px) {
+  .sos-panel--v2 {
+    bottom: 0;
+    right: 0;
+    left: 0;
+    width: 100%;
+    border-radius: 24px 24px 0 0;
+    max-height: 80vh;
+  }
+
+  .sos-drag-handle {
+    display: flex;
+    justify-content: center;
+    padding: 10px 0 4px;
+  }
+
+  .sos-panel-footer--sticky {
+    padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .sos-float-container {
+    bottom: calc(var(--mobile-nav-height, 56px) + var(--sp-3));
+    right: var(--sp-4);
+  }
+
+  .sos-tags-grid {
+    gap: 10px;
+  }
+
+  .sos-tag-btn {
+    flex: 1 0 calc(50% - 5px);
+    min-height: 48px;
+  }
 }
 
 /* ═══════════════════════════════════════════════════════
