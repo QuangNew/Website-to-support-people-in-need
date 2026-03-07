@@ -1,0 +1,6 @@
+@ReliefConnect.API_HostAddress = http://localhost:5157
+
+GET {{ReliefConnect.API_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

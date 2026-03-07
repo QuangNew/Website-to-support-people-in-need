@@ -485,5 +485,40 @@ $RECYCLE.BIN/
 TestResult.xml
 nunit-*.xml
 
+src/ReliefConnect.API/appsettings.Development.json
 .github/
 opencode.jsonc
+
+# ═══════════════════════════════════════════
+# Node.js / Frontend (client/)
+# ═══════════════════════════════════════════
+node_modules/
+client/dist/
+client/node_modules/
+client/.env
+client/.env.local
+client/.env.*.local
+*.tsbuildinfo
+
+# ═══════════════════════════════════════════
+# AI Agent / IDE configs (not needed in repo)
+# ═══════════════════════════════════════════
+.gemini/
+.agents/
+.agent/
+_agents/
+_agent/
+migration.sql
+
+# Playwright
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/
+playwright.config.ts
+.gitignore
+# plan.md
+# agent-instruction.md
+# UserGuide.md
+# UserTodo.md
+# todo.md

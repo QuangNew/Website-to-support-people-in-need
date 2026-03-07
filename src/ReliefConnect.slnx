@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="ReliefConnect.API/ReliefConnect.API.csproj" />
+  <Project Path="ReliefConnect.Core/ReliefConnect.Core.csproj" />
+  <Project Path="ReliefConnect.Infrastructure/ReliefConnect.Infrastructure.csproj" />
+  <Project Path="ReliefConnect.Tests/ReliefConnect.Tests.csproj" />
+</Solution>
