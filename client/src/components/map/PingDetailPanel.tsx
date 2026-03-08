@@ -105,6 +105,19 @@ export default function PingDetailPanel() {
         </div>
       )}
 
+      {/* Need help hint when no items specified */}
+      {ping.type === 'need_help' && (!ping.items || ping.items.length === 0) && (
+        <div className="ping-detail-items">
+          <div className="ping-items-header">
+            <Package size={14} />
+            <span>{t('ping.needsHelp')}</span>
+          </div>
+          <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', margin: 0 }}>
+            {t('ping.needsHelpGeneral')}
+          </p>
+        </div>
+      )}
+
       {/* Route info */}
       {route && route.destination.lat === ping.lat && route.destination.lng === ping.lng && (
         <div className="ping-route-info">

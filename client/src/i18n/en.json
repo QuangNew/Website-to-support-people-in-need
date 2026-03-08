@@ -65,6 +65,7 @@
     },
     "filter": {
         "searchPlaceholder": "Search location or phone...",
+        "toggle": "Filters",
         "needHelp": "Need Help",
         "offering": "Offering",
         "received": "Received",
@@ -88,6 +89,8 @@
     },
     "ping": {
         "items": "Items needed",
+        "needsHelp": "Needs help",
+        "needsHelpGeneral": "User needs help but hasn't specified items. Contact them for details.",
         "directions": "Directions",
         "support": "Support",
         "distance": "Distance",
@@ -110,7 +113,10 @@
     "chat": {
         "title": "AI Assistant",
         "welcome": "Hello! I am ReliefConnect's AI assistant. I can help you find relief information, guide you through the platform, or answer questions. Ask me anything!",
-        "inputPlaceholder": "Type a message..."
+        "inputPlaceholder": "Type a message...",
+        "loginRequired": "Login to chat with AI",
+        "errorCreateConversation": "Could not create conversation. Please try again.",
+        "errorGeneral": "An error occurred. Please try again."
     },
     "social": {
         "share": "Share",
@@ -124,6 +130,7 @@
         "noPosts": "No posts yet",
         "noMore": "All posts loaded",
         "delete": "Delete",
+        "addImage": "Add image",
         "category": {
             "Livelihood": "Livelihood",
             "Medical": "Medical",

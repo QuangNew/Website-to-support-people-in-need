@@ -8,6 +8,8 @@ import {
   ChevronDown,
   Loader2,
   Trash2,
+  ImagePlus,
+  X,
 } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
 import { useMapStore } from '../../stores/mapStore';
@@ -67,6 +69,9 @@ export default function SocialPanel() {
   const [newPost, setNewPost] = useState('');
   const [category, setCategory] = useState<string>('Livelihood');
   const [posting, setPosting] = useState(false);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [expandedComments, setExpandedComments] = useState<Record<number, CommentDto[]>>({});
   const [commentInputs, setCommentInputs] = useState<Record<number, string>>({});
   const [loadingComments, setLoadingComments] = useState<Record<number, boolean>>({});
@@ -106,14 +111,34 @@ export default function SocialPanel() {
     return () => obs.disconnect();
   }, [nextCursor, loading, fetchPosts]);
 
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    // Validate file type and size (5MB max)
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) return;
+    if (file.size > 5 * 1024 * 1024) return;
+    setImageFile(file);
+    const reader = new FileReader();
+    reader.onload = () => setImagePreview(reader.result as string);
+    reader.readAsDataURL(file);
+  };
+
+  const removeImage = () => {
+    setImageFile(null);
+    setImagePreview(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
   const handlePost = async () => {
     if (!isAuthenticated) { setAuthModal('login'); return; }
     if (!newPost.trim()) return;
     setPosting(true);
     try {
+      // TODO: Upload imageFile to Supabase Storage when bucket is created (UserTodo #8)
       const res = await socialApi.createPost({ content: newPost.trim(), category });
       setPosts(prev => [res.data, ...prev]);
       setNewPost('');
+      removeImage();
     } catch { /* show nothing — api interceptor handles 401 */ }
     finally { setPosting(false); }
   };
@@ -183,6 +208,15 @@ export default function SocialPanel() {
             onChange={(e) => setNewPost(e.target.value)}
             rows={2}
           />
+          {/* Image preview */}
+          {imagePreview && (
+            <div className="social-compose-preview">
+              <img src={imagePreview} alt="Preview" />
+              <button className="social-compose-preview-remove" onClick={removeImage}>
+                <X size={14} />
+              </button>
+            </div>
+          )}
         </div>
         <div className="social-compose-actions">
           <div className="social-compose-tools">
@@ -196,6 +230,21 @@ export default function SocialPanel() {
                 <option key={c} value={c}>{t(`social.category.${c}`)}</option>
               ))}
             </select>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              onChange={handleImageSelect}
+              hidden
+            />
+            <button
+              className="btn-ghost btn-sm"
+              onClick={() => fileInputRef.current?.click()}
+              title={t('social.addImage')}
+              style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}
+            >
+              <ImagePlus size={16} />
+            </button>
           </div>
           <button className="btn btn-primary btn-sm" onClick={handlePost} disabled={posting || !newPost.trim()}>
             {posting ? <Loader2 size={14} className="spin" /> : <Send size={14} />}

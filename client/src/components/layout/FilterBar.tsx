@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Search, X, AlertTriangle, Gift, CheckCircle2, MapPin, Layers } from 'lucide-react';
+import { Search, X, AlertTriangle, Gift, CheckCircle2, MapPin, Layers, SlidersHorizontal } from 'lucide-react';
 import { useMapStore, type PingType } from '../../stores/mapStore';
 import { useLanguage } from '../../contexts/LanguageContext';
 
@@ -21,9 +21,57 @@ export default function FilterBar() {
   const { activeFilters, toggleFilter, showZones, toggleZones } = useMapStore();
   const { t } = useLanguage();
   const [search, setSearch] = useState('');
+  const [expanded, setExpanded] = useState(false);
 
   return (
-    <div className="filter-bar">
+    <div className={`filter-bar ${expanded ? 'filter-bar-expanded' : ''}`}>
+      {/* Expand/collapse button */}
+      <button
+        className={`filter-expand-btn ${expanded ? 'filter-expand-active' : ''}`}
+        onClick={() => setExpanded(!expanded)}
+        title={t('filter.toggle')}
+      >
+        <SlidersHorizontal size={16} />
+      </button>
+
+      {/* Filter chips (hidden when collapsed) */}
+      {expanded && (
+        <div className="filter-chips animate-fade-in">
+          {FILTER_CHIPS.map(({ type, labelKey, icon, color }) => {
+            const isActive = activeFilters.includes(type);
+            return (
+              <button
+                key={type}
+                className={`filter-chip ${isActive ? 'filter-chip-active' : ''}`}
+                onClick={() => toggleFilter(type)}
+                style={isActive ? { '--chip-color': color } as React.CSSProperties : undefined}
+              >
+                <span
+                  className="filter-chip-dot"
+                  style={{ backgroundColor: isActive ? color : 'var(--text-muted)' }}
+                />
+                {icon}
+                <span className="filter-chip-label">{t(labelKey)}</span>
+              </button>
+            );
+          })}
+
+          {/* Zone toggle */}
+          <button
+            className={`filter-chip ${showZones ? 'filter-chip-active' : ''}`}
+            onClick={toggleZones}
+            style={showZones ? { '--chip-color': 'var(--warning-500)' } as React.CSSProperties : undefined}
+          >
+            <span
+              className="filter-chip-dot"
+              style={{ backgroundColor: showZones ? 'var(--warning-500)' : 'var(--text-muted)' }}
+            />
+            <Layers size={14} />
+            <span className="filter-chip-label">{t('filter.zones')}</span>
+          </button>
+        </div>
+      )}
+
       {/* Search input */}
       <div className="filter-search">
         <Search size={16} className="filter-search-icon" />
@@ -39,42 +87,6 @@ export default function FilterBar() {
             <X size={14} />
           </button>
         )}
-      </div>
-
-      {/* Filter chips */}
-      <div className="filter-chips">
-        {FILTER_CHIPS.map(({ type, labelKey, icon, color }) => {
-          const isActive = activeFilters.includes(type);
-          return (
-            <button
-              key={type}
-              className={`filter-chip ${isActive ? 'filter-chip-active' : ''}`}
-              onClick={() => toggleFilter(type)}
-              style={isActive ? { '--chip-color': color } as React.CSSProperties : undefined}
-            >
-              <span
-                className="filter-chip-dot"
-                style={{ backgroundColor: isActive ? color : 'var(--text-muted)' }}
-              />
-              {icon}
-              <span className="filter-chip-label">{t(labelKey)}</span>
-            </button>
-          );
-        })}
-
-        {/* Zone toggle */}
-        <button
-          className={`filter-chip ${showZones ? 'filter-chip-active' : ''}`}
-          onClick={toggleZones}
-          style={showZones ? { '--chip-color': 'var(--warning-500)' } as React.CSSProperties : undefined}
-        >
-          <span
-            className="filter-chip-dot"
-            style={{ backgroundColor: showZones ? 'var(--warning-500)' : 'var(--text-muted)' }}
-          />
-          <Layers size={14} />
-          <span className="filter-chip-label">{t('filter.zones')}</span>
-        </button>
       </div>
     </div>
   );

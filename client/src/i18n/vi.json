@@ -65,6 +65,7 @@
   },
   "filter": {
     "searchPlaceholder": "Tìm kiếm vị trí hoặc SĐT...",
+    "toggle": "Bộ lọc",
     "needHelp": "Cần giúp",
     "offering": "Muốn cho",
     "received": "Đã nhận",
@@ -88,6 +89,8 @@
   },
   "ping": {
     "items": "Vật phẩm cần thiết",
+    "needsHelp": "Cần hỗ trợ",
+    "needsHelpGeneral": "Người dùng cần hỗ trợ nhưng chưa chỉ rõ vật phẩm cụ thể. Hãy liên hệ để biết thêm chi tiết.",
     "directions": "Chỉ đường",
     "support": "Hỗ trợ",
     "distance": "Khoảng cách",
@@ -110,7 +113,10 @@
   "chat": {
     "title": "Trợ lý AI",
     "welcome": "Xin chào! Tôi là trợ lý AI của ReliefConnect. Tôi có thể giúp bạn tìm thông tin cứu trợ, hướng dẫn sử dụng nền tảng, hoặc trả lời câu hỏi. Hỏi tôi bất cứ điều gì!",
-    "inputPlaceholder": "Nhập tin nhắn..."
+    "inputPlaceholder": "Nhập tin nhắn...",
+    "loginRequired": "Đăng nhập để chat với AI",
+    "errorCreateConversation": "Không thể tạo cuộc hội thoại. Vui lòng thử lại.",
+    "errorGeneral": "Có lỗi xảy ra. Vui lòng thử lại."
   },
   "social": {
     "share": "Chia sẻ",
@@ -124,6 +130,7 @@
     "noPosts": "Chưa có bài viết nào",
     "noMore": "Đã hiển thị tất cả",
     "delete": "Xóa",
+    "addImage": "Thêm ảnh",
     "category": {
       "Livelihood": "Gia cảnh",
       "Medical": "Bệnh tật",

@@ -226,15 +226,27 @@ public class AuthController : ControllerBase
         GoogleJsonWebSignature.Payload payload;
         try
         {
+            var clientId = _config["Google:ClientId"] ?? "";
+            _logger.LogInformation("Google OAuth: validating token with ClientId={ClientId}", clientId[..Math.Min(20, clientId.Length)] + "...");
+
             var settings = new GoogleJsonWebSignature.ValidationSettings
             {
-                Audience = new[] { _config["Google:ClientId"] ?? "" }
+                Audience = new[] { clientId },
+                // Allow 5-minute clock skew tolerance
+                IssuedAtClockTolerance = TimeSpan.FromMinutes(5),
+                ExpirationTimeClockTolerance = TimeSpan.FromMinutes(5)
             };
             payload = await GoogleJsonWebSignature.ValidateAsync(dto.Credential, settings);
         }
-        catch (InvalidJwtException)
+        catch (InvalidJwtException ex)
         {
+            _logger.LogWarning(ex, "Google OAuth: InvalidJwtException — {Message}", ex.Message);
             return Unauthorized(new ApiErrorResponse { StatusCode = 401, Message = "Google token không hợp lệ." });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Google OAuth: token validation failed — {Message}", ex.Message);
+            return Unauthorized(new ApiErrorResponse { StatusCode = 401, Message = $"Google xác thực thất bại: {ex.Message}" });
         }
 
         // Find existing user by Google ID or email

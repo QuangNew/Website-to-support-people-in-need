@@ -251,8 +251,8 @@
 .filter-bar {
   position: fixed;
   top: var(--sp-3);
-  left: calc(var(--sidebar-width) + var(--sp-3));
   right: var(--sp-3);
+  left: auto;
   height: var(--filter-height);
   background: var(--glass-bg);
   backdrop-filter: blur(var(--glass-blur));
@@ -261,15 +261,46 @@
   border-radius: var(--radius-2xl);
   display: flex;
   align-items: center;
-  gap: var(--sp-3);
-  padding: 0 var(--sp-4);
+  gap: var(--sp-2);
+  padding: 0 var(--sp-3);
   z-index: var(--z-sticky);
   box-shadow: var(--shadow-lg);
-  transition: left var(--transition-slow);
+  transition: all var(--transition-slow);
+  max-width: 320px;
 }
 
-.sidebar-is-expanded .filter-bar {
+.filter-bar-expanded {
+  left: calc(var(--sidebar-width) + var(--sp-3));
+  max-width: none;
+}
+
+.sidebar-is-expanded .filter-bar-expanded {
   left: calc(var(--sidebar-expanded) + var(--sp-3));
+}
+
+.filter-expand-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.filter-expand-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.filter-expand-active {
+  color: var(--primary-400);
+  background: color-mix(in srgb, var(--primary-500) 12%, transparent);
 }
 
 .sidebar-is-expanded .panel-container {
@@ -280,11 +311,8 @@
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  flex: 0 0 auto;
-  min-width: 180px;
-  max-width: 280px;
-  padding-right: var(--sp-3);
-  border-right: 1px solid var(--border-default);
+  flex: 1;
+  min-width: 140px;
   position: relative;
 }
 
@@ -331,9 +359,12 @@
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  flex: 1;
+  flex: 0 0 auto;
   overflow-x: auto;
   scrollbar-width: none;
+  padding-right: var(--sp-2);
+  border-right: 1px solid var(--border-default);
+  margin-right: var(--sp-1);
 }
 
 .filter-chips::-webkit-scrollbar {
@@ -441,7 +472,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--sp-5) var(--sp-5) var(--sp-4);
+  padding: var(--sp-5) calc(var(--sp-5) + 32px) var(--sp-4) var(--sp-5);
   flex-shrink: 0;
   border-bottom: 1px solid var(--border-subtle);
 }
@@ -553,7 +584,7 @@
    ═══════════════════════════════════════════════════════ */
 .ping-detail-panel {
   position: fixed;
-  bottom: var(--sp-6);
+  bottom: calc(var(--sp-6) + 60px);
   right: var(--sp-6);
   width: 360px;
   z-index: var(--z-panel);
@@ -564,6 +595,8 @@
   border-radius: var(--radius-xl);
   padding: var(--sp-5);
   box-shadow: var(--shadow-xl);
+  max-height: calc(100vh - 160px);
+  overflow-y: auto;
 }
 
 .ping-detail-header {
@@ -781,6 +814,43 @@
   color: var(--text-muted);
 }
 
+.social-compose-preview {
+  position: relative;
+  margin-top: var(--sp-2);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  max-height: 160px;
+}
+
+.social-compose-preview img {
+  width: 100%;
+  max-height: 160px;
+  object-fit: cover;
+  border-radius: var(--radius-md);
+  display: block;
+}
+
+.social-compose-preview-remove {
+  position: absolute;
+  top: var(--sp-1);
+  right: var(--sp-1);
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-full);
+  background: rgba(0, 0, 0, 0.6);
+  color: white;
+  border: none;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.social-compose-preview-remove:hover {
+  background: rgba(239, 68, 68, 0.8);
+}
+
 .social-compose-actions {
   display: flex;
   align-items: center;
@@ -792,6 +862,19 @@
 .social-compose-tools {
   display: flex;
   gap: var(--sp-1);
+}
+
+.social-compose-tools select {
+  color: var(--text-secondary);
+  background: var(--bg-hover);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.social-compose-tools select option {
+  color: var(--text-primary);
+  background: var(--bg-elevated);
 }
 
 /* Posts */
@@ -1763,17 +1846,22 @@
   }
 
   .filter-bar {
-    left: var(--sp-3);
     right: var(--sp-3);
+    left: auto;
     top: var(--sp-2);
     border-radius: var(--radius-xl);
     padding: 0 var(--sp-3);
     height: var(--filter-height);
+    max-width: 280px;
+  }
+
+  .filter-bar-expanded {
+    left: var(--sp-3);
+    max-width: none;
   }
 
   .filter-search {
-    min-width: 120px;
-    max-width: 160px;
+    min-width: 100px;
   }
 
   .panel-container {
@@ -1851,8 +1939,7 @@
   }
 
   .filter-search {
-    min-width: 140px;
-    max-width: 200px;
+    min-width: 120px;
   }
 
   .ping-detail-panel {
