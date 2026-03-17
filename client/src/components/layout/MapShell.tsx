@@ -11,6 +11,8 @@ import ChatPanel from '../panels/ChatPanel';
 import ProfilePanel from '../panels/ProfilePanel';
 import LoginModal from '../auth/LoginModal';
 import RegisterModal from '../auth/RegisterModal';
+import ForgotPasswordModal from '../auth/ForgotPasswordModal';
+import ResetPasswordModal from '../auth/ResetPasswordModal';
 import WelcomeModal from '../auth/WelcomeModal';
 import { useMapStore, type PanelType } from '../../stores/mapStore';
 import { useAuthStore } from '../../stores/authStore';
@@ -80,6 +82,8 @@ export default function MapShell() {
       {/* Auth modals */}
       <LoginModal />
       <RegisterModal />
+      <ForgotPasswordModal />
+      <ResetPasswordModal />
       <WelcomeModal />
     </div>
   );

@@ -65,6 +65,36 @@ public class PostController : ControllerBase
         return Ok(MapToDto(post, userId));
     }
 
+    // POST /api/social/upload-image
+    [Authorize]
+    [HttpPost("upload-image")]
+    public async Task<IActionResult> UploadImage(IFormFile file)
+    {
+        if (file == null || file.Length == 0)
+            return BadRequest(new { message = "No file uploaded" });
+
+        var allowedTypes = new[] { "image/jpeg", "image/png", "image/webp" };
+        if (!allowedTypes.Contains(file.ContentType))
+            return BadRequest(new { message = "Only JPG, PNG, WEBP allowed" });
+
+        if (file.Length > 5 * 1024 * 1024)
+            return BadRequest(new { message = "File too large (max 5MB)" });
+
+        var uploadsDir = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads");
+        Directory.CreateDirectory(uploadsDir);
+
+        var fileName = $"{Guid.NewGuid()}{Path.GetExtension(file.FileName)}";
+        var filePath = Path.Combine(uploadsDir, fileName);
+
+        using (var stream = new FileStream(filePath, FileMode.Create))
+        {
+            await file.CopyToAsync(stream);
+        }
+
+        var imageUrl = $"/uploads/{fileName}";
+        return Ok(new { imageUrl });
+    }
+
     // POST /api/social/posts
     [Authorize]
     [HttpPost("posts")]

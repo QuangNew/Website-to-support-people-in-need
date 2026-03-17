@@ -2365,19 +2365,24 @@
     flex-direction: row;
     flex-wrap: wrap;
     align-items: center;
+    justify-content: center;
     padding: var(--sp-2) var(--sp-3);
     position: static;
+    gap: var(--sp-2);
   }
 
   .admin-sidebar__header {
     margin-bottom: 0;
     padding: var(--sp-1);
+    width: 100%;
+    justify-content: center;
   }
 
   .admin-sidebar__nav {
     flex-direction: row;
     flex-wrap: wrap;
     gap: var(--sp-1);
+    justify-content: center;
   }
 
   .admin-nav-btn {
@@ -2387,6 +2392,7 @@
 
   .admin-nav-btn--back {
     margin-top: 0;
+    width: auto;
   }
 
   .admin-content {

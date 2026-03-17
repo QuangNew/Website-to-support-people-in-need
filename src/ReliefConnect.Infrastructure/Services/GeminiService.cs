@@ -26,7 +26,7 @@ public class GeminiService : IGeminiService
     {
         _http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
         _apiKey = config["Gemini:ApiKey"] ?? throw new InvalidOperationException("Gemini:ApiKey not configured");
-        _model = config["Gemini:Model"] ?? "gemini-2.0-flash";
+        _model = config["Gemini:Model"] ?? "gemini-2.5-flash-latest";
         _logger = logger;
     }
 

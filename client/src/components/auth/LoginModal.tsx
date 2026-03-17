@@ -166,6 +166,12 @@ export default function LoginModal() {
           <button type="submit" className="btn btn-primary btn-full" disabled={isLoading}>
             {isLoading ? <span className="spinner spinner-sm" /> : t('auth.login')}
           </button>
+
+          <div style={{ textAlign: 'center', marginTop: '0.5rem' }}>
+            <button className="link-btn" onClick={() => setAuthModal('forgot-password')}>
+              {t('auth.forgotPassword')}?
+            </button>
+          </div>
         </form>
 
         {/* Footer */}

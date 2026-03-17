@@ -206,6 +206,7 @@ app.UseResponseCompression();
 app.UseOutputCache();
 app.UseGlobalExceptionHandler();
 app.UseHttpsRedirection();
+app.UseStaticFiles();
 app.Use(async (context, next) =>
 {
     context.Response.Headers["X-Content-Type-Options"] = "nosniff";

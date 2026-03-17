@@ -26,6 +26,12 @@ public class ApplicationUser : IdentityUser
     /// <summary>Expiry time for the email verification code.</summary>
     public DateTime? EmailVerificationCodeExpiry { get; set; }
 
+    /// <summary>Password reset token (6-digit code).</summary>
+    public string? PasswordResetToken { get; set; }
+
+    /// <summary>Expiry time for the password reset token.</summary>
+    public DateTime? PasswordResetTokenExpiry { get; set; }
+
     /// <summary>Role requested in the latest verification submission.</summary>
     public string? RequestedRole { get; set; }
 

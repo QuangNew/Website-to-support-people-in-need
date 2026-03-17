@@ -74,7 +74,6 @@ export default function FilterBar() {
 
       {/* Search input */}
       <div className="filter-search">
-        <Search size={16} className="filter-search-icon" />
         <input
           type="text"
           className="filter-search-input"
@@ -82,10 +81,12 @@ export default function FilterBar() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
-        {search && (
+        {search ? (
           <button className="filter-search-clear" onClick={() => setSearch('')}>
             <X size={14} />
           </button>
+        ) : (
+          <Search size={16} className="filter-search-icon" />
         )}
       </div>
     </div>

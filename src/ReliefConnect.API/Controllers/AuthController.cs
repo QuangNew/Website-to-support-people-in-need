@@ -167,6 +167,68 @@ public class AuthController : ControllerBase
     }
 
     // ═══════════════════════════════════════════
+    //  FORGOT PASSWORD
+    // ═══════════════════════════════════════════
+
+    /// <summary>
+    /// Request password reset. Sends a 6-digit token to the email.
+    /// </summary>
+    [HttpPost("forgot-password")]
+    public async Task<ActionResult> ForgotPassword([FromBody] ForgotPasswordDto dto)
+    {
+        var user = await _userManager.FindByEmailAsync(dto.Email);
+        if (user == null)
+            return Ok(new { message = "Nếu email tồn tại, mã đặt lại mật khẩu đã được gửi." });
+
+        var resetToken = GenerateVerificationCode();
+        user.PasswordResetToken = resetToken;
+        user.PasswordResetTokenExpiry = DateTime.UtcNow.AddMinutes(15);
+        await _userManager.UpdateAsync(user);
+
+        BackgroundJob.Enqueue<IEmailService>(x => x.SendEmailAsync(
+            dto.Email,
+            "Đặt lại mật khẩu - ReliefConnect",
+            $"<p>Mã đặt lại mật khẩu của bạn là: <strong>{resetToken}</strong></p><p>Mã có hiệu lực trong 15 phút.</p>"));
+
+        _logger.LogInformation("Password reset requested: {Email}", dto.Email);
+
+        return Ok(new { message = "Nếu email tồn tại, mã đặt lại mật khẩu đã được gửi." });
+    }
+
+    /// <summary>
+    /// Reset password with the 6-digit token.
+    /// </summary>
+    [HttpPost("reset-password")]
+    public async Task<ActionResult> ResetPassword([FromBody] ResetPasswordDto dto)
+    {
+        var user = _userManager.Users.FirstOrDefault(u => u.PasswordResetToken == dto.Token);
+        if (user == null)
+            return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Mã đặt lại không hợp lệ." });
+
+        if (user.PasswordResetTokenExpiry.HasValue && user.PasswordResetTokenExpiry < DateTime.UtcNow)
+            return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Mã đặt lại đã hết hạn." });
+
+        var resetToken = await _userManager.GeneratePasswordResetTokenAsync(user);
+        var result = await _userManager.ResetPasswordAsync(user, resetToken, dto.NewPassword);
+
+        if (!result.Succeeded)
+            return BadRequest(new ApiErrorResponse
+            {
+                StatusCode = 400,
+                Message = "Đặt lại mật khẩu thất bại.",
+                Errors = result.Errors.Select(e => e.Description)
+            });
+
+        user.PasswordResetToken = null;
+        user.PasswordResetTokenExpiry = null;
+        await _userManager.UpdateAsync(user);
+
+        _logger.LogInformation("Password reset successful: {Email}", user.Email);
+
+        return Ok(new { message = "Mật khẩu đã được đặt lại thành công!" });
+    }
+
+    // ═══════════════════════════════════════════
     //  LOGIN
     // ═══════════════════════════════════════════
 

@@ -50,7 +50,18 @@
         "resendCode": "Resend code",
         "resendIn": "Resend in",
         "codeResent": "Verification code resent!",
-        "resendFailed": "Resend failed"
+        "resendFailed": "Resend failed",
+        "forgotPassword": "Forgot Password",
+        "forgotPasswordSubtitle": "Enter your email to receive a reset code",
+        "resetPassword": "Reset Password",
+        "resetPasswordSubtitle": "Enter the code sent to your email",
+        "resetCode": "Reset Code",
+        "newPassword": "New Password",
+        "sendResetCode": "Send Reset Code",
+        "resetCodeSent": "Reset code sent to your email!",
+        "resetSuccess": "Password reset successful!",
+        "resetError": "Reset failed. Please try again",
+        "backToLogin": "Back to Login"
     },
     "sidebar": {
         "list": "Request List",

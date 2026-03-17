@@ -81,6 +81,21 @@ public class VerifyEmailDto
     public string Code { get; set; } = string.Empty;
 }
 
+public class ForgotPasswordDto
+{
+    [Required, EmailAddress]
+    public string Email { get; set; } = string.Empty;
+}
+
+public class ResetPasswordDto
+{
+    [Required, StringLength(6, MinimumLength = 6)]
+    public string Token { get; set; } = string.Empty;
+
+    [Required, StringLength(255, MinimumLength = 8)]
+    public string NewPassword { get; set; } = string.Empty;
+}
+
 // ═══════════════════════════════════════════
 //  MAP DTOs
 // ═══════════════════════════════════════════
@@ -318,6 +333,29 @@ public class SupplyResponseDto
 }
 
 // Route DTOs removed — routing is now handled client-side via OSRM (OpenStreetMap)
+
+// ═══════════════════════════════════════════
+//  SPONSOR DTOs
+// ═══════════════════════════════════════════
+
+public class OfferHelpDto
+{
+    [Required]
+    public int PingId { get; set; }
+
+    [StringLength(1000)]
+    public string? Message { get; set; }
+}
+
+// ═══════════════════════════════════════════
+//  VOLUNTEER DTOs
+// ═══════════════════════════════════════════
+
+public class AcceptTaskDto
+{
+    [Required]
+    public int PingId { get; set; }
+}
 
 // ═══════════════════════════════════════════
 //  ERROR DTOs

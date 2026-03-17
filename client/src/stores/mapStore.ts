@@ -51,7 +51,7 @@ interface MapState {
     activeFilters: PingType[];
     activePanel: PanelType;
     selectedPingId: string | null;
-    showAuthModal: 'login' | 'register' | null;
+    showAuthModal: 'login' | 'register' | 'forgot-password' | 'reset-password' | null;
     showWelcome: boolean;
     sidebarExpanded: boolean;
     pings: PingData[];
@@ -77,7 +77,7 @@ interface MapState {
     toggleFilter: (filter: PingType) => void;
     setActivePanel: (panel: PanelType) => void;
     selectPing: (id: string | null) => void;
-    setAuthModal: (modal: 'login' | 'register' | null) => void;
+    setAuthModal: (modal: 'login' | 'register' | 'forgot-password' | 'reset-password' | null) => void;
     setShowWelcome: (show: boolean) => void;
     setSidebarExpanded: (expanded: boolean) => void;
     setPings: (pings: PingData[]) => void;
@@ -166,7 +166,7 @@ export const useMapStore = create<MapState>((set) => ({
     showAuthModal: null,
     showWelcome: !localStorage.getItem('rc-welcome-seen'),
     sidebarExpanded: false,
-    pings: MOCK_PINGS,
+    pings: [],
     zones: [],
     showZones: true,
 
@@ -206,7 +206,6 @@ export const useMapStore = create<MapState>((set) => ({
         try {
             const res = await mapApi.getPings();
             const backendPings: PingData[] = (res.data as Array<Record<string, unknown>>).map((p) => {
-                // Map backend MapItemType → frontend PingType
                 const typeMap: Record<string, PingType> = {
                     SOS: 'need_help',
                     Supply: 'offering',
@@ -232,12 +231,8 @@ export const useMapStore = create<MapState>((set) => ({
                     contactPhone: undefined,
                 };
             });
-            if (backendPings.length > 0) {
-                set({ pings: backendPings });
-            }
-            // If empty, keep mock data for demo purposes
+            set({ pings: backendPings });
         } catch {
-            // Backend not available; keep mock data
             console.warn('[MapStore] Backend unavailable, using mock pings');
         }
     },

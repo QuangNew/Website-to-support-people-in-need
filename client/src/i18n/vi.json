@@ -50,7 +50,18 @@
     "resendCode": "Gửi lại mã",
     "resendIn": "Gửi lại sau",
     "codeResent": "Đã gửi lại mã xác nhận!",
-    "resendFailed": "Gửi lại thất bại"
+    "resendFailed": "Gửi lại thất bại",
+    "forgotPassword": "Quên mật khẩu",
+    "forgotPasswordSubtitle": "Nhập email để nhận mã đặt lại mật khẩu",
+    "resetPassword": "Đặt lại mật khẩu",
+    "resetPasswordSubtitle": "Nhập mã đã gửi về email của bạn",
+    "resetCode": "Mã đặt lại",
+    "newPassword": "Mật khẩu mới",
+    "sendResetCode": "Gửi mã đặt lại",
+    "resetCodeSent": "Đã gửi mã đặt lại về email!",
+    "resetSuccess": "Đặt lại mật khẩu thành công!",
+    "resetError": "Đặt lại thất bại. Vui lòng thử lại",
+    "backToLogin": "Quay lại đăng nhập"
   },
   "sidebar": {
     "list": "Danh sách",

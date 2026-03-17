@@ -69,7 +69,7 @@ export default function SocialPanel() {
   const [newPost, setNewPost] = useState('');
   const [category, setCategory] = useState<string>('Livelihood');
   const [posting, setPosting] = useState(false);
-  const [_imageFile, setImageFile] = useState<File | null>(null);
+  const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [expandedComments, setExpandedComments] = useState<Record<number, CommentDto[]>>({});
@@ -134,8 +134,12 @@ export default function SocialPanel() {
     if (!newPost.trim()) return;
     setPosting(true);
     try {
-      // TODO: Upload imageFile to Supabase Storage when bucket is created (UserTodo #8)
-      const res = await socialApi.createPost({ content: newPost.trim(), category });
+      let imageUrl: string | undefined;
+      if (imageFile) {
+        const uploadRes = await socialApi.uploadImage(imageFile);
+        imageUrl = uploadRes.data.imageUrl;
+      }
+      const res = await socialApi.createPost({ content: newPost.trim(), category, imageUrl });
       setPosts(prev => [res.data, ...prev]);
       setNewPost('');
       removeImage();

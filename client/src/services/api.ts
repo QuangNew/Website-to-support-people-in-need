@@ -62,6 +62,12 @@ export const authApi = {
 
   submitVerification: (data: { requestedRole: string; reason?: string }) =>
     api.post('/auth/verify-role', data),
+
+  forgotPassword: (data: { email: string }) =>
+    api.post('/auth/forgot-password', data),
+
+  resetPassword: (data: { token: string; newPassword: string }) =>
+    api.post('/auth/reset-password', data),
 };
 
 // ═══════════════════════════════════════════
@@ -127,6 +133,14 @@ export const socialApi = {
 
   getPost: (id: number) =>
     api.get(`/social/posts/${id}`),
+
+  uploadImage: (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post('/social/upload-image', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
 
   createPost: (data: { content: string; category: string; imageUrl?: string }) =>
     api.post('/social/posts', data),
