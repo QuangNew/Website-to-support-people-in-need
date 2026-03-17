@@ -22,6 +22,7 @@ public class PingRepository : IPingRepository
     public async Task<Ping?> GetByIdAsync(int id)
     {
         return await _context.Pings
+            .AsNoTracking()
             .Include(p => p.User)
             .Include(p => p.PingFlag)
             .FirstOrDefaultAsync(p => p.Id == id);
@@ -30,8 +31,10 @@ public class PingRepository : IPingRepository
     public async Task<IEnumerable<Ping>> GetAllAsync()
     {
         return await _context.Pings
+            .AsNoTracking()
             .Include(p => p.User)
             .Include(p => p.PingFlag)
+            .AsSplitQuery()
             .OrderByDescending(p => p.CreatedAt)
             .ToListAsync();
     }
@@ -60,36 +63,33 @@ public class PingRepository : IPingRepository
     }
 
     /// <summary>
-    /// Get pings within a radius using Haversine distance approximation.
-    /// For production, use PostGIS ST_DWithin. This uses a bounding box + refinement approach.
+    /// Get pings within a radius using PostGIS ST_DWithin for optimal spatial queries.
     /// </summary>
     public async Task<IEnumerable<Ping>> GetPingsInRadiusAsync(double lat, double lng, double radiusKm)
     {
-        // Approximate bounding box (1 degree lat ≈ 111km)
-        var latDelta = radiusKm / 111.0;
-        var lngDelta = radiusKm / (111.0 * Math.Cos(lat * Math.PI / 180.0));
+        var radiusMeters = radiusKm * 1000;
 
-        var minLat = lat - latDelta;
-        var maxLat = lat + latDelta;
-        var minLng = lng - lngDelta;
-        var maxLng = lng + lngDelta;
-
-        // Bounding box filter (uses the spatial index)
-        var candidates = await _context.Pings
+        return await _context.Pings
+            .FromSqlRaw(@"
+                SELECT p.* FROM ""Pings"" p
+                WHERE ST_DWithin(
+                    ST_MakePoint(p.""CoordinatesLong"", p.""CoordinatesLat"")::geography,
+                    ST_MakePoint({0}, {1})::geography,
+                    {2}
+                )
+                ORDER BY p.""CreatedAt"" DESC",
+                lng, lat, radiusMeters)
+            .AsNoTracking()
             .Include(p => p.User)
             .Include(p => p.PingFlag)
-            .Where(p => p.CoordinatesLat >= minLat && p.CoordinatesLat <= maxLat
-                     && p.CoordinatesLong >= minLng && p.CoordinatesLong <= maxLng)
-            .OrderByDescending(p => p.CreatedAt)
+            .AsSplitQuery()
             .ToListAsync();
-
-        // Refine with Haversine in-memory
-        return candidates.Where(p => HaversineKm(lat, lng, p.CoordinatesLat, p.CoordinatesLong) <= radiusKm);
     }
 
     public async Task<IEnumerable<Ping>> GetPingsByUserAsync(string userId)
     {
         return await _context.Pings
+            .AsNoTracking()
             .Include(p => p.PingFlag)
             .Where(p => p.UserId == userId)
             .OrderByDescending(p => p.CreatedAt)
@@ -99,8 +99,10 @@ public class PingRepository : IPingRepository
     public async Task<Ping?> GetPingWithFlagAsync(int pingId)
     {
         return await _context.Pings
+            .AsNoTracking()
             .Include(p => p.User)
             .Include(p => p.PingFlag)
+            .AsSplitQuery()
             .FirstOrDefaultAsync(p => p.Id == pingId);
     }
 
@@ -113,6 +115,7 @@ public class PingRepository : IPingRepository
     public async Task<IEnumerable<Ping>> GetUnconfirmedPingsInZonesAsync()
     {
         return await _context.Pings
+            .AsNoTracking()
             .Include(p => p.PingFlag)
             .Where(p => p.Type == MapItemType.SOS
                      && p.Status != SOSStatus.VerifiedSafe
@@ -120,19 +123,4 @@ public class PingRepository : IPingRepository
             .OrderBy(p => p.CreatedAt)
             .ToListAsync();
     }
-
-    // ─── Haversine formula ───
-    private static double HaversineKm(double lat1, double lng1, double lat2, double lng2)
-    {
-        const double R = 6371.0; // Earth radius in km
-        var dLat = ToRad(lat2 - lat1);
-        var dLng = ToRad(lng2 - lng1);
-        var a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2)
-              + Math.Cos(ToRad(lat1)) * Math.Cos(ToRad(lat2))
-              * Math.Sin(dLng / 2) * Math.Sin(dLng / 2);
-        var c = 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
-        return R * c;
-    }
-
-    private static double ToRad(double degrees) => degrees * Math.PI / 180.0;
 }

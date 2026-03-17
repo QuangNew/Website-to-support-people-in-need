@@ -105,8 +105,8 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             entity.Property(p => p.ImageUrl).HasMaxLength(500);
             entity.Property(p => p.Category).HasConversion<int>();
 
-            // Index for cursor-based pagination (newest first)
             entity.HasIndex(p => p.CreatedAt).IsDescending();
+            entity.HasIndex(p => p.AuthorId);
 
             entity.HasOne(p => p.Author)
                   .WithMany(u => u.Posts)
@@ -125,6 +125,9 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             entity.HasKey(c => c.Id);
             entity.Property(c => c.Content).HasMaxLength(2000).IsRequired();
 
+            entity.HasIndex(c => c.PostId);
+            entity.HasIndex(c => c.UserId);
+
             entity.HasOne(c => c.Post)
                   .WithMany(p => p.Comments)
                   .HasForeignKey(c => c.PostId)
@@ -142,8 +145,8 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             entity.HasKey(r => r.Id);
             entity.Property(r => r.Type).HasConversion<int>();
 
-            // Unique constraint: one reaction per user per post
             entity.HasIndex(r => new { r.PostId, r.UserId }).IsUnique();
+            entity.HasIndex(r => r.UserId);
 
             entity.HasOne(r => r.Post)
                   .WithMany(p => p.Reactions)

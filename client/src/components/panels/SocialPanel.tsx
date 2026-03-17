@@ -69,7 +69,7 @@ export default function SocialPanel() {
   const [newPost, setNewPost] = useState('');
   const [category, setCategory] = useState<string>('Livelihood');
   const [posting, setPosting] = useState(false);
-  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [_imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [expandedComments, setExpandedComments] = useState<Record<number, CommentDto[]>>({});

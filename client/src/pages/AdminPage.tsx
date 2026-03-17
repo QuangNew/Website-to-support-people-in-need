@@ -141,11 +141,14 @@ function StatsPanel() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let mounted = true;
     adminApi.getStats()
-      .then((res) => setStats(res.data))
-      .catch(() => toast.error(t('common.error')))
-      .finally(() => setLoading(false));
-  }, [t]);
+      .then((res) => { if (mounted) setStats(res.data); })
+      .catch(() => { if (mounted) toast.error(t('common.error')); })
+      .finally(() => { if (mounted) setLoading(false); });
+    return () => { mounted = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (loading) return <div className="admin-loading"><span className="spinner" /></div>;
   if (!stats) return null;
@@ -424,8 +427,8 @@ function UsersPanel() {
                     <td className="admin-td-date">{new Date(u.createdAt).toLocaleDateString()}</td>
                     <td>
                       {u.emailVerified
-                        ? <CheckCircle2 size={16} className="text-success" title="Email verified" />
-                        : <XCircle size={16} className="text-danger" title="Email not verified" />}
+                        ? <CheckCircle2 size={16} className="text-success" />
+                        : <XCircle size={16} className="text-danger" />}
                     </td>
                   </tr>
                 ))}

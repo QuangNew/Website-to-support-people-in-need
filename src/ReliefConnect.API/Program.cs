@@ -1,4 +1,6 @@
 using System.Text;
+using Hangfire;
+using Hangfire.MemoryStorage;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -29,26 +31,30 @@ builder.Host.UseSerilog();
 // ═══════════════════════════════════════════
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(
-        builder.Configuration.GetConnectionString("DefaultConnection")
-    ));
+        builder.Configuration.GetConnectionString("DefaultConnection"),
+        npgsqlOptions =>
+        {
+            npgsqlOptions.EnableRetryOnFailure(
+                maxRetryCount: 3,
+                maxRetryDelay: TimeSpan.FromSeconds(5),
+                errorCodesToAdd: null);
+            npgsqlOptions.MaxBatchSize(100);
+        })
+    .EnableSensitiveDataLogging(builder.Environment.IsDevelopment())
+    .UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking));
 
 // ═══════════════════════════════════════════
 //  ASP.NET CORE IDENTITY
 // ═══════════════════════════════════════════
 builder.Services.AddIdentity<ApplicationUser, IdentityRole>(options =>
 {
-    // Password rules per SRS 4.2
     options.Password.RequireDigit = true;
     options.Password.RequireLowercase = true;
     options.Password.RequireUppercase = true;
     options.Password.RequiredLength = 8;
     options.Password.RequireNonAlphanumeric = false;
-
-    // Lockout
     options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(5);
     options.Lockout.MaxFailedAccessAttempts = 5;
-
-    // User
     options.User.RequireUniqueEmail = true;
 })
 .AddEntityFrameworkStores<AppDbContext>()
@@ -57,7 +63,11 @@ builder.Services.AddIdentity<ApplicationUser, IdentityRole>(options =>
 // ═══════════════════════════════════════════
 //  JWT AUTHENTICATION
 // ═══════════════════════════════════════════
-var jwtKey = builder.Configuration["Jwt:Key"] ?? "DefaultDevSecretKey_ChangeInProduction_Min32Chars!!";
+var jwtKey = builder.Configuration["Jwt:Key"]
+    ?? throw new InvalidOperationException("Jwt:Key must be configured (min 256-bit)");
+if (Encoding.UTF8.GetBytes(jwtKey).Length < 32)
+    throw new InvalidOperationException("Jwt:Key must be at least 256 bits (32 bytes)");
+
 var jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? "ReliefConnect";
 var jwtAudience = builder.Configuration["Jwt:Audience"] ?? "ReliefConnectClient";
 
@@ -80,16 +90,21 @@ builder.Services.AddAuthentication(options =>
         ClockSkew = TimeSpan.Zero
     };
 
-    // SignalR JWT support (token from query string)
     options.Events = new JwtBearerEvents
     {
         OnMessageReceived = context =>
         {
-            var accessToken = context.Request.Query["access_token"];
-            var path = context.HttpContext.Request.Path;
-            if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/hubs"))
+            if (context.Request.Cookies.TryGetValue("auth_token", out var token))
+                context.Token = token;
+            return Task.CompletedTask;
+        },
+        OnTokenValidated = context =>
+        {
+            var blacklist = context.HttpContext.RequestServices.GetRequiredService<ITokenBlacklistService>();
+            var jti = context.Principal?.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Jti)?.Value;
+            if (jti != null && blacklist.IsBlacklisted(jti))
             {
-                context.Token = accessToken;
+                context.Fail("Token revoked");
             }
             return Task.CompletedTask;
         }
@@ -109,14 +124,8 @@ builder.Services.AddAuthorizationBuilder()
 // ═══════════════════════════════════════════
 //  CORS (Frontend)
 // ═══════════════════════════════════════════
-// Support multiple frontend origins (Vite may auto-increment port)
 var frontendUrls = builder.Configuration.GetSection("Frontend:Urls").Get<string[]>()
-    ?? new[]
-    {
-        "http://localhost:5173",
-        "http://localhost:5174",
-        "http://localhost:5175"
-    };
+    ?? new[] { "http://localhost:5173", "http://localhost:5174", "http://localhost:5175" };
 
 builder.Services.AddCors(options =>
 {
@@ -125,9 +134,38 @@ builder.Services.AddCors(options =>
         policy.WithOrigins(frontendUrls)
             .AllowAnyHeader()
             .AllowAnyMethod()
-            .AllowCredentials(); // Required for SignalR
+            .AllowCredentials();
     });
 });
+
+// ═══════════════════════════════════════════
+//  PERFORMANCE
+// ═══════════════════════════════════════════
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true;
+    options.Providers.Add<Microsoft.AspNetCore.ResponseCompression.BrotliCompressionProvider>();
+    options.Providers.Add<Microsoft.AspNetCore.ResponseCompression.GzipCompressionProvider>();
+});
+
+builder.Services.Configure<Microsoft.AspNetCore.ResponseCompression.BrotliCompressionProviderOptions>(options =>
+{
+    options.Level = System.IO.Compression.CompressionLevel.Fastest;
+});
+
+builder.Services.Configure<Microsoft.AspNetCore.ResponseCompression.GzipCompressionProviderOptions>(options =>
+{
+    options.Level = System.IO.Compression.CompressionLevel.Fastest;
+});
+
+builder.Services.AddOutputCache(options =>
+{
+    options.AddPolicy("MapData30s", p => p.Expire(TimeSpan.FromSeconds(30)));
+    options.AddPolicy("Posts2min", p => p.Expire(TimeSpan.FromMinutes(2)));
+    options.AddPolicy("Static5min", p => p.Expire(TimeSpan.FromMinutes(5)));
+});
+
+builder.Services.AddMemoryCache();
 
 // ═══════════════════════════════════════════
 //  CONTROLLERS + SIGNALR + SWAGGER
@@ -138,58 +176,69 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 // ═══════════════════════════════════════════
-//  DEPENDENCY INJECTION (Repositories + Services)
+//  DEPENDENCY INJECTION
 // ═══════════════════════════════════════════
 builder.Services.AddScoped<IPingRepository, PingRepository>();
 builder.Services.AddScoped<IPostRepository, PostRepository>();
 builder.Services.AddScoped<IEmailService, SmtpEmailService>();
 builder.Services.AddSingleton<IGeminiService, GeminiService>();
+builder.Services.AddSingleton<ITokenBlacklistService, TokenBlacklistService>();
 
 // ═══════════════════════════════════════════
-//  BUILD APP
+//  HANGFIRE
 // ═══════════════════════════════════════════
+builder.Services.AddHangfire(config => config.UseMemoryStorage());
+builder.Services.AddHangfireServer();
+
 var app = builder.Build();
 
-// Development
 if (app.Environment.IsDevelopment())
 {
-    // Auto-kill zombie dotnet processes occupying our port from previous runs
     FreeDevelopmentPort(5164);
-
     app.UseSwagger();
     app.UseSwaggerUI();
 }
 
-// Middleware pipeline
+// ═══════════════════════════════════════════
+//  MIDDLEWARE PIPELINE
+// ═══════════════════════════════════════════
+app.UseResponseCompression();
+app.UseOutputCache();
 app.UseGlobalExceptionHandler();
 app.UseHttpsRedirection();
+app.Use(async (context, next) =>
+{
+    context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+    context.Response.Headers["X-Frame-Options"] = "DENY";
+    context.Response.Headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';";
+    context.Response.Headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains";
+    await next();
+});
+app.UseMiddleware<RateLimitingMiddleware>();
 app.UseCors("AllowFrontend");
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseSerilogRequestLogging();
 
-// Map controllers
 app.MapControllers();
-
-// SignalR hubs
 app.MapHub<SOSAlertHub>("/hubs/sos-alerts");
+app.MapHangfireDashboard("/hangfire", new Hangfire.DashboardOptions
+{
+    Authorization = Array.Empty<Hangfire.Dashboard.IDashboardAuthorizationFilter>()
+}).RequireAuthorization("RequireAdmin");
 
 app.Run();
 
-// ═══════════════════════════════════════════
-//  DEV UTILITY: Auto-free port from zombie processes
-// ═══════════════════════════════════════════
 static void FreeDevelopmentPort(int port)
 {
-    // Quick check: try binding to see if port is free
     try
     {
         using var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, port);
         listener.Start();
         listener.Stop();
-        return; // Port is free — nothing to do
+        return;
     }
-    catch (System.Net.Sockets.SocketException) { /* Port occupied — proceed to kill */ }
+    catch (System.Net.Sockets.SocketException) { }
 
     try
     {
@@ -211,9 +260,7 @@ static void FreeDevelopmentPort(int port)
             if (line.Contains($":{port}") && line.Contains("LISTENING"))
             {
                 var parts = line.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
-                if (parts.Length > 0
-                    && int.TryParse(parts[^1], out var pid)
-                    && pid != Environment.ProcessId)
+                if (parts.Length > 0 && int.TryParse(parts[^1], out var pid) && pid != Environment.ProcessId)
                 {
                     try
                     {
@@ -223,8 +270,8 @@ static void FreeDevelopmentPort(int port)
                         target.Kill(entireProcessTree: true);
                         target.WaitForExit(5000);
                     }
-                    catch (ArgumentException) { /* Process already exited */ }
-                    Thread.Sleep(500); // Let OS release the socket
+                    catch (ArgumentException) { }
+                    Thread.Sleep(500);
                 }
             }
         }

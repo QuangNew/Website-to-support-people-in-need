@@ -1,6 +1,8 @@
 using System.Security.Claims;
+using Ganss.Xss;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.EntityFrameworkCore;
 using ReliefConnect.Core.DTOs;
 using ReliefConnect.Core.Entities;
@@ -16,17 +18,20 @@ public class PostController : ControllerBase
 {
     private readonly IPostRepository _postRepo;
     private readonly AppDbContext _db;
+    private readonly HtmlSanitizer _sanitizer;
 
     public PostController(IPostRepository postRepo, AppDbContext db)
     {
         _postRepo = postRepo;
         _db = db;
+        _sanitizer = new HtmlSanitizer();
     }
 
     private string? GetUserId() => User.FindFirstValue(ClaimTypes.NameIdentifier);
 
     // GET /api/social/posts?cursor=&limit=10&category=
     [HttpGet("posts")]
+    [OutputCache(PolicyName = "Posts2min")]
     public async Task<IActionResult> GetPosts([FromQuery] string? cursor, [FromQuery] int limit = 10, [FromQuery] string? category = null)
     {
         if (limit < 1) limit = 1;
@@ -81,7 +86,7 @@ public class PostController : ControllerBase
 
         var post = new Post
         {
-            Content = dto.Content,
+            Content = _sanitizer.Sanitize(dto.Content),
             Category = category,
             CategoryId = tagId,
             ImageUrl = dto.ImageUrl,
@@ -206,7 +211,7 @@ public class PostController : ControllerBase
 
         var comment = new Comment
         {
-            Content = dto.Content,
+            Content = _sanitizer.Sanitize(dto.Content),
             PostId = postId,
             UserId = userId,
             CreatedAt = DateTime.UtcNow

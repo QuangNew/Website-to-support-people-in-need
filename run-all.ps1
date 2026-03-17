@@ -16,7 +16,7 @@ if (-not (Test-Path $apiPath)) {
     throw "Khong tim thay thu muc backend: $apiPath"
 }
 
-$requiredCommands = @('node', 'npm', 'dotnet')
+$requiredCommands = @('node', 'pnpm', 'dotnet')
 foreach ($cmd in $requiredCommands) {
     if (-not (Get-Command $cmd -ErrorAction SilentlyContinue)) {
         throw "Thieu lenh '$cmd'. Vui long cai dat truoc khi chay script."
@@ -24,10 +24,10 @@ foreach ($cmd in $requiredCommands) {
 }
 
 if ($Install) {
-    Write-Host '[1/2] Cai dependencies frontend (npm install)...' -ForegroundColor Cyan
+    Write-Host '[1/2] Cai dependencies frontend (pnpm install)...' -ForegroundColor Cyan
     Push-Location $clientPath
     try {
-        npm install
+        pnpm install
     }
     finally {
         Pop-Location
@@ -54,7 +54,7 @@ Write-Host 'Khoi dong frontend: http://localhost:5173' -ForegroundColor Green
 Start-Process powershell -WorkingDirectory $clientPath -ArgumentList @(
     '-NoExit',
     '-Command',
-    'if (-not (Test-Path ''.\node_modules'')) { npm install }; npm run dev'
+    'if (-not (Test-Path ''.\node_modules'')) { pnpm install }; pnpm dev'
 )
 
 Write-Host 'Da mo 2 terminal rieng cho backend/frontend.' -ForegroundColor Yellow

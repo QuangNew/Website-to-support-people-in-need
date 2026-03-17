@@ -24,7 +24,7 @@ public class GeminiService : IGeminiService
 
     public GeminiService(IConfiguration config, ILogger<GeminiService> logger)
     {
-        _http = new HttpClient();
+        _http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
         _apiKey = config["Gemini:ApiKey"] ?? throw new InvalidOperationException("Gemini:ApiKey not configured");
         _model = config["Gemini:Model"] ?? "gemini-2.0-flash";
         _logger = logger;
@@ -34,7 +34,7 @@ public class GeminiService : IGeminiService
         string userMessage,
         IEnumerable<(string Role, string Content)>? conversationHistory = null)
     {
-        var url = $"https://generativelanguage.googleapis.com/v1beta/models/{_model}:generateContent?key={_apiKey}";
+        var url = $"https://generativelanguage.googleapis.com/v1beta/models/{_model}:generateContent";
 
         var contents = new List<object>();
 
@@ -89,7 +89,11 @@ public class GeminiService : IGeminiService
 
         try
         {
-            var response = await _http.PostAsJsonAsync(url, requestBody);
+            var request = new HttpRequestMessage(HttpMethod.Post, url);
+            request.Headers.Add("x-goog-api-key", _apiKey);
+            request.Content = JsonContent.Create(requestBody);
+
+            var response = await _http.SendAsync(request);
             var json = await response.Content.ReadAsStringAsync();
 
             if (!response.IsSuccessStatusCode)

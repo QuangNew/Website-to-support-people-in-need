@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.OutputCaching;
 using ReliefConnect.Core.DTOs;
 using ReliefConnect.Core.Entities;
 using ReliefConnect.Core.Enums;
@@ -39,6 +40,7 @@ public class MapController : ControllerBase
     /// Public endpoint — guests can view the map.
     /// </summary>
     [HttpGet("pings")]
+    [OutputCache(PolicyName = "MapData30s")]
     public async Task<ActionResult<IEnumerable<PingResponseDto>>> GetPings(
         [FromQuery] double? lat,
         [FromQuery] double? lng,

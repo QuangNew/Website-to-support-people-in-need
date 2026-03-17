@@ -37,7 +37,8 @@ export default function MapShell() {
   useEffect(() => {
     fetchPings();
     fetchZones();
-  }, [fetchPings, fetchZones]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const PanelComponent = activePanel ? PANEL_COMPONENTS[activePanel] : null;
 

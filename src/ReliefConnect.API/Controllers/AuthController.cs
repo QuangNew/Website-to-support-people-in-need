@@ -1,7 +1,9 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text;
 using Google.Apis.Auth;
+using Hangfire;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -22,19 +24,22 @@ public class AuthController : ControllerBase
     private readonly IConfiguration _config;
     private readonly ILogger<AuthController> _logger;
     private readonly IEmailService _emailService;
+    private readonly ITokenBlacklistService _tokenBlacklist;
 
     public AuthController(
         UserManager<ApplicationUser> userManager,
         SignInManager<ApplicationUser> signInManager,
         IConfiguration config,
         ILogger<AuthController> logger,
-        IEmailService emailService)
+        IEmailService emailService,
+        ITokenBlacklistService tokenBlacklist)
     {
         _userManager = userManager;
         _signInManager = signInManager;
         _config = config;
         _logger = logger;
         _emailService = emailService;
+        _tokenBlacklist = tokenBlacklist;
     }
 
     // ═══════════════════════════════════════════
@@ -79,14 +84,7 @@ public class AuthController : ControllerBase
         }
 
         // Send verification email
-        try
-        {
-            await _emailService.SendVerificationCodeAsync(dto.Email, verificationCode);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to send verification email to {Email}", dto.Email);
-        }
+        BackgroundJob.Enqueue<IEmailService>(x => x.SendVerificationCodeAsync(dto.Email, verificationCode));
 
         _logger.LogInformation("User registered: {Username} ({Email}) — verification code sent", dto.Username, dto.Email);
 
@@ -123,7 +121,10 @@ public class AuthController : ControllerBase
         if (user.EmailConfirmed)
             return Ok(new { message = "Email đã được xác nhận trước đó." });
 
-        if (user.EmailVerificationCode != dto.Code)
+        if (user.EmailVerificationCode == null ||
+            !CryptographicOperations.FixedTimeEquals(
+                Encoding.UTF8.GetBytes(user.EmailVerificationCode.PadRight(10)),
+                Encoding.UTF8.GetBytes(dto.Code.PadRight(10))))
             return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Mã xác nhận không đúng." });
 
         if (user.EmailVerificationCodeExpiry.HasValue && user.EmailVerificationCodeExpiry < DateTime.UtcNow)
@@ -160,15 +161,7 @@ public class AuthController : ControllerBase
         user.EmailVerificationCodeExpiry = DateTime.UtcNow.AddMinutes(15);
         await _userManager.UpdateAsync(user);
 
-        try
-        {
-            await _emailService.SendVerificationCodeAsync(user.Email!, code);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to resend verification email to {Email}", user.Email);
-            return StatusCode(500, new ApiErrorResponse { StatusCode = 500, Message = "Không thể gửi email. Vui lòng thử lại." });
-        }
+        BackgroundJob.Enqueue<IEmailService>(x => x.SendVerificationCodeAsync(user.Email!, code));
 
         return Ok(new { message = "Mã xác nhận mới đã được gửi." });
     }
@@ -308,6 +301,32 @@ public class AuthController : ControllerBase
             EmailVerified = user.EmailConfirmed,
             ExpiresAt = token.ExpiresAt
         });
+    }
+
+    // ═══════════════════════════════════════════
+    //  LOGOUT
+    // ═══════════════════════════════════════════
+
+    /// <summary>
+    /// Logout and blacklist the current token.
+    /// </summary>
+    [HttpPost("logout")]
+    [Authorize]
+    public async Task<ActionResult> Logout()
+    {
+        var jti = User.FindFirstValue(JwtRegisteredClaimNames.Jti);
+        var exp = User.FindFirstValue(JwtRegisteredClaimNames.Exp);
+
+        if (jti != null && exp != null && long.TryParse(exp, out var expUnix))
+        {
+            var expiry = DateTimeOffset.FromUnixTimeSeconds(expUnix).UtcDateTime;
+            _tokenBlacklist.BlacklistToken(jti, expiry);
+        }
+
+        await _signInManager.SignOutAsync();
+        _logger.LogInformation("User logged out: {Username}", User.Identity?.Name);
+
+        return Ok(new { message = "Đăng xuất thành công." });
     }
 
     // ═══════════════════════════════════════════

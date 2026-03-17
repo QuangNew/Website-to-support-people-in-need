@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find . -name .cursorrules -o -name .cursor -type d -o -path */.github/copilot-instructions.md)",
+      "Bash(dotnet build:*)"
+    ]
+  }
+}

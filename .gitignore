@@ -499,6 +499,8 @@ client/.env
 client/.env.local
 client/.env.*.local
 *.tsbuildinfo
+package-lock.json
+client/package-lock.json
 
 # ═══════════════════════════════════════════
 # AI Agent / IDE configs (not needed in repo)

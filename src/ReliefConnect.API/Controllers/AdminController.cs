@@ -2,10 +2,12 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.EntityFrameworkCore;
 using ReliefConnect.Core.DTOs;
 using ReliefConnect.Core.Entities;
 using ReliefConnect.Core.Enums;
+using ReliefConnect.Core.Interfaces;
 using ReliefConnect.Infrastructure.Data;
 
 namespace ReliefConnect.API.Controllers;
@@ -22,15 +24,18 @@ public class AdminController : ControllerBase
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly AppDbContext _db;
     private readonly ILogger<AdminController> _logger;
+    private readonly ITokenBlacklistService _tokenBlacklist;
 
     public AdminController(
         UserManager<ApplicationUser> userManager,
         AppDbContext db,
-        ILogger<AdminController> logger)
+        ILogger<AdminController> logger,
+        ITokenBlacklistService tokenBlacklist)
     {
         _userManager = userManager;
         _db = db;
         _logger = logger;
+        _tokenBlacklist = tokenBlacklist;
     }
 
     // ═══════════════════════════════════════════
@@ -48,7 +53,7 @@ public class AdminController : ControllerBase
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20)
     {
-        var query = _userManager.Users.AsQueryable();
+        var query = _userManager.Users.AsNoTracking().AsQueryable();
 
         // Search by name, email, or username
         if (!string.IsNullOrWhiteSpace(search))
@@ -126,6 +131,9 @@ public class AdminController : ControllerBase
         user.VerificationReason = null;
         await _userManager.UpdateAsync(user);
 
+        // Note: User must re-login to get new role claims in token
+        // Existing tokens will have old role until expiry
+
         // Audit log
         await LogAction("RoleApproved", $"User {user.UserName}: {oldRole} → {newRole}");
 
@@ -145,6 +153,7 @@ public class AdminController : ControllerBase
     public async Task<ActionResult> GetPendingVerifications()
     {
         var pending = await _userManager.Users
+            .AsNoTracking()
             .Where(u => u.VerificationStatus == VerificationStatus.Pending)
             .OrderBy(u => u.CreatedAt)
             .Select(u => new AdminUserDto
@@ -199,13 +208,19 @@ public class AdminController : ControllerBase
     {
         var post = await _db.Posts
             .Include(p => p.Author)
+            .AsNoTracking()
             .FirstOrDefaultAsync(p => p.Id == postId);
 
         if (post == null) return NotFound(new ApiErrorResponse { StatusCode = 404, Message = "Bài viết không tồn tại." });
 
         var authorName = post.Author?.UserName ?? "unknown";
-        _db.Posts.Remove(post);
-        await _db.SaveChangesAsync();
+
+        var postToDelete = await _db.Posts.FindAsync(postId);
+        if (postToDelete != null)
+        {
+            _db.Posts.Remove(postToDelete);
+            await _db.SaveChangesAsync();
+        }
 
         await LogAction("PostDeleted", $"Deleted post #{postId} by {authorName}");
         _logger.LogInformation("Admin deleted post #{PostId} by {Author}", postId, authorName);
@@ -221,9 +236,10 @@ public class AdminController : ControllerBase
     /// Get system-wide statistics for the admin dashboard.
     /// </summary>
     [HttpGet("stats")]
+    [OutputCache(PolicyName = "Static5min")]
     public async Task<ActionResult<SystemStatsDto>> GetStats()
     {
-        var users = _userManager.Users;
+        var users = _userManager.Users.AsNoTracking();
 
         var stats = new SystemStatsDto
         {
@@ -257,7 +273,7 @@ public class AdminController : ControllerBase
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 50)
     {
-        var query = _db.SystemLogs.AsQueryable();
+        var query = _db.SystemLogs.AsNoTracking().AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(action))
             query = query.Where(l => l.Action.Contains(action));

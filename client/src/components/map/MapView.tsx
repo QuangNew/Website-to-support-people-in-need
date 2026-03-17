@@ -84,10 +84,10 @@ export default function MapView() {
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [errorMsg, setErrorMsg] = useState('');
 
-  const filteredPings = useMemo(
-    () => pings.filter((p) => activeFilters.includes(p.type)),
-    [pings, activeFilters],
-  );
+  const filteredPings = useMemo(() => {
+    const filterSet = new Set(activeFilters);
+    return pings.filter((p) => filterSet.has(p.type));
+  }, [pings, activeFilters]);
 
   // ─── Initialize map (once) ───
   useEffect(() => {
@@ -128,11 +128,13 @@ export default function MapView() {
 
       // Create marker cluster group
       const clusterGroup = L.markerClusterGroup({
-        maxClusterRadius: 50,
+        maxClusterRadius: 60,
         spiderfyOnMaxZoom: true,
         showCoverageOnHover: false,
         zoomToBoundsOnClick: true,
-        disableClusteringAtZoom: 16,
+        disableClusteringAtZoom: 15,
+        spiderfyDistanceMultiplier: 1.5,
+        chunkedLoading: true,
       });
       map.addLayer(clusterGroup);
       clusterGroupRef.current = clusterGroup;
@@ -219,8 +221,13 @@ export default function MapView() {
     const activeIds = new Set(filteredPings.map((p) => p.id));
 
     // Remove stale markers
-    for (const [id, marker] of cur) {
-      if (!activeIds.has(id)) {
+    const toRemove: string[] = [];
+    for (const [id] of cur) {
+      if (!activeIds.has(id)) toRemove.push(id);
+    }
+    for (const id of toRemove) {
+      const marker = cur.get(id);
+      if (marker) {
         clusterGroup.removeLayer(marker);
         cur.delete(id);
       }
