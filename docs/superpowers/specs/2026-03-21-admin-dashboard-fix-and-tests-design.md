@@ -1,17 +1,18 @@
 # Admin Dashboard — Fix, Performance & Playwright Tests
 **Date:** 2026-03-21
-**Status:** Approved
+**Status:** Approved (v2 — post spec-review)
 **Scope:** Backend performance fixes, frontend hardening, new admin posts endpoint, Playwright test suite
 
 ---
 
 ## Problem Statement
 
-1. `GET /api/admin/stats` takes **~14 seconds** due to 10 sequential `COUNT` queries fired one after another against Supabase (remote PostgreSQL). `OutputCache` with policy `Static5min` is ineffective for authenticated requests because ASP.NET Core skips output caching when an `Authorization` header is present unless explicitly configured to vary by it.
-2. `UsersPanel` search runs `ToLower().Contains()` as a client-side EF expression, causing full-table loads in some EF providers.
-3. `PostsPanel` calls the public `socialApi.getPosts` endpoint, which is subject to the `Posts2min` output cache and lacks admin-specific filtering and pagination.
-4. `StatsPanel` shows a spinner forever on fetch failure — no error state, no retry.
-5. No Playwright tests exist for the admin dashboard (API or E2E).
+1. `GET /api/admin/stats` takes **~14 seconds** due to 10 sequential `COUNT` queries fired one after another against Supabase (remote PostgreSQL).
+2. `[OutputCache(PolicyName = "Static5min")]` is ineffective for authenticated requests — ASP.NET Core skips output caching when an `Authorization` header is present unless a fixed cache key is explicitly set.
+3. `UsersPanel` search runs `ToLower().Contains()` evaluated client-side by EF, causing full-table loads.
+4. `PostsPanel` calls the public `socialApi.getPosts` endpoint, subject to the `Posts2min` output cache and lacking admin-specific pagination/filtering.
+5. `StatsPanel` shows a spinner forever on fetch failure — no error state, no retry.
+6. No Playwright tests exist for the admin dashboard (API or E2E).
 
 ---
 
@@ -21,90 +22,98 @@ No new projects or major structural changes. All fixes are targeted edits within
 
 ```
 src/ReliefConnect.API/
-  Controllers/AdminController.cs     ← parallel counts, new admin posts endpoint
-  Program.cs                         ← fix OutputCache policy for authenticated requests
+  Controllers/AdminController.cs     ← single-query stats, new admin posts endpoint, ILike search
+  Program.cs                         ← fix OutputCache: use IMemoryCache with fixed key for stats
 
 src/ReliefConnect.Infrastructure/
   Data/Migrations/                   ← new migration: index on SystemLogs(Action, CreatedAt)
 
 client/src/
-  pages/AdminPage.tsx                ← StatsPanel error/skeleton, PostsPanel → adminApi
+  pages/AdminPage.tsx                ← StatsPanel skeleton/error, PostsPanel switch, PostItem type
   services/api.ts                    ← add adminApi.getPosts
 
 tests/
   admin.spec.ts                      ← new: 12 tests (API + E2E)
-  fixtures/adminAuth.ts              ← new: shared admin JWT fixture
+  fixtures/adminAuth.ts              ← new: shared admin JWT + page fixture
 ```
 
 ---
 
 ## Backend Changes
 
-### 1. `GetStats` — Parallel Task.WhenAll
+### 1. `GetStats` — 3 GROUP BY queries (10 round-trips → 3)
 
-**File:** `AdminController.cs` — `GetStats()`
+**Why not `Task.WhenAll`:** EF Core's `DbContext` is not thread-safe. Concurrent `CountAsync()` calls on the same `_db` or `_userManager.Users` instance throw `InvalidOperationException: A second operation was started on this context instance`. This rules out `Task.WhenAll` with a shared context.
 
-Replace 10 sequential `await CountAsync()` calls with concurrent tasks:
+**Solution: 3 sequential `GroupBy` projections** — one per logical entity group. Each `ToListAsync()` fires a single `GROUP BY` SQL query, collapsing 10 round-trips into 3. No raw SQL, no thread-safety risk.
+
+**Implementation — 3 GROUP BY round-trips:**
 
 ```csharp
 [HttpGet("stats")]
-[OutputCache(PolicyName = "Static5min")]
-public async Task<ActionResult<SystemStatsDto>> GetStats()
+public async Task<ActionResult<SystemStatsDto>> GetStats(
+    [FromServices] IMemoryCache cache)
 {
-    var users = _userManager.Users.AsNoTracking();
+    if (cache.TryGetValue("admin:stats", out SystemStatsDto? cached) && cached != null)
+        return Ok(cached);
 
-    var t1  = users.CountAsync();
-    var t2  = users.CountAsync(u => u.Role == RoleEnum.PersonInNeed);
-    var t3  = users.CountAsync(u => u.Role == RoleEnum.Sponsor);
-    var t4  = users.CountAsync(u => u.Role == RoleEnum.Volunteer);
-    var t5  = _db.Pings.CountAsync(p => p.Type == MapItemType.SOS && p.Status == SOSStatus.Pending);
-    var t6  = _db.Pings.CountAsync(p => p.Status == SOSStatus.Resolved);
-    var t7  = _db.Posts.CountAsync();
-    var t8  = _db.Posts.CountAsync(p => p.Category == PostCategory.Livelihood);
-    var t9  = _db.Posts.CountAsync(p => p.Category == PostCategory.Medical);
-    var t10 = _db.Posts.CountAsync(p => p.Category == PostCategory.Education);
+    // Round-trip 1: user role breakdown
+    var userCounts = await _userManager.Users
+        .AsNoTracking()
+        .GroupBy(u => u.Role)
+        .Select(g => new { Role = g.Key, Count = g.Count() })
+        .ToListAsync();
 
-    await Task.WhenAll(t1, t2, t3, t4, t5, t6, t7, t8, t9, t10);
+    // Round-trip 2: ping status breakdown (SOS pings only)
+    var pingCounts = await _db.Pings
+        .AsNoTracking()
+        .Where(p => p.Type == MapItemType.SOS)
+        .GroupBy(p => p.Status)
+        .Select(g => new { Status = g.Key, Count = g.Count() })
+        .ToListAsync();
 
-    return Ok(new SystemStatsDto
+    // Round-trip 3: post category breakdown
+    var postCounts = await _db.Posts
+        .AsNoTracking()
+        .GroupBy(p => p.Category)
+        .Select(g => new { Category = g.Key, Count = g.Count() })
+        .ToListAsync();
+
+    // Local helpers — typed to match the anonymous projections above (no dynamic)
+    int UserCount(RoleEnum role)       => userCounts.FirstOrDefault(x => x.Role == role)?.Count ?? 0;
+    int PingCount(SOSStatus status)    => pingCounts.FirstOrDefault(x => x.Status == status)?.Count ?? 0;
+    int PostCount(PostCategory cat)    => postCounts.FirstOrDefault(x => x.Category == cat)?.Count ?? 0;
+
+    var stats = new SystemStatsDto
     {
-        TotalUsers             = t1.Result,
-        TotalPersonsInNeed     = t2.Result,
-        TotalSponsors          = t3.Result,
-        TotalVolunteers        = t4.Result,
-        ActiveSOS              = t5.Result,
-        ResolvedCases          = t6.Result,
-        TotalPosts             = t7.Result,
-        TotalPostsLivelihood   = t8.Result,
-        TotalPostsMedical      = t9.Result,
-        TotalPostsEducation    = t10.Result,
-    });
+        TotalUsers           = userCounts.Sum(x => x.Count),
+        TotalPersonsInNeed   = UserCount(RoleEnum.PersonInNeed),
+        TotalSponsors        = UserCount(RoleEnum.Sponsor),
+        TotalVolunteers      = UserCount(RoleEnum.Volunteer),
+        ActiveSOS            = PingCount(SOSStatus.Pending),
+        ResolvedCases        = PingCount(SOSStatus.Resolved),
+        TotalPosts           = postCounts.Sum(x => x.Count),
+        TotalPostsLivelihood = PostCount(PostCategory.Livelihood),
+        TotalPostsMedical    = PostCount(PostCategory.Medical),
+        TotalPostsEducation  = PostCount(PostCategory.Education),
+    };
+
+    cache.Set("admin:stats", stats, TimeSpan.FromMinutes(5));
+    return Ok(stats);
 }
 ```
 
-**Expected result:** 14s → ~150ms (single DB round-trip latency instead of 10 serial).
+**Expected result:** 10 sequential round-trips (~14s) → 3 round-trips (~450ms on remote Supabase). No thread-safety risk. No raw SQL.
 
-### 2. OutputCache — Fix for Authenticated Requests
+Remove `[OutputCache(PolicyName = "Static5min")]` from this endpoint — caching is handled by `IMemoryCache` directly inside the action (cache read/write is included in the implementation above).
 
-**File:** `Program.cs` — `AddOutputCache` configuration
+`Program.cs` — no changes needed for OutputCache policies (leave `Static5min` for other uses, e.g. map data). Remove the `[OutputCache]` attribute from `GetStats` only.
 
-ASP.NET Core OutputCache skips responses when an `Authorization` header is present by default. Fix both affected policies:
-
-```csharp
-options.AddPolicy("Static5min", p => p
-    .Expire(TimeSpan.FromMinutes(5))
-    .SetVaryByHeader("Authorization"));
-
-options.AddPolicy("Posts2min", p => p
-    .Expire(TimeSpan.FromMinutes(2))
-    .SetVaryByHeader("Authorization"));
-```
-
-### 3. Users Panel — Postgres ILike Search
+### 2. Users Panel — Postgres ILike Search
 
 **File:** `AdminController.cs` — `GetUsers()`
 
-Replace client-evaluated `.ToLower().Contains()` with `EF.Functions.ILike` to push the filter to the DB:
+Replace client-evaluated `.ToLower().Contains()` with `EF.Functions.ILike`:
 
 ```csharp
 if (!string.IsNullOrWhiteSpace(search))
@@ -125,53 +134,127 @@ if (!string.IsNullOrWhiteSpace(search))
 GET /api/admin/posts?page=1&pageSize=20&category=
 ```
 
-- Returns posts with author name, content snippet, category, created date
-- Supports `category` filter (Livelihood / Medical / Education / empty = all)
-- Paginated (page + pageSize), ordered by `CreatedAt DESC`
+- Protected by `RequireAdmin` (controller-level)
 - No output cache (admin needs fresh data for moderation)
-- Protected by `RequireAdmin` policy (inherited from controller)
+- `category` param: optional, validated against `PostCategory` enum — returns 400 if invalid value provided
+- Response shape:
 
-Response shape:
 ```json
-{ "items": [...], "total": 42, "page": 1, "pageSize": 20, "totalPages": 3 }
+{
+  "items": [
+    {
+      "id": 1,
+      "content": "First 200 chars...",
+      "category": "Livelihood",
+      "authorId": "abc123",
+      "authorName": "Nguyen Van A",
+      "createdAt": "2026-03-20T10:00:00Z"
+    }
+  ],
+  "total": 42,
+  "page": 1,
+  "pageSize": 20,
+  "totalPages": 3
+}
 ```
 
-### 5. SystemLogs Index Migration
+A new `AdminPostDto` is added to `DTOs.cs` with exactly these fields (not reusing `PostResponseDto` which carries reaction counts, comment counts, and image URLs not needed here). The `content` field is truncated to 200 chars **in the EF `.Select()` projection** on the server:
 
-**File:** New EF Core migration
+```csharp
+Content = p.Content.Length > 200 ? p.Content[..200] : p.Content,
+```
+
+### 5. GetLogs — Fix Filter Semantics
+
+**File:** `AdminController.cs` — `GetLogs()`
+
+Change `l.Action.Contains(action)` → `l.Action == action` for exact-match filtering. This aligns with the dropdown UI in `LogsPanel` (which sends exact values like `"Login"`, `"Register"`) and makes test assertions unambiguous.
+
+Also add `totalPages` to the response for consistency with all other paginated endpoints:
+
+```csharp
+return Ok(new { items = logs, total, page, pageSize,
+    totalPages = (int)Math.Ceiling(total / (double)pageSize) });
+```
+
+### 6. SystemLogs Index Migration
+
+New EF Core migration:
 
 ```csharp
 migrationBuilder.CreateIndex(
-    name: "IX_SystemLogs_Action_CreatedAt",
+    name: "IX_SystemLogs_CreatedAt",
     table: "SystemLogs",
-    columns: new[] { "Action", "CreatedAt" },
-    descending: new[] { false, true });
+    column: "CreatedAt",
+    descending: new[] { true });
 ```
+
+Note: Index is on `CreatedAt DESC` only (not `Action`) because `Action` is filtered with `==` which can use a B-tree index, but the primary query bottleneck is the `ORDER BY CreatedAt DESC` + date-range scan. A composite index `(Action, CreatedAt DESC)` would be ideal once `Action` is indexed — adding it as a separate follow-up is acceptable; this migration targets the critical path.
 
 ---
 
 ## Frontend Changes
 
-### 6. StatsPanel — Skeleton + Error State
+### 7. StatsPanel — Skeleton + Error State
 
 **File:** `AdminPage.tsx` — `StatsPanel` component
 
-Current: spinner forever on failure. New states:
-- **Loading:** render skeleton cards (pulsing `div` placeholders matching the stat-card grid) — no layout shift when data arrives
-- **Error:** show error message + `RefreshCw` retry button that re-triggers the fetch
-- **Success:** existing card grid (unchanged)
+State shape:
+```ts
+const [stats, setStats] = useState<Stats | null>(null);
+const [loading, setLoading] = useState(true);
+const [error, setError] = useState(false);
+```
 
-Remove the `// eslint-disable-next-line react-hooks/exhaustive-deps` comment and add `t` to the `useEffect` dep array.
+Render logic order (important — check `error` before `!stats`):
+```tsx
+if (loading) return <SkeletonStatsGrid />;    // pulsing placeholder cards
+if (error)   return <ErrorRetry onRetry={load} />;
+if (!stats)  return null;
+return <StatsCards stats={stats} />;
+```
 
-### 7. PostsPanel — Switch to Admin Endpoint
+`SkeletonStatsGrid`: renders 10 `admin-stat-card glass-card` divs with a pulsing `animate-pulse` style — same grid layout as real cards, no layout shift.
 
-**File:** `AdminPage.tsx` — `PostsPanel` component
-**File:** `client/src/services/api.ts` — `adminApi`
+`ErrorRetry`: renders an error message + `<RefreshCw>` retry button that calls `load()`.
 
-- Add `adminApi.getPosts(params)` → `GET /api/admin/posts`
-- `PostsPanel` calls `adminApi.getPosts` instead of `socialApi.getPosts`
-- Add category filter dropdown
-- Add pagination controls (matching `UsersPanel` pattern)
+Remove `// eslint-disable-next-line react-hooks/exhaustive-deps` and add `t` to the `useEffect` dep array.
+
+### 8. PostsPanel — Switch to Admin Endpoint + TypeScript Types
+
+**File:** `AdminPage.tsx`
+
+Update `PostItem` interface:
+```ts
+interface PostItem {
+  id: number;
+  content: string;
+  category: string;
+  authorId: string;
+  authorName: string;
+  createdAt: string;
+}
+
+interface PostsResponse {
+  items: PostItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+```
+
+`PostsPanel` changes:
+- Call `adminApi.getPosts({ page, pageSize: 20, category: categoryFilter || undefined })`
+- Add `categoryFilter` state (empty string = all)
+- Add category dropdown and pagination controls (matching `UsersPanel` pattern)
+
+**File:** `client/src/services/api.ts`
+
+```ts
+getPosts: (params?: { page?: number; pageSize?: number; category?: string }) =>
+  api.get('/admin/posts', { params }),
+```
 
 ---
 
@@ -179,11 +262,40 @@ Remove the `// eslint-disable-next-line react-hooks/exhaustive-deps` comment and
 
 ### Fixture: `tests/fixtures/adminAuth.ts`
 
-Logs in once per worker via `POST /api/auth/login` with admin credentials. Exposes:
-- `adminToken: string` — for API (`request`) tests
-- `adminPage: Page` — browser navigated to `/admin` with token in `localStorage`
+Uses Playwright's `test.extend` pattern:
 
-Credentials read from environment: `ADMIN_EMAIL` / `ADMIN_PASSWORD` (defaults to `admin_test@reliefconnect.vn` / `Admin@123`).
+```ts
+import { test as base, expect, Page } from '@playwright/test';
+
+type AdminFixtures = {
+  adminToken: string;
+  adminPage: Page;
+};
+
+export const test = base.extend<AdminFixtures>({
+  adminToken: async ({ request }, use) => {
+    const email = process.env.ADMIN_EMAIL ?? 'admin_test@reliefconnect.vn';
+    const password = process.env.ADMIN_PASSWORD ?? 'Admin@123';
+    const res = await request.post('http://127.0.0.1:5164/api/auth/login',
+      { data: { email, password } });
+    const data = await res.json();
+    await use(data.token ?? '');
+  },
+
+  adminPage: async ({ page, adminToken }, use) => {
+    await page.goto('/');
+    await page.evaluate((tok) => localStorage.setItem('token', tok), adminToken);
+    await page.goto('/admin');
+    await page.waitForSelector('.admin-sidebar', { timeout: 10000 });
+    await use(page);
+    // No token refresh — tests are short-lived relative to JWT expiry (60 min default)
+  },
+});
+
+export { expect };
+```
+
+Credentials are read from `ADMIN_EMAIL` / `ADMIN_PASSWORD` env vars. If absent, defaults to `admin_test@reliefconnect.vn` / `Admin@123`. If login returns a non-200, `adminToken` is empty string and all tests using it will fail fast with a clear auth error.
 
 ### Tests: `tests/admin.spec.ts`
 
@@ -191,50 +303,34 @@ Credentials read from environment: `ADMIN_EMAIL` / `ADMIN_PASSWORD` (defaults to
 
 | # | Test | Assertion |
 |---|---|---|
-| 1 | `GET /api/admin/stats` returns 200 | status 200, all 10 fields present |
-| 2 | `GET /api/admin/stats` responds fast | duration < 2000ms |
-| 3 | `GET /api/admin/users` returns paginated shape | `items`, `total`, `page`, `pageSize`, `totalPages` present |
-| 4 | `GET /api/admin/users?search=` filters results | response count ≤ unfiltered count |
-| 5 | `GET /api/admin/logs` returns paginated shape | `items`, `total` present |
-| 6 | `GET /api/admin/logs?action=Login` returns only Login entries | every item has `action === "Login"` |
+| 1 | `GET /api/admin/stats` returns 200 | status 200; response has all 10 fields: `totalUsers`, `totalPersonsInNeed`, `totalSponsors`, `totalVolunteers`, `activeSOS`, `resolvedCases`, `totalPosts`, `totalPostsLivelihood`, `totalPostsMedical`, `totalPostsEducation` |
+| 2 | `GET /api/admin/stats` responds fast | wall-clock duration recorded before/after request < 2000ms |
+| 3 | `GET /api/admin/users` returns paginated shape | `items` is array, `total` ≥ 0, `page` === 1, `pageSize` present, `totalPages` ≥ 1 |
+| 4 | `GET /api/admin/users?search=a` filters correctly | every returned `item.fullName + item.email + item.userName` (concatenated, lowercased) contains `"a"` — not just count ≤ total |
+| 5 | `GET /api/admin/logs` returns paginated shape | `items` is array, `total` ≥ 0, `totalPages` present |
+| 6 | `GET /api/admin/logs?action=Login` returns only Login entries | every returned `item.action === "Login"` (exact match, since backend now uses `==`) |
 
-**E2E tests (browser):**
+**E2E tests (browser via `adminPage` fixture):**
 
-| # | Test | Steps |
+| # | Test | Steps & Assertions |
 |---|---|---|
-| 7 | Stats panel renders all stat cards | navigate `/admin`, click Stats tab, expect 10 stat cards visible |
-| 8 | Stats cards show non-negative numbers | all `.admin-stat-card__value` parse as integers ≥ 0 |
-| 9 | Users panel loads rows + pagination | click Users tab, expect at least 1 table row, pagination controls visible |
-| 10 | Search filter narrows user list | type in search box, row count changes |
-| 11 | Posts panel loads with category filter | click Posts tab, select category, expect table refreshes |
-| 12 | Logs panel loads with date filter | click Logs tab, set from-date, expect filtered results |
+| 7 | Stats panel renders all 10 stat cards | click Stats tab → count of `.admin-stat-card` elements === 10 across both grids |
+| 8 | Stats cards show non-negative numbers | all `.admin-stat-card__value` text content parses to integer ≥ 0 |
+| 9 | Users panel loads rows + pagination | click Users tab → `tbody tr` count ≥ 1; if `totalPages > 1`, pagination buttons visible |
+| 10 | Search filter narrows user list | type `"a"` in search → `tbody tr` count changes; wait for debounce/reload |
+| 11 | Posts panel loads with category filter | click Posts tab → at least 1 row OR empty-state message; select "Livelihood" from category dropdown → table reloads |
+| 12 | Logs panel loads with date filter | click Logs tab → at least 1 row OR empty-state; set from-date to yesterday → table reloads without error |
 
-> **Approve/Reject flows** are intentionally omitted from E2E (they mutate real data). They are covered by manual QA and can be added later with a dedicated test-database fixture.
+> **Approve/Reject and Delete flows** are intentionally excluded from E2E — they mutate live data. They should be run against a seeded test database in a separate CI job.
 
 ---
 
 ## Error Handling
 
-- `GetStats` — if any individual `CountAsync` throws, `Task.WhenAll` will propagate the first exception; the global exception handler middleware returns 500. No partial-result scenario.
-- Frontend `StatsPanel` — catches the error in `.catch()`, sets `error` state, shows retry UI.
-- New admin posts endpoint — returns 400 if `category` value is not a valid `PostCategory` enum.
-
----
-
-## Testing Strategy
-
-| Layer | Coverage |
-|---|---|
-| API correctness | Tests 1, 3, 5 |
-| API performance | Test 2 (regression guard: fail if stats > 2s) |
-| API filter logic | Tests 4, 6 |
-| Frontend rendering | Tests 7, 8, 9, 11, 12 |
-| Frontend interactivity | Tests 10 (search), 12 (date filter) |
-
-Run with:
-```bash
-npx playwright test tests/admin.spec.ts
-```
+- `GetStats` — if any of the 3 `ToListAsync()` calls throws, the exception propagates to the global middleware handler → 500. `IMemoryCache` is not written on failure. Retry on next request will attempt fresh DB queries.
+- `PostsPanel` / `StatsPanel` — `.catch()` sets `error = true`, shows retry button.
+- New admin posts endpoint — returns 400 `{ message: "Invalid category" }` if `category` query param is provided but doesn't parse as `PostCategory`.
+- `GetLogs` with invalid `action` — no error, returns empty list (no matching exact values).
 
 ---
 
@@ -242,12 +338,12 @@ npx playwright test tests/admin.spec.ts
 
 | File | Change |
 |---|---|
-| `src/ReliefConnect.API/Controllers/AdminController.cs` | Parallel stats, ILike search, new posts endpoint |
-| `src/ReliefConnect.API/Program.cs` | OutputCache policy fix |
-| `src/ReliefConnect.Infrastructure/Data/Migrations/` | New migration for SystemLogs index |
-| `client/src/pages/AdminPage.tsx` | Skeleton/error state, PostsPanel switch |
+| `src/ReliefConnect.API/Controllers/AdminController.cs` | GROUP BY stats, IMemoryCache, ILike search, new posts endpoint, logs `==` fix + `totalPages` |
+| `src/ReliefConnect.Infrastructure/Data/Migrations/` | New migration: `IX_SystemLogs_CreatedAt` |
+| `client/src/pages/AdminPage.tsx` | StatsPanel skeleton/error, PostsPanel switch + pagination + types |
 | `client/src/services/api.ts` | `adminApi.getPosts` |
-| `tests/admin.spec.ts` | New test file |
-| `tests/fixtures/adminAuth.ts` | New shared fixture |
+| `src/ReliefConnect.Core/DTOs/DTOs.cs` | New `AdminPostDto` |
+| `tests/admin.spec.ts` | New: 12 tests |
+| `tests/fixtures/adminAuth.ts` | New: shared fixture |
 
 **Total new/modified files: 7**
