@@ -9,6 +9,7 @@ import ListPanel from '../panels/ListPanel';
 import SocialPanel from '../panels/SocialPanel';
 import ChatPanel from '../panels/ChatPanel';
 import ProfilePanel from '../panels/ProfilePanel';
+import VerificationPanel from '../panels/VerificationPanel';
 import LoginModal from '../auth/LoginModal';
 import RegisterModal from '../auth/RegisterModal';
 import ForgotPasswordModal from '../auth/ForgotPasswordModal';
@@ -22,6 +23,7 @@ const PANEL_COMPONENTS: Record<NonNullable<PanelType>, React.FC> = {
   social: SocialPanel,
   chat: ChatPanel,
   profile: ProfilePanel,
+  verify: VerificationPanel,
 };
 
 export default function MapShell() {

@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OutputCaching;
+using Microsoft.EntityFrameworkCore;
 using ReliefConnect.Core.DTOs;
 using ReliefConnect.Core.Entities;
 using ReliefConnect.Core.Enums;
@@ -50,11 +51,19 @@ public class MapController : ControllerBase
 
         if (lat.HasValue && lng.HasValue && radiusKm.HasValue)
         {
+            // Validate coordinates
+            if (lat.Value < -90 || lat.Value > 90 || lng.Value < -180 || lng.Value > 180)
+                return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Invalid coordinates." });
+
+            if (radiusKm.Value < 0 || radiusKm.Value > 10000)
+                return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Radius must be between 0 and 10000 km." });
+
             pings = await _pingRepo.GetPingsInRadiusAsync(lat.Value, lng.Value, radiusKm.Value);
         }
         else
         {
-            pings = await _pingRepo.GetAllAsync();
+            // Limit to 500 most recent pings for performance
+            pings = await _pingRepo.GetAllAsync(limit: 500);
         }
 
         var dtos = pings.Select(MapPingToDto);
@@ -89,8 +98,12 @@ public class MapController : ControllerBase
         if (string.IsNullOrEmpty(userId))
             return Unauthorized();
 
-        var user = await _userManager.FindByIdAsync(userId);
-        if (user == null)
+        // Lightweight user check — only fetch the name, not the full entity
+        var userName = await _userManager.Users
+            .Where(u => u.Id == userId)
+            .Select(u => u.FullName ?? u.UserName)
+            .FirstOrDefaultAsync();
+        if (userName == null)
             return Unauthorized();
 
         if (!Enum.TryParse<MapItemType>(dto.Type, true, out var mapType))
@@ -110,9 +123,22 @@ public class MapController : ControllerBase
         var created = await _pingRepo.AddAsync(ping);
         _logger.LogInformation("Ping created: Id={PingId}, Type={Type}, User={UserId}", created.Id, dto.Type, userId);
 
-        // Reload with includes
-        var full = await _pingRepo.GetPingWithFlagAsync(created.Id);
-        return CreatedAtAction(nameof(GetPingById), new { id = created.Id }, MapPingToDto(full!));
+        // Build DTO directly — avoid reload round-trip
+        var responseDto = new PingResponseDto
+        {
+            Id = created.Id,
+            Lat = created.CoordinatesLat,
+            Lng = created.CoordinatesLong,
+            Type = created.Type.ToString(),
+            Status = created.Status.ToString(),
+            PriorityLevel = created.PriorityLevel,
+            Details = created.Details,
+            CreatedAt = created.CreatedAt,
+            UserId = userId,
+            UserName = userName,
+            IsBlinking = false,
+        };
+        return CreatedAtAction(nameof(GetPingById), new { id = created.Id }, responseDto);
     }
 
     // ─────────────────────────────────────
@@ -125,7 +151,7 @@ public class MapController : ControllerBase
     [Authorize(Policy = "RequireVolunteer")]
     public async Task<ActionResult<PingResponseDto>> UpdatePingStatus(int id, [FromBody] UpdatePingStatusDto dto)
     {
-        var ping = await _pingRepo.GetPingWithFlagAsync(id);
+        var ping = await _pingRepo.GetPingWithFlagForUpdateAsync(id);
         if (ping == null)
             return NotFound(new ApiErrorResponse { StatusCode = 404, Message = "Không tìm thấy điểm cứu trợ." });
 
@@ -157,7 +183,7 @@ public class MapController : ControllerBase
     public async Task<ActionResult<PingResponseDto>> ConfirmSafe(int id)
     {
         var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-        var ping = await _pingRepo.GetPingWithFlagAsync(id);
+        var ping = await _pingRepo.GetPingWithFlagForUpdateAsync(id);
 
         if (ping == null)
             return NotFound(new ApiErrorResponse { StatusCode = 404, Message = "Không tìm thấy điểm cứu trợ." });

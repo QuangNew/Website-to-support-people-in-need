@@ -20,13 +20,17 @@ public class PostRepository : IPostRepository
         return await _context.Posts.AsNoTracking().FirstOrDefaultAsync(p => p.Id == id);
     }
 
-    public async Task<IEnumerable<Post>> GetAllAsync()
+    public async Task<IEnumerable<Post>> GetAllAsync(int? limit = null)
     {
-        return await _context.Posts
+        var query = _context.Posts
             .AsNoTracking()
             .Include(p => p.Author)
-            .OrderByDescending(p => p.CreatedAt)
-            .ToListAsync();
+            .OrderByDescending(p => p.CreatedAt);
+
+        if (limit.HasValue)
+            return await query.Take(limit.Value).ToListAsync();
+
+        return await query.ToListAsync();
     }
 
     public async Task<Post> AddAsync(Post entity)
@@ -44,12 +48,7 @@ public class PostRepository : IPostRepository
 
     public async Task DeleteAsync(int id)
     {
-        var entity = await _context.Posts.FindAsync(id);
-        if (entity != null)
-        {
-            _context.Posts.Remove(entity);
-            await _context.SaveChangesAsync();
-        }
+        await _context.Posts.Where(p => p.Id == id).ExecuteDeleteAsync();
     }
 
     public async Task<(IEnumerable<Post> Posts, string? NextCursor)> GetPostsAsync(string? cursor, int limit = 10)

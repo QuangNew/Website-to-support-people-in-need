@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using ReliefConnect.Core.DTOs;
 using ReliefConnect.Core.Entities;
 using ReliefConnect.Core.Enums;
@@ -58,11 +59,11 @@ public class AdminController : ControllerBase
         // Search by name, email, or username
         if (!string.IsNullOrWhiteSpace(search))
         {
-            var s = search.ToLower();
+            var pattern = $"%{search}%";
             query = query.Where(u =>
-                u.FullName.ToLower().Contains(s) ||
-                u.Email!.ToLower().Contains(s) ||
-                u.UserName!.ToLower().Contains(s));
+                EF.Functions.ILike(u.FullName, pattern) ||
+                EF.Functions.ILike(u.Email!, pattern) ||
+                EF.Functions.ILike(u.UserName!, pattern));
         }
 
         // Filter by role
@@ -206,26 +207,83 @@ public class AdminController : ControllerBase
     [HttpDelete("posts/{postId}")]
     public async Task<ActionResult> DeletePost(int postId)
     {
-        var post = await _db.Posts
-            .Include(p => p.Author)
+        // Get author name for audit log with lightweight projection
+        var postInfo = await _db.Posts
             .AsNoTracking()
-            .FirstOrDefaultAsync(p => p.Id == postId);
+            .Where(p => p.Id == postId)
+            .Select(p => new { AuthorName = p.Author != null ? p.Author.UserName : "unknown" })
+            .FirstOrDefaultAsync();
 
-        if (post == null) return NotFound(new ApiErrorResponse { StatusCode = 404, Message = "Bài viết không tồn tại." });
+        if (postInfo == null) return NotFound(new ApiErrorResponse { StatusCode = 404, Message = "Bài viết không tồn tại." });
 
-        var authorName = post.Author?.UserName ?? "unknown";
+        // Single-query delete (no FindAsync + Remove)
+        await _db.Posts.Where(p => p.Id == postId).ExecuteDeleteAsync();
 
-        var postToDelete = await _db.Posts.FindAsync(postId);
-        if (postToDelete != null)
-        {
-            _db.Posts.Remove(postToDelete);
-            await _db.SaveChangesAsync();
-        }
-
-        await LogAction("PostDeleted", $"Deleted post #{postId} by {authorName}");
-        _logger.LogInformation("Admin deleted post #{PostId} by {Author}", postId, authorName);
+        await LogAction("PostDeleted", $"Deleted post #{postId} by {postInfo.AuthorName}");
+        _logger.LogInformation("Admin deleted post #{PostId} by {Author}", postId, postInfo.AuthorName);
 
         return Ok(new { message = "Đã xóa bài viết." });
+    }
+
+    // ═══════════════════════════════════════════
+    //  POSTS — Admin list with pagination + filter
+    // ═══════════════════════════════════════════
+
+    /// <summary>
+    /// Get paginated post list for admin moderation. No output cache (admin needs fresh data).
+    /// </summary>
+    [HttpGet("posts")]
+    public async Task<ActionResult> GetAdminPosts(
+        [FromQuery] string? category,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20)
+    {
+        if (pageSize > 50) pageSize = 50;
+
+        if (!string.IsNullOrWhiteSpace(category) && !Enum.TryParse<PostCategory>(category, true, out _))
+            return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Invalid category." });
+
+        var query = _db.Posts
+            .AsNoTracking()
+            .AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(category) && Enum.TryParse<PostCategory>(category, true, out var cat))
+            query = query.Where(p => p.Category == cat);
+
+        var total = await query.CountAsync();
+        var rawPosts = await query
+            .OrderByDescending(p => p.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(p => new
+            {
+                p.Id,
+                p.Content,
+                p.Category,
+                p.AuthorId,
+                AuthorName = p.Author != null ? (p.Author.FullName ?? p.Author.UserName ?? "Ẩn danh") : "Ẩn danh",
+                p.CreatedAt
+            })
+            .ToListAsync();
+
+        var posts = rawPosts.Select(p => new AdminPostDto
+        {
+            Id = p.Id,
+            Content = p.Content.Length > 200 ? p.Content[..200] : p.Content,
+            Category = p.Category.ToString(),
+            AuthorId = p.AuthorId,
+            AuthorName = p.AuthorName,
+            CreatedAt = p.CreatedAt
+        }).ToList();
+
+        return Ok(new
+        {
+            items = posts,
+            total,
+            page,
+            pageSize,
+            totalPages = (int)Math.Ceiling(total / (double)pageSize)
+        });
     }
 
     // ═══════════════════════════════════════════
@@ -233,28 +291,56 @@ public class AdminController : ControllerBase
     // ═══════════════════════════════════════════
 
     /// <summary>
-    /// Get system-wide statistics for the admin dashboard.
+    /// Get system-wide statistics. Results cached 5 minutes in IMemoryCache.
     /// </summary>
     [HttpGet("stats")]
-    [OutputCache(PolicyName = "Static5min")]
-    public async Task<ActionResult<SystemStatsDto>> GetStats()
+    public async Task<ActionResult<SystemStatsDto>> GetStats(
+        [FromServices] IMemoryCache cache)
     {
-        var users = _userManager.Users.AsNoTracking();
+        if (cache.TryGetValue("admin:stats", out SystemStatsDto? cached) && cached != null)
+            return Ok(cached);
+
+        // Round-trip 1: user role breakdown
+        var userCounts = await _userManager.Users
+            .AsNoTracking()
+            .GroupBy(u => u.Role)
+            .Select(g => new { Role = g.Key, Count = g.Count() })
+            .ToListAsync();
+
+        // Round-trip 2: ping status breakdown (SOS pings only)
+        var pingCounts = await _db.Pings
+            .AsNoTracking()
+            .Where(p => p.Type == MapItemType.SOS)
+            .GroupBy(p => p.Status)
+            .Select(g => new { Status = g.Key, Count = g.Count() })
+            .ToListAsync();
+
+        // Round-trip 3: post category breakdown
+        var postCounts = await _db.Posts
+            .AsNoTracking()
+            .GroupBy(p => p.Category)
+            .Select(g => new { Category = g.Key, Count = g.Count() })
+            .ToListAsync();
+
+        int UserCount(RoleEnum role)    => userCounts.FirstOrDefault(x => x.Role == role)?.Count ?? 0;
+        int PingCount(SOSStatus status) => pingCounts.FirstOrDefault(x => x.Status == status)?.Count ?? 0;
+        int PostCount(PostCategory cat) => postCounts.FirstOrDefault(x => x.Category == cat)?.Count ?? 0;
 
         var stats = new SystemStatsDto
         {
-            TotalUsers = await users.CountAsync(),
-            TotalPersonsInNeed = await users.CountAsync(u => u.Role == RoleEnum.PersonInNeed),
-            TotalSponsors = await users.CountAsync(u => u.Role == RoleEnum.Sponsor),
-            TotalVolunteers = await users.CountAsync(u => u.Role == RoleEnum.Volunteer),
-            ActiveSOS = await _db.Pings.CountAsync(p => p.Type == MapItemType.SOS && p.Status == SOSStatus.Pending),
-            ResolvedCases = await _db.Pings.CountAsync(p => p.Status == SOSStatus.Resolved),
-            TotalPosts = await _db.Posts.CountAsync(),
-            TotalPostsLivelihood = await _db.Posts.CountAsync(p => p.Category == PostCategory.Livelihood),
-            TotalPostsMedical = await _db.Posts.CountAsync(p => p.Category == PostCategory.Medical),
-            TotalPostsEducation = await _db.Posts.CountAsync(p => p.Category == PostCategory.Education),
+            TotalUsers           = userCounts.Sum(x => x.Count),
+            TotalPersonsInNeed   = UserCount(RoleEnum.PersonInNeed),
+            TotalSponsors        = UserCount(RoleEnum.Sponsor),
+            TotalVolunteers      = UserCount(RoleEnum.Volunteer),
+            ActiveSOS            = PingCount(SOSStatus.Pending),
+            ResolvedCases        = PingCount(SOSStatus.Resolved),
+            TotalPosts           = postCounts.Sum(x => x.Count),
+            TotalPostsLivelihood = PostCount(PostCategory.Livelihood),
+            TotalPostsMedical    = PostCount(PostCategory.Medical),
+            TotalPostsEducation  = PostCount(PostCategory.Education),
         };
 
+        cache.Set("admin:stats", stats, TimeSpan.FromMinutes(5));
         return Ok(stats);
     }
 
@@ -276,7 +362,7 @@ public class AdminController : ControllerBase
         var query = _db.SystemLogs.AsNoTracking().AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(action))
-            query = query.Where(l => l.Action.Contains(action));
+            query = query.Where(l => l.Action == action);
 
         if (DateTime.TryParse(from, out var fromDate))
             query = query.Where(l => l.CreatedAt >= fromDate);
@@ -300,7 +386,8 @@ public class AdminController : ControllerBase
             })
             .ToListAsync();
 
-        return Ok(new { items = logs, total, page, pageSize });
+        return Ok(new { items = logs, total, page, pageSize,
+            totalPages = (int)Math.Ceiling(total / (double)pageSize) });
     }
 
     // ═══════════════════════════════════════════

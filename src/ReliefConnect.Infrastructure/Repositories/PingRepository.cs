@@ -28,15 +28,19 @@ public class PingRepository : IPingRepository
             .FirstOrDefaultAsync(p => p.Id == id);
     }
 
-    public async Task<IEnumerable<Ping>> GetAllAsync()
+    public async Task<IEnumerable<Ping>> GetAllAsync(int? limit = null)
     {
-        return await _context.Pings
+        var query = _context.Pings
             .AsNoTracking()
             .Include(p => p.User)
             .Include(p => p.PingFlag)
             .AsSplitQuery()
-            .OrderByDescending(p => p.CreatedAt)
-            .ToListAsync();
+            .OrderByDescending(p => p.CreatedAt);
+
+        if (limit.HasValue)
+            return await query.Take(limit.Value).ToListAsync();
+
+        return await query.ToListAsync();
     }
 
     public async Task<Ping> AddAsync(Ping entity)
@@ -54,12 +58,7 @@ public class PingRepository : IPingRepository
 
     public async Task DeleteAsync(int id)
     {
-        var ping = await _context.Pings.FindAsync(id);
-        if (ping != null)
-        {
-            _context.Pings.Remove(ping);
-            await _context.SaveChangesAsync();
-        }
+        await _context.Pings.Where(p => p.Id == id).ExecuteDeleteAsync();
     }
 
     /// <summary>
@@ -100,6 +99,19 @@ public class PingRepository : IPingRepository
     {
         return await _context.Pings
             .AsNoTracking()
+            .Include(p => p.User)
+            .Include(p => p.PingFlag)
+            .AsSplitQuery()
+            .FirstOrDefaultAsync(p => p.Id == pingId);
+    }
+
+    /// <summary>
+    /// Get a tracked ping with PingFlag for update operations.
+    /// Does NOT use AsNoTracking so EF tracks changes automatically.
+    /// </summary>
+    public async Task<Ping?> GetPingWithFlagForUpdateAsync(int pingId)
+    {
+        return await _context.Pings
             .Include(p => p.User)
             .Include(p => p.PingFlag)
             .AsSplitQuery()

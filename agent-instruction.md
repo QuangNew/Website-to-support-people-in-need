@@ -172,3 +172,25 @@ client/                              # Frontend (React + TypeScript)
 4. **Error handling**: Global exception middleware, never expose stack traces
 5. **Git commits**: Atomic, meaningful messages following Conventional Commits
 6. **Vietnamese primary language**: UI defaults to Vietnamese, design for i18n with .resx
+
+## 10. Current Implementation Status (2026-03-18)
+
+### ✅ Completed Features
+- **Authentication & Authorization**: JWT-based auth with 6 roles, KYC verification, forgot password
+- **Map System**: Leaflet integration with marker clustering, SOS/Supply/Shelter markers, spatial queries
+- **Social Network**: Posts with categories (Livelihood/Medical/Education), reactions, comments
+- **AI Chatbot**: Google Gemini integration with safety fallback
+- **Admin Dashboard**: User management, content moderation, system stats, logs
+- **Real-time**: SignalR hubs for SOS alerts and notifications
+- **Security**: Rate limiting, XSS prevention, CSRF protection, token blacklist
+- **Performance**: Response compression, output caching, AsNoTracking queries, optimized indexes
+
+### 🔧 Configuration Notes
+- **Gemini API**: Use model "gemini-2.0-flash-exp" (not "gemini-3.0-flash")
+- **Database**: Manual migration.sql applied to Supabase (EF migrations exist but not synced)
+- **Test Data**: Run test-data.sql in Supabase SQL Editor to populate sample pings and posts
+
+### 📋 Known Issues
+- Search function in FilterBar is UI-only (doesn't filter pings)
+- JWT stored in localStorage (XSS vulnerable, consider httpOnly cookies)
+- No token rotation mechanism

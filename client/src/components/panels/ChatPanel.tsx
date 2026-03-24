@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Sparkles, LogIn } from 'lucide-react';
+import { Send, Bot, User, Sparkles, LogIn, AlertTriangle } from 'lucide-react';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useAuthStore } from '../../stores/authStore';
 import { useMapStore } from '../../stores/mapStore';
@@ -128,15 +128,38 @@ export default function ChatPanel() {
       {/* Messages */}
       <div className="chat-messages">
         {messages.map((msg) => (
-          <div key={msg.id} className={`chat-message chat-message-${msg.role}`}>
-            <div className="chat-message-avatar">
-              {msg.role === 'assistant' ? <Bot size={16} /> : <User size={16} />}
-            </div>
-            <div className="chat-message-bubble">
-              <p>{msg.content}</p>
-              <time className="chat-message-time">
-                {msg.timestamp.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
-              </time>
+          <div key={msg.id}>
+            {msg.hasSafetyWarning && (
+              <div style={{
+                background: '#dc2626',
+                color: 'white',
+                padding: '12px',
+                borderRadius: '8px',
+                margin: '8px 12px',
+                fontSize: '14px'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', marginBottom: '8px' }}>
+                  <AlertTriangle size={18} />
+                  {t('chat.emergencyWarning')}
+                </div>
+                <div style={{ fontSize: '13px', marginBottom: '4px' }}>{t('chat.emergencyNumbers')}</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '13px' }}>
+                  <a href="tel:113" style={{ color: 'white', textDecoration: 'underline' }}>{t('chat.police')}</a>
+                  <a href="tel:114" style={{ color: 'white', textDecoration: 'underline' }}>{t('chat.fire')}</a>
+                  <a href="tel:115" style={{ color: 'white', textDecoration: 'underline' }}>{t('chat.medical')}</a>
+                </div>
+              </div>
+            )}
+            <div className={`chat-message chat-message-${msg.role}`}>
+              <div className="chat-message-avatar">
+                {msg.role === 'assistant' ? <Bot size={16} /> : <User size={16} />}
+              </div>
+              <div className="chat-message-bubble">
+                <p>{msg.content}</p>
+                <time className="chat-message-time">
+                  {msg.timestamp.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
+                </time>
+              </div>
             </div>
           </div>
         ))}

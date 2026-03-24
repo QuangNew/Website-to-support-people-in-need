@@ -68,6 +68,8 @@
     "social": "Cộng đồng",
     "chat": "Chatbot AI",
     "profile": "Hồ sơ",
+    "verify": "Xác minh",
+    "guide": "Hướng dẫn",
     "admin": "Quản trị",
     "login": "Đăng nhập",
     "logout": "Đăng xuất",
@@ -127,7 +129,12 @@
     "inputPlaceholder": "Nhập tin nhắn...",
     "loginRequired": "Đăng nhập để chat với AI",
     "errorCreateConversation": "Không thể tạo cuộc hội thoại. Vui lòng thử lại.",
-    "errorGeneral": "Có lỗi xảy ra. Vui lòng thử lại."
+    "errorGeneral": "Có lỗi xảy ra. Vui lòng thử lại.",
+    "emergencyWarning": "⚠️ PHÁT HIỆN KHẨN CẤP",
+    "emergencyNumbers": "Đường dây nóng khẩn cấp:",
+    "police": "Công an: 113",
+    "fire": "Cứu hỏa: 114",
+    "medical": "Y tế: 115"
   },
   "social": {
     "share": "Chia sẻ",

@@ -524,3 +524,5 @@ playwright.config.ts
 # UserGuide.md
 # UserTodo.md
 # todo.md
+.gitnexus
+.claude

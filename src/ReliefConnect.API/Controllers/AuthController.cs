@@ -7,6 +7,7 @@ using Hangfire;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using ReliefConnect.Core.DTOs;
 using ReliefConnect.Core.Entities;
@@ -94,6 +95,7 @@ public class AuthController : ControllerBase
             Token = token.Token,
             UserId = user.Id,
             UserName = user.UserName!,
+            Email = user.Email!,
             FullName = user.FullName,
             Role = user.Role.ToString(),
             EmailVerified = false,
@@ -201,8 +203,11 @@ public class AuthController : ControllerBase
     [HttpPost("reset-password")]
     public async Task<ActionResult> ResetPassword([FromBody] ResetPasswordDto dto)
     {
-        var user = _userManager.Users.FirstOrDefault(u => u.PasswordResetToken == dto.Token);
-        if (user == null)
+        var user = await _userManager.FindByEmailAsync(dto.Email);
+        if (user == null || user.PasswordResetToken == null ||
+            !CryptographicOperations.FixedTimeEquals(
+                Encoding.UTF8.GetBytes(user.PasswordResetToken.PadRight(10)),
+                Encoding.UTF8.GetBytes(dto.Token.PadRight(10))))
             return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Mã đặt lại không hợp lệ." });
 
         if (user.PasswordResetTokenExpiry.HasValue && user.PasswordResetTokenExpiry < DateTime.UtcNow)
@@ -261,6 +266,7 @@ public class AuthController : ControllerBase
             Token = token.Token,
             UserId = user.Id,
             UserName = user.UserName!,
+            Email = user.Email!,
             FullName = user.FullName,
             Role = user.Role.ToString(),
             EmailVerified = user.EmailConfirmed,
@@ -305,7 +311,20 @@ public class AuthController : ControllerBase
         }
 
         // Find existing user by Google ID or email
-        var user = await FindUserByGoogleIdOrEmail(payload.Subject, payload.Email);
+        ApplicationUser? user;
+        try
+        {
+            user = await FindUserByGoogleIdOrEmail(payload.Subject, payload.Email);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Database connection failed during Google login");
+            return StatusCode(503, new ApiErrorResponse
+            {
+                StatusCode = 503,
+                Message = "Không thể kết nối cơ sở dữ liệu. Vui lòng thử lại sau."
+            });
+        }
 
         if (user == null)
         {
@@ -358,6 +377,7 @@ public class AuthController : ControllerBase
             Token = token.Token,
             UserId = user.Id,
             UserName = user.UserName!,
+            Email = user.Email!,
             FullName = user.FullName,
             Role = user.Role.ToString(),
             EmailVerified = user.EmailConfirmed,
@@ -529,13 +549,13 @@ public class AuthController : ControllerBase
 
     private static string GenerateVerificationCode()
     {
-        return Random.Shared.Next(100000, 999999).ToString();
+        return RandomNumberGenerator.GetInt32(100000, 1000000).ToString();
     }
 
     private async Task<ApplicationUser?> FindUserByGoogleIdOrEmail(string googleId, string email)
     {
-        // First try by GoogleId
-        var byGoogleId = _userManager.Users.FirstOrDefault(u => u.GoogleId == googleId);
+        // First try by GoogleId (async)
+        var byGoogleId = await _userManager.Users.FirstOrDefaultAsync(u => u.GoogleId == googleId);
         if (byGoogleId != null) return byGoogleId;
 
         // Fall back to email

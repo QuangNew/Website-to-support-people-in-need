@@ -28,6 +28,7 @@ public class ZoneController : ControllerBase
     public async Task<ActionResult<IEnumerable<ZoneResponseDto>>> GetZones()
     {
         var zones = await _context.Zones
+            .AsNoTracking()
             .OrderByDescending(z => z.RiskLevel)
             .ThenBy(z => z.Name)
             .Select(z => new ZoneResponseDto

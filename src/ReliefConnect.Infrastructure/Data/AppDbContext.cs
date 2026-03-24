@@ -36,6 +36,11 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             entity.Property(u => u.AvatarUrl).HasMaxLength(500);
             entity.Property(u => u.Role).HasConversion<int>();
             entity.Property(u => u.VerificationStatus).HasConversion<int>();
+
+            // Indexes for admin queries and Google login
+            entity.HasIndex(u => u.VerificationStatus);
+            entity.HasIndex(u => u.GoogleId);
+            entity.HasIndex(u => u.Role);
         });
 
         // ═══════ PING (Map Item) ═══════
@@ -48,6 +53,12 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
 
             // Spatial index on coordinates for fast radius queries
             entity.HasIndex(p => new { p.CoordinatesLat, p.CoordinatesLong });
+            // Covering index for the most common query: fetch all pings sorted by date
+            entity.HasIndex(p => p.CreatedAt).IsDescending();
+            // FK index for user lookups
+            entity.HasIndex(p => p.UserId);
+            // Status filter index
+            entity.HasIndex(p => p.Status);
 
             entity.HasOne(p => p.User)
                   .WithMany(u => u.Pings)
@@ -163,6 +174,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
         builder.Entity<Conversation>(entity =>
         {
             entity.HasKey(c => c.Id);
+            entity.HasIndex(c => c.UserId);
 
             entity.HasOne(c => c.User)
                   .WithMany(u => u.Conversations)
@@ -175,6 +187,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
         {
             entity.HasKey(m => m.Id);
             entity.Property(m => m.Content).HasMaxLength(8000).IsRequired();
+            entity.HasIndex(m => new { m.ConversationId, m.SentAt });
 
             entity.HasOne(m => m.Conversation)
                   .WithMany(c => c.Messages)
@@ -210,6 +223,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             entity.Property(l => l.UserName).HasMaxLength(100);
 
             entity.HasIndex(l => l.CreatedAt).IsDescending();
+            entity.HasIndex(l => l.Action);
         });
     }
 }

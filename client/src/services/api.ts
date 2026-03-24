@@ -169,7 +169,7 @@ export const chatbotApi = {
     api.post('/chatbot/conversations'),
 
   sendMessage: (conversationId: number, data: { content: string }) =>
-    api.post(`/chatbot/conversations/${conversationId}/messages`, data),
+    api.post(`/chatbot/conversations/${conversationId}/messages`, data, { timeout: 60000 }),
 
   getMessages: (conversationId: number) =>
     api.get(`/chatbot/conversations/${conversationId}/messages`),
@@ -199,6 +199,9 @@ export const adminApi = {
 
   getStats: () =>
     api.get('/admin/stats'),
+
+  getPosts: (params?: { page?: number; pageSize?: number; category?: string }) =>
+    api.get('/admin/posts', { params }),
 };
 
 export default api;

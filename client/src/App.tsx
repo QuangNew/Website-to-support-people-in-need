@@ -12,6 +12,7 @@ import MapShell from './components/layout/MapShell';
 
 // Pages
 import AdminPage from './pages/AdminPage';
+import MyWallPage from './pages/MyWallPage';
 
 // Stores
 import { useAuthStore } from './stores/authStore';
@@ -46,6 +47,9 @@ function App() {
 
               {/* Admin has separate layout */}
               <Route path="/admin/*" element={<AdminPage />} />
+
+              {/* User wall page */}
+              <Route path="/wall/:userId" element={<MyWallPage />} />
             </Routes>
           </BrowserRouter>
 

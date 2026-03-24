@@ -68,6 +68,8 @@
         "social": "Community",
         "chat": "AI Chatbot",
         "profile": "Profile",
+        "verify": "Verify",
+        "guide": "Guide",
         "admin": "Admin",
         "login": "Login",
         "logout": "Logout",
@@ -127,7 +129,12 @@
         "inputPlaceholder": "Type a message...",
         "loginRequired": "Login to chat with AI",
         "errorCreateConversation": "Could not create conversation. Please try again.",
-        "errorGeneral": "An error occurred. Please try again."
+        "errorGeneral": "An error occurred. Please try again.",
+        "emergencyWarning": "⚠️ EMERGENCY DETECTED",
+        "emergencyNumbers": "Emergency Hotlines:",
+        "police": "Police: 113",
+        "fire": "Fire: 114",
+        "medical": "Medical: 115"
     },
     "social": {
         "share": "Share",

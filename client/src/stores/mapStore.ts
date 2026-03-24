@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { mapApi } from '../services/api';
 
 export type PingType = 'need_help' | 'offering' | 'received' | 'support_point';
-export type PanelType = 'list' | 'social' | 'chat' | 'profile' | null;
+export type PanelType = 'list' | 'social' | 'chat' | 'profile' | 'verify' | null;
 
 export interface PingData {
     id: string;
@@ -55,6 +55,7 @@ interface MapState {
     showWelcome: boolean;
     sidebarExpanded: boolean;
     pings: PingData[];
+    pingsLoading: boolean;
     zones: ZoneData[];
     showZones: boolean;
 
@@ -166,7 +167,8 @@ export const useMapStore = create<MapState>((set) => ({
     showAuthModal: null,
     showWelcome: !localStorage.getItem('rc-welcome-seen'),
     sidebarExpanded: false,
-    pings: [],
+    pings: [],               // empty until backend responds
+    pingsLoading: true,
     zones: [],
     showZones: true,
 
@@ -200,9 +202,10 @@ export const useMapStore = create<MapState>((set) => ({
         set({ showWelcome: show });
     },
     setSidebarExpanded: (expanded) => set({ sidebarExpanded: expanded }),
-    setPings: (pings) => set({ pings }),
+    setPings: (pings) => set({ pings, pingsLoading: false }),
     toggleZones: () => set((state) => ({ showZones: !state.showZones })),
     fetchPings: async () => {
+        set({ pingsLoading: true });
         try {
             const res = await mapApi.getPings();
             const backendPings: PingData[] = (res.data as Array<Record<string, unknown>>).map((p) => {
@@ -231,9 +234,10 @@ export const useMapStore = create<MapState>((set) => ({
                     contactPhone: undefined,
                 };
             });
-            set({ pings: backendPings });
+            set({ pings: backendPings, pingsLoading: false });
         } catch {
-            console.warn('[MapStore] Backend unavailable, using mock pings');
+            console.warn('[MapStore] Backend unavailable, keeping mock pings');
+            set({ pingsLoading: false }); // keep MOCK_PINGS already in state
         }
     },
 

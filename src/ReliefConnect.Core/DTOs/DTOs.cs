@@ -36,6 +36,7 @@ public class AuthResponseDto
     public string Token { get; set; } = string.Empty;
     public string UserId { get; set; } = string.Empty;
     public string UserName { get; set; } = string.Empty;
+    public string Email { get; set; } = string.Empty;
     public string FullName { get; set; } = string.Empty;
     public string Role { get; set; } = string.Empty;
     public bool EmailVerified { get; set; }
@@ -89,11 +90,24 @@ public class ForgotPasswordDto
 
 public class ResetPasswordDto
 {
+    [Required, EmailAddress]
+    public string Email { get; set; } = string.Empty;
+
     [Required, StringLength(6, MinimumLength = 6)]
     public string Token { get; set; } = string.Empty;
 
     [Required, StringLength(255, MinimumLength = 8)]
     public string NewPassword { get; set; } = string.Empty;
+}
+
+public class AdminPostDto
+{
+    public int Id { get; set; }
+    public string Content { get; set; } = string.Empty;
+    public string Category { get; set; } = string.Empty;
+    public string AuthorId { get; set; } = string.Empty;
+    public string AuthorName { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; }
 }
 
 // ═══════════════════════════════════════════

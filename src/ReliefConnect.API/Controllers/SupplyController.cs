@@ -34,6 +34,7 @@ public class SupplyController : ControllerBase
     public async Task<ActionResult<IEnumerable<SupplyResponseDto>>> GetSupplies()
     {
         var supplies = await _db.SupplyItems
+            .AsNoTracking()
             .OrderByDescending(s => s.CreatedAt)
             .Select(s => MapToDto(s))
             .ToListAsync();

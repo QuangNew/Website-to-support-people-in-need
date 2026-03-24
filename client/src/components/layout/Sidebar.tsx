@@ -4,6 +4,7 @@ import {
   MessageCircle,
   User,
   Shield,
+  UserCheck,
   Sun,
   Moon,
   Globe,
@@ -19,17 +20,11 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 
 interface NavItem {
-  id: PanelType;
+  id: PanelType | 'theme' | 'locale' | 'login' | 'logout' | 'admin';
   icon: LucideIcon;
   labelKey: string;
+  action?: () => void;
 }
-
-const NAV_ITEMS: NavItem[] = [
-  { id: 'list', icon: ClipboardList, labelKey: 'sidebar.list' },
-  { id: 'social', icon: Users, labelKey: 'sidebar.social' },
-  { id: 'chat', icon: MessageCircle, labelKey: 'sidebar.chat' },
-  { id: 'profile', icon: User, labelKey: 'sidebar.profile' },
-];
 
 export default function Sidebar() {
   const { activePanel, setActivePanel, sidebarExpanded, setSidebarExpanded, setAuthModal } = useMapStore();
@@ -38,7 +33,7 @@ export default function Sidebar() {
   const { t, locale, toggleLocale } = useLanguage();
 
   const handleNav = (panel: PanelType) => {
-    if (panel === 'profile' && !isAuthenticated) {
+    if ((panel === 'profile' || panel === 'verify') && !isAuthenticated) {
       setAuthModal('login');
       return;
     }
@@ -46,6 +41,60 @@ export default function Sidebar() {
   };
 
   const toggleSidebar = () => setSidebarExpanded(!sidebarExpanded);
+
+  // ─── Top section: main nav ───
+  const topItems: NavItem[] = [
+    { id: 'list', icon: ClipboardList, labelKey: 'sidebar.list' },
+    { id: 'social', icon: Users, labelKey: 'sidebar.social' },
+    { id: 'chat', icon: MessageCircle, labelKey: 'sidebar.chat' },
+    { id: 'profile', icon: User, labelKey: 'sidebar.profile' },
+  ];
+
+  // ─── Mid-bottom section: verify, admin ───
+  const midBottomItems: NavItem[] = [
+    { id: 'verify', icon: UserCheck, labelKey: 'sidebar.verify' },
+  ];
+
+  if (isAuthenticated && user?.role === 'Admin') {
+    midBottomItems.push({ id: 'admin', icon: Shield, labelKey: 'sidebar.admin' });
+  }
+
+  const renderNavButton = (item: NavItem, isActive: boolean = false) => {
+    const iconSize = 20;
+
+    if (item.id === 'admin') {
+      return (
+        <a
+          key="admin"
+          href="/admin"
+          className="sidebar-nav-item"
+          title={!sidebarExpanded ? t(item.labelKey) : undefined}
+        >
+          <item.icon size={iconSize} />
+          {sidebarExpanded && <span className="sidebar-nav-label">{t(item.labelKey)}</span>}
+        </a>
+      );
+    }
+
+    // Panel items (list, social, chat, profile, verify, admin)
+    if (['list', 'social', 'chat', 'profile', 'verify', 'admin'].includes(item.id as string)) {
+      const panelId = item.id as PanelType;
+      return (
+        <button
+          key={item.id}
+          className={`sidebar-nav-item ${isActive ? 'active' : ''}`}
+          onClick={() => handleNav(panelId)}
+          title={!sidebarExpanded ? t(item.labelKey) : undefined}
+        >
+          <item.icon size={iconSize} strokeWidth={isActive ? 2.5 : 2} />
+          {sidebarExpanded && <span className="sidebar-nav-label">{t(item.labelKey)}</span>}
+          {sidebarExpanded && isActive && <ChevronRight size={14} className="sidebar-nav-indicator" />}
+        </button>
+      );
+    }
+
+    return null;
+  };
 
   return (
     <aside className={`sidebar ${sidebarExpanded ? 'sidebar-expanded' : ''}`}>
@@ -57,56 +106,63 @@ export default function Sidebar() {
         {sidebarExpanded && <span className="sidebar-brand-text">ReliefConnect</span>}
       </div>
 
-      {/* Navigation */}
+      {/* ═══ Top: Main navigation ═══ */}
       <nav className="sidebar-nav">
-        {NAV_ITEMS.map(({ id, icon: Icon, labelKey }) => (
-          <button
-            key={id}
-            className={`sidebar-nav-item ${activePanel === id ? 'active' : ''}`}
-            onClick={() => handleNav(id)}
-            title={!sidebarExpanded ? t(labelKey) : undefined}
-          >
-            <Icon size={20} strokeWidth={activePanel === id ? 2.5 : 2} />
-            {sidebarExpanded && <span className="sidebar-nav-label">{t(labelKey)}</span>}
-            {sidebarExpanded && activePanel === id && <ChevronRight size={14} className="sidebar-nav-indicator" />}
-          </button>
-        ))}
+        {topItems.map((item) => renderNavButton(item, activePanel === item.id))}
+
+        {/* Divider */}
+        <div className="sidebar-divider" />
+
+        {/* Mid-bottom: Verify, Admin */}
+        {midBottomItems.map((item) => renderNavButton(item, activePanel === item.id))}
       </nav>
 
-      {/* Spacer */}
+      {/* Spacer pushes bottom items down */}
       <div className="sidebar-spacer" />
 
-      {/* Admin link */}
-      {isAuthenticated && user?.role === 'Admin' && (
-        <a href="/admin" className="sidebar-nav-item sidebar-admin-link" title={t('sidebar.admin')}>
-          <Shield size={20} />
-          {sidebarExpanded && <span className="sidebar-nav-label">{t('sidebar.admin')}</span>}
-        </a>
-      )}
-
-      {/* Actions */}
-      <div className="sidebar-actions">
+      {/* ═══ Bottom: Theme, Language, Login/Logout ═══ */}
+      <div className="sidebar-bottom">
         {/* Theme toggle */}
-        <button className="sidebar-action-btn" onClick={toggleTheme} title={isDark ? t('sidebar.lightMode') : t('sidebar.darkMode')}>
-          {isDark ? <Sun size={18} /> : <Moon size={18} />}
-          {sidebarExpanded && <span className="sidebar-nav-label">{isDark ? t('sidebar.lightMode') : t('sidebar.darkMode')}</span>}
+        <button
+          className="sidebar-nav-item"
+          onClick={toggleTheme}
+          title={!sidebarExpanded ? (isDark ? t('sidebar.lightMode') : t('sidebar.darkMode')) : undefined}
+        >
+          {isDark ? <Sun size={20} /> : <Moon size={20} />}
+          {sidebarExpanded && (
+            <span className="sidebar-nav-label">{isDark ? t('sidebar.lightMode') : t('sidebar.darkMode')}</span>
+          )}
         </button>
 
         {/* Locale toggle */}
-        <button className="sidebar-action-btn" onClick={toggleLocale} title={locale === 'vi' ? 'English' : 'Tiếng Việt'}>
-          <Globe size={18} />
-          {sidebarExpanded && <span className="sidebar-nav-label">{locale === 'vi' ? 'EN' : 'VI'}</span>}
+        <button
+          className="sidebar-nav-item"
+          onClick={toggleLocale}
+          title={!sidebarExpanded ? (locale === 'vi' ? 'English' : 'Tiếng Việt') : undefined}
+        >
+          <Globe size={20} />
+          {sidebarExpanded && (
+            <span className="sidebar-nav-label">{locale === 'vi' ? 'English' : 'Tiếng Việt'}</span>
+          )}
         </button>
 
         {/* Auth */}
         {isAuthenticated ? (
-          <button className="sidebar-action-btn sidebar-action-danger" onClick={logout} title={t('sidebar.logout')}>
-            <LogOut size={18} />
+          <button
+            className="sidebar-nav-item sidebar-nav-danger"
+            onClick={logout}
+            title={!sidebarExpanded ? t('sidebar.logout') : undefined}
+          >
+            <LogOut size={20} />
             {sidebarExpanded && <span className="sidebar-nav-label">{t('sidebar.logout')}</span>}
           </button>
         ) : (
-          <button className="sidebar-action-btn sidebar-action-primary" onClick={() => setAuthModal('login')} title={t('sidebar.login')}>
-            <LogIn size={18} />
+          <button
+            className="sidebar-nav-item sidebar-nav-primary"
+            onClick={() => setAuthModal('login')}
+            title={!sidebarExpanded ? t('sidebar.login') : undefined}
+          >
+            <LogIn size={20} />
             {sidebarExpanded && <span className="sidebar-nav-label">{t('sidebar.login')}</span>}
           </button>
         )}

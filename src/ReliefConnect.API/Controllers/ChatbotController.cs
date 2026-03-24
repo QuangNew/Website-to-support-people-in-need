@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Ganss.Xss;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -17,12 +18,14 @@ public class ChatbotController : ControllerBase
     private readonly AppDbContext _db;
     private readonly IGeminiService _gemini;
     private readonly ILogger<ChatbotController> _logger;
+    private readonly HtmlSanitizer _sanitizer;
 
-    public ChatbotController(AppDbContext db, IGeminiService gemini, ILogger<ChatbotController> logger)
+    public ChatbotController(AppDbContext db, IGeminiService gemini, ILogger<ChatbotController> logger, HtmlSanitizer sanitizer)
     {
         _db = db;
         _gemini = gemini;
         _logger = logger;
+        _sanitizer = sanitizer;
     }
 
     /// <summary>
@@ -55,33 +58,44 @@ public class ChatbotController : ControllerBase
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (userId == null) return Unauthorized();
 
-        var conversation = await _db.Set<Conversation>()
-            .Include(c => c.Messages.OrderBy(m => m.SentAt).Take(20))
-            .FirstOrDefaultAsync(c => c.Id == conversationId && c.UserId == userId);
+        // Verify ownership with a lightweight query (no Include)
+        var conversationExists = await _db.Set<Conversation>()
+            .AsNoTracking()
+            .AnyAsync(c => c.Id == conversationId && c.UserId == userId);
 
-        if (conversation == null)
+        if (!conversationExists)
             return NotFound(new { message = "Conversation not found." });
 
-        // Save user message
+        // Save user message IMMEDIATELY (before the long Gemini call)
+        // This prevents ObjectDisposedException when Npgsql connection idles during the API call
         var userMessage = new Message
         {
             ConversationId = conversationId,
             SenderId = userId,
-            Content = dto.Content,
+            Content = _sanitizer.Sanitize(dto.Content),
             IsBotMessage = false,
             SentAt = DateTime.UtcNow
         };
         _db.Set<Message>().Add(userMessage);
+        await _db.SaveChangesAsync();
 
-        // Build conversation history for context
-        var history = conversation.Messages
+        // Fetch last 20 messages for Gemini context
+        var history = await _db.Set<Message>()
+            .AsNoTracking()
+            .Where(m => m.ConversationId == conversationId)
+            .OrderByDescending(m => m.SentAt)
+            .Take(20)
+            .ToListAsync();
+
+        var historyTuples = history
+            .OrderBy(m => m.SentAt)
             .Select(m => (m.IsBotMessage ? "model" : "user", m.Content))
             .ToList();
 
-        // Call Gemini
-        var (response, hasSafetyWarning) = await _gemini.SendMessageAsync(dto.Content, history);
+        // Call Gemini (can take 5-30 seconds)
+        var (response, hasSafetyWarning) = await _gemini.SendMessageAsync(dto.Content, historyTuples);
 
-        // Save bot response
+        // Save bot response in a separate DB round-trip (fresh connection from pool)
         var botMessage = new Message
         {
             ConversationId = conversationId,
@@ -114,13 +128,16 @@ public class ChatbotController : ControllerBase
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (userId == null) return Unauthorized();
 
-        var conversation = await _db.Set<Conversation>()
-            .FirstOrDefaultAsync(c => c.Id == conversationId && c.UserId == userId);
+        // Verify ownership with lightweight check
+        var conversationExists = await _db.Set<Conversation>()
+            .AsNoTracking()
+            .AnyAsync(c => c.Id == conversationId && c.UserId == userId);
 
-        if (conversation == null)
+        if (!conversationExists)
             return NotFound(new { message = "Conversation not found." });
 
         var messages = await _db.Set<Message>()
+            .AsNoTracking()
             .Where(m => m.ConversationId == conversationId)
             .OrderBy(m => m.SentAt)
             .Select(m => new MessageResponseDto

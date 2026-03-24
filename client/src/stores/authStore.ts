@@ -29,6 +29,38 @@ interface AuthState {
     setUser: (user: User) => void;
 }
 
+interface AuthResponse {
+    token: string;
+    userId: string;
+    userName: string;
+    email: string;
+    fullName: string;
+    role: string;
+    emailVerified: boolean;
+}
+
+function applyAuthResponse(
+    set: (partial: Partial<AuthState>) => void,
+    data: AuthResponse,
+    verificationStatus = ''
+) {
+    localStorage.setItem('token', data.token);
+    set({
+        token: data.token,
+        isAuthenticated: true,
+        user: {
+            id: data.userId,
+            userName: data.userName,
+            fullName: data.fullName,
+            role: data.role,
+            email: data.email,
+            emailVerified: data.emailVerified,
+            verificationStatus,
+            createdAt: '',
+        },
+    });
+}
+
 export const useAuthStore = create<AuthState>((set, get) => ({
     user: null,
     token: localStorage.getItem('token'),
@@ -39,17 +71,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         set({ isLoading: true });
         try {
             const res = await authApi.login({ email, password });
-            const { token, userId, userName, fullName, role, emailVerified } = res.data;
-
-            localStorage.setItem('token', token);
-
-            set({
-                token,
-                isAuthenticated: true,
-                user: { id: userId, userName, fullName, role, email, emailVerified, verificationStatus: '', createdAt: '' },
-            });
-
-            // Fetch full profile
+            applyAuthResponse(set, res.data);
             await get().loadUser();
         } catch (err: unknown) {
             const axiosErr = err as { response?: { data?: { message?: string } } };
@@ -64,16 +86,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         set({ isLoading: true });
         try {
             const res = await authApi.register(data);
-            const { token, userId, userName, fullName, role, emailVerified } = res.data;
-
-            localStorage.setItem('token', token);
-
-            set({
-                token,
-                isAuthenticated: true,
-                user: { id: userId, userName, fullName, role, email: data.email, emailVerified, verificationStatus: 'None', createdAt: '' },
-            });
-
+            applyAuthResponse(set, res.data, 'None');
             await get().loadUser();
         } catch (err: unknown) {
             const axiosErr = err as { response?: { data?: { message?: string; errors?: string[] } } };
@@ -89,16 +102,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         set({ isLoading: true });
         try {
             const res = await authApi.googleLogin({ credential });
-            const { token, userId, userName, fullName, role, emailVerified } = res.data;
-
-            localStorage.setItem('token', token);
-
-            set({
-                token,
-                isAuthenticated: true,
-                user: { id: userId, userName, fullName, role, email: '', emailVerified, verificationStatus: '', createdAt: '' },
-            });
-
+            applyAuthResponse(set, res.data);
             await get().loadUser();
         } catch (err: unknown) {
             const axiosErr = err as { response?: { data?: { message?: string } } };
@@ -148,7 +152,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             const res = await authApi.getMe();
             set({ user: res.data, isAuthenticated: true });
         } catch {
-            // Token invalid, clear everything
             get().logout();
         }
     },

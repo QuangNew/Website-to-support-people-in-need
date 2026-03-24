@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
-import { adminApi, socialApi } from '../services/api';
+import { adminApi } from '../services/api';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuthStore } from '../stores/authStore';
 
@@ -53,8 +53,17 @@ interface PostItem {
   id: number;
   content: string;
   category: string;
+  authorId: string;
   authorName: string;
   createdAt: string;
+}
+
+interface PostsResponse {
+  items: PostItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
 }
 
 type Tab = 'stats' | 'users' | 'verifications' | 'posts' | 'logs';
@@ -139,18 +148,56 @@ function StatsPanel() {
   const { t } = useLanguage();
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
-  useEffect(() => {
-    let mounted = true;
+  const load = useCallback(() => {
+    setLoading(true);
+    setError(false);
     adminApi.getStats()
-      .then((res) => { if (mounted) setStats(res.data); })
-      .catch(() => { if (mounted) toast.error(t('common.error')); })
-      .finally(() => { if (mounted) setLoading(false); });
-    return () => { mounted = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+      .then((res) => setStats(res.data))
+      .catch(() => setError(true))
+      .finally(() => setLoading(false));
   }, []);
 
-  if (loading) return <div className="admin-loading"><span className="spinner" /></div>;
+  useEffect(() => { load(); }, [load]);
+
+  if (loading) return (
+    <div className="animate-fade-in-up">
+      <div className="admin-stats-grid">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="admin-stat-card glass-card" style={{ opacity: 0.5 }}>
+            <div className="admin-stat-card__icon" style={{ background: 'var(--bg-tertiary)' }} />
+            <div className="admin-stat-card__info">
+              <span className="admin-stat-card__value" style={{ background: 'var(--bg-tertiary)', borderRadius: 4, color: 'transparent' }}>000</span>
+              <span className="admin-stat-card__label" style={{ background: 'var(--bg-tertiary)', borderRadius: 4, color: 'transparent' }}>Loading</span>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="admin-stats-grid" style={{ marginTop: 'var(--sp-6)' }}>
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="admin-stat-card glass-card" style={{ opacity: 0.5 }}>
+            <div className="admin-stat-card__icon" style={{ background: 'var(--bg-tertiary)' }} />
+            <div className="admin-stat-card__info">
+              <span className="admin-stat-card__value" style={{ background: 'var(--bg-tertiary)', borderRadius: 4, color: 'transparent' }}>000</span>
+              <span className="admin-stat-card__label" style={{ background: 'var(--bg-tertiary)', borderRadius: 4, color: 'transparent' }}>Loading</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  if (error) return (
+    <div className="admin-empty animate-fade-in-up">
+      <AlertTriangle size={48} strokeWidth={1.5} className="text-danger" />
+      <p>{t('common.error')}</p>
+      <button className="btn btn-secondary btn-sm" onClick={load} style={{ marginTop: 'var(--sp-3)' }}>
+        <RefreshCw size={14} /> Retry
+      </button>
+    </div>
+  );
+
   if (!stats) return null;
 
   const cards = [
@@ -184,7 +231,6 @@ function StatsPanel() {
           </div>
         ))}
       </div>
-
       <h3 style={{ marginTop: 'var(--sp-6)', marginBottom: 'var(--sp-3)', color: 'var(--text-secondary)' }}>
         {t('admin.posts')}
       </h3>
@@ -231,8 +277,9 @@ function VerificationsPanel() {
       await adminApi.approveRole(user.id, { role });
       toast.success(t('admin.approved'));
       load();
-    } catch {
-      toast.error(t('common.error'));
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error(msg || t('common.error'));
     }
   };
 
@@ -242,8 +289,9 @@ function VerificationsPanel() {
       await adminApi.rejectVerification(userId);
       toast.success(t('admin.rejected'));
       load();
-    } catch {
-      toast.error(t('common.error'));
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error(msg || t('common.error'));
     }
   };
 
@@ -340,14 +388,14 @@ function UsersPanel() {
       await adminApi.approveRole(userId, { role });
       toast.success(t('admin.approved'));
       load();
-    } catch {
-      toast.error(t('common.error'));
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error(msg || t('common.error'));
     }
   };
 
   return (
     <div className="animate-fade-in-up">
-      {/* Filters */}
       <div className="admin-filters">
         <div className="admin-search">
           <Search size={16} />
@@ -461,14 +509,21 @@ function PostsPanel() {
   const { t } = useLanguage();
   const [posts, setPosts] = useState<PostItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [categoryFilter, setCategoryFilter] = useState('');
 
   const load = useCallback(() => {
     setLoading(true);
-    socialApi.getPosts({ limit: 50 })
-      .then((res) => setPosts(res.data.items || res.data))
+    adminApi.getPosts({ page, pageSize: 20, category: categoryFilter || undefined })
+      .then((res) => {
+        const data: PostsResponse = res.data;
+        setPosts(data.items);
+        setTotalPages(data.totalPages);
+      })
       .catch(() => toast.error(t('common.error')))
       .finally(() => setLoading(false));
-  }, [t]);
+  }, [page, categoryFilter, t]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -487,6 +542,20 @@ function PostsPanel() {
 
   return (
     <div className="animate-fade-in-up">
+      <div className="admin-filters">
+        <select
+          className="admin-select"
+          value={categoryFilter}
+          onChange={(e) => { setCategoryFilter(e.target.value); setPage(1); }}
+        >
+          <option value="">All Categories</option>
+          <option value="Livelihood">Gia cảnh</option>
+          <option value="Medical">Bệnh tật</option>
+          <option value="Education">Giáo dục</option>
+        </select>
+        <button className="btn btn-ghost btn-sm" onClick={load}><RefreshCw size={16} /></button>
+      </div>
+
       <div className="admin-table-wrap">
         <table className="admin-table">
           <thead>
@@ -520,6 +589,14 @@ function PostsPanel() {
           </tbody>
         </table>
       </div>
+
+      {totalPages > 1 && (
+        <div className="admin-pagination">
+          <button className="btn btn-ghost btn-sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>← Prev</button>
+          <span className="admin-page-info">{page} / {totalPages}</span>
+          <button className="btn btn-ghost btn-sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>Next →</button>
+        </div>
+      )}
     </div>
   );
 }
@@ -534,18 +611,27 @@ function LogsPanel() {
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
+  const [actionFilter, setActionFilter] = useState('');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
   const pageSize = 30;
 
   const load = useCallback(() => {
     setLoading(true);
-    adminApi.getLogs({ page, pageSize })
+    adminApi.getLogs({
+      page,
+      pageSize,
+      action: actionFilter || undefined,
+      from: fromDate || undefined,
+      to: toDate || undefined
+    })
       .then((res) => {
         setLogs(res.data.items);
         setTotal(res.data.total);
       })
       .catch(() => toast.error(t('common.error')))
       .finally(() => setLoading(false));
-  }, [page, t]);
+  }, [page, actionFilter, fromDate, toDate, t]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -555,6 +641,37 @@ function LogsPanel() {
 
   return (
     <div className="animate-fade-in-up">
+      <div className="admin-filters">
+        <input
+          type="date"
+          className="admin-select"
+          value={fromDate}
+          onChange={(e) => { setFromDate(e.target.value); setPage(1); }}
+          placeholder="From"
+        />
+        <input
+          type="date"
+          className="admin-select"
+          value={toDate}
+          onChange={(e) => { setToDate(e.target.value); setPage(1); }}
+          placeholder="To"
+        />
+        <select
+          className="admin-select"
+          value={actionFilter}
+          onChange={(e) => { setActionFilter(e.target.value); setPage(1); }}
+        >
+          <option value="">All Actions</option>
+          <option value="Login">Login</option>
+          <option value="Register">Register</option>
+          <option value="CreatePost">CreatePost</option>
+          <option value="DeletePost">DeletePost</option>
+          <option value="ApproveRole">ApproveRole</option>
+          <option value="RejectVerification">RejectVerification</option>
+        </select>
+        <button className="btn btn-ghost btn-sm" onClick={load}><RefreshCw size={16} /></button>
+      </div>
+
       <div className="admin-table-wrap">
         <table className="admin-table">
           <thead>

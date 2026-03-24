@@ -57,8 +57,8 @@ public class VolunteerController : ControllerBase
         return Ok(new { message = "Đã nhận nhiệm vụ.", pingId = ping.Id });
     }
 
-    [HttpGet("my-tasks")]
-    public async Task<ActionResult> GetMyTasks()
+    [HttpGet("active-tasks")]
+    public async Task<ActionResult> GetActiveTasks()
     {
         var tasks = await _db.Pings
             .Include(p => p.User)

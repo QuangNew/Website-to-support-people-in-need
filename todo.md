@@ -507,6 +507,194 @@
 
 ---
 
+## 💰 Sprint 5: Donation System (NEW - Based on Competitive Analysis)
+
+### Backend — Payment Infrastructure
+- [ ] Create `Donation` entity (Amount, Currency, DonorId, CampaignId, Status, PaymentMethod, TransactionId, CreatedAt)
+- [ ] Create `Campaign` entity (Title, Description, GoalAmount, CurrentAmount, Deadline, Status, CreatorId, CategoryId)
+- [ ] Add `IDonationRepository` and `ICampaignRepository` interfaces
+- [ ] Implement repositories in Infrastructure
+- [ ] Install Stripe.net NuGet package: `dotnet add package Stripe.net`
+- [ ] Create `DonationController` with endpoints:
+  - [ ] POST /api/donations — Process payment via Stripe
+  - [ ] GET /api/donations/campaign/{id} — Get donations for campaign
+  - [ ] GET /api/donations/user/{id} — Get user donation history
+  - [ ] GET /api/donations/{id}/receipt — Generate PDF receipt
+- [ ] Create `CampaignController` with endpoints:
+  - [ ] GET /api/campaigns — List all campaigns (paginated)
+  - [ ] GET /api/campaigns/{id} — Get campaign details
+  - [ ] POST /api/campaigns — Create campaign [Authorize]
+  - [ ] PUT /api/campaigns/{id} — Update campaign [Authorize]
+  - [ ] GET /api/campaigns/{id}/stats — Get campaign statistics
+- [ ] Add Stripe configuration to appsettings.json
+- [ ] Implement payment webhook handler for Stripe events
+
+### Frontend — Donation UI
+- [ ] Install Stripe packages: `pnpm add @stripe/stripe-js @stripe/react-stripe-js`
+- [ ] Create `components/donation/DonationModal.tsx` — Payment form with Stripe Elements
+- [ ] Create `components/campaign/CampaignCard.tsx` — Campaign display with progress bar
+- [ ] Create `components/campaign/CampaignProgressBar.tsx` — Visual goal tracker
+- [ ] Create `pages/CampaignPage.tsx` — Campaign detail page
+- [ ] Create `pages/MyCampaignsPage.tsx` — User's created campaigns
+- [ ] Add donation API calls to `services/api.ts`
+- [ ] Add campaign list section to DashboardPage
+- [ ] Add donation history to ProfilePage
+
+### Database
+- [ ] Migration: `dotnet ef migrations add AddDonationsAndCampaigns`
+- [ ] Add indexes: DonorId, CampaignId, CreatedAt, Status
+- [ ] Update database: `dotnet ef database update`
+
+---
+
+## 🔐 Sprint 6: Verification & Trust System (NEW)
+
+### Backend — Verification
+- [ ] Add `VerificationLevel` enum (None, Phone, Email, ID, Address, Organization)
+- [ ] Add `VerificationLevel` property to ApplicationUser entity
+- [ ] Create `VerificationRequest` entity (UserId, Type, Status, DocumentUrls, ReviewedBy, ReviewedAt)
+- [ ] Add verification endpoints to AdminController:
+  - [ ] GET /api/admin/verification-requests — List pending requests
+  - [ ] POST /api/admin/verification-requests/{id}/approve
+  - [ ] POST /api/admin/verification-requests/{id}/reject
+- [ ] Add photo upload support to PingController (reuse existing image logic)
+- [ ] Implement reputation score calculation (based on completed helps, donations)
+
+### Frontend — Trust Indicators
+- [ ] Create `components/ui/VerificationBadge.tsx` — Display verification level
+- [ ] Add verification request form to ProfilePage
+- [ ] Add photo upload to SOS creation modal
+- [ ] Add "Verified Only" filter to FilterBar
+- [ ] Create admin verification review panel in AdminPage
+- [ ] Display user reputation score on profiles
+- [ ] Add trust indicators to campaign cards
+
+### Database
+- [ ] Migration: `dotnet ef migrations add AddVerificationSystem`
+- [ ] Add PhotoUrls column to Pings table
+
+---
+
+## 📱 Sprint 7: Mobile UX Improvements (NEW)
+
+### Frontend — Mobile-First Redesign
+- [ ] Implement bottom tab navigation for mobile (`components/layout/BottomNav.tsx`)
+- [ ] Add GPS auto-capture using browser Geolocation API
+- [ ] Convert SOS creation to modal format (already done, verify)
+- [ ] Install date-fns: `pnpm add date-fns`
+- [ ] Add relative time formatting ("5 minutes ago", "2 hours ago")
+- [ ] Implement swipe gestures for panel dismissal
+- [ ] Add offline mode with service worker
+- [ ] Optimize map marker rendering for mobile devices
+
+### Backend — Mobile Optimization
+- [ ] Add geolocation validation endpoint
+- [ ] Reduce API response payload sizes (exclude unnecessary fields)
+- [ ] Add response compression middleware (Brotli + Gzip)
+
+---
+
+## 🌊 Sprint 8: Disaster Reporting System (NEW - Inspired by cuutro.jci.vn)
+
+### Backend — Crowdsourced Disaster Data
+- [ ] Create `DisasterReport` entity (Type, Severity, Cause, Latitude, Longitude, ReporterId, Description, PhotoUrls, CreatedAt)
+- [ ] Add `DisasterType` enum (Rain, Flood, Landslide)
+- [ ] Add `RainSeverity` enum (None, Light, Medium, Heavy, VeryHeavy)
+- [ ] Add `FloodDepth` enum (Under30cm, 30to50cm, 50cmTo1m, 1to1_5m, 1_5to2m, Over2m)
+- [ ] Add `DisasterCause` enum (HeavyRain, DamRelease, DamBreak, Other)
+- [ ] Add `LandslideSeverity` enum (Light, Medium, Severe)
+- [ ] Create `DisasterReportController` with endpoints:
+  - [ ] POST /api/disaster-reports — Submit report
+  - [ ] GET /api/disaster-reports — Get reports (with spatial filter)
+  - [ ] GET /api/disaster-reports/{id} — Get report details
+- [ ] Add spatial index on disaster report locations
+
+### Frontend — Disaster Visualization
+- [ ] Create `components/disaster/DisasterReportModal.tsx` — Report submission form
+- [ ] Add disaster layer toggle to map
+- [ ] Create color-coded disaster markers (rain: blue, flood: cyan, landslide: brown)
+- [ ] Create `pages/DisasterReportPage.tsx` — List view of reports
+- [ ] Add disaster severity indicators
+- [ ] Implement disaster heatmap visualization
+
+### Database
+- [ ] Migration: `dotnet ef migrations add AddDisasterReports`
+- [ ] Add spatial index: `CREATE INDEX idx_disaster_coordinates ON "DisasterReports" USING GIST (ST_MakePoint("Longitude", "Latitude"))`
+
+---
+
+## 🏢 Sprint 9: Support Station Network (NEW - Inspired by cuutro.jci.vn)
+
+### Backend — Physical Coordination Points
+- [ ] Create `SupportStation` entity (Name, Type, Address, Latitude, Longitude, Capacity, OperatingHours, ContactInfo, ContactPerson, PhoneNumber)
+- [ ] Add `StationType` enum (Emergency, Distribution, Collection, Rescue, Shelter)
+- [ ] Create `SupportStationController` with endpoints:
+  - [ ] GET /api/support-stations — List all stations
+  - [ ] GET /api/support-stations/nearest — Find nearest station (PostGIS query)
+  - [ ] POST /api/support-stations — Register station [Authorize]
+  - [ ] PUT /api/support-stations/{id} — Update station
+  - [ ] DELETE /api/support-stations/{id} — Remove station [Admin]
+- [ ] Implement nearest station search with PostGIS ST_Distance
+
+### Frontend — Station Features
+- [ ] Add support station markers to map (orange icons)
+- [ ] Create `components/station/StationDetailPanel.tsx` — Station info display
+- [ ] Add "Find Nearest Station" button to FilterBar
+- [ ] Create station registration form
+- [ ] Install leaflet-routing-machine: `pnpm add leaflet-routing-machine`
+- [ ] Add route planning to stations (OSRM integration)
+
+### Database
+- [ ] Migration: `dotnet ef migrations add AddSupportStations`
+- [ ] Add spatial index for nearest neighbor queries
+
+---
+
+## 💬 Sprint 10: Enhanced Communication (NEW)
+
+### Backend — Messaging & Notifications
+- [ ] Create `DirectMessage` entity (SenderId, ReceiverId, Content, IsRead, CreatedAt)
+- [ ] Create `MessageController` with endpoints:
+  - [ ] POST /api/messages — Send message
+  - [ ] GET /api/messages/conversations — List conversations
+  - [ ] GET /api/messages/conversation/{userId} — Get messages with user
+  - [ ] PUT /api/messages/{id}/read — Mark as read
+- [ ] Create `MessageHub` SignalR hub for real-time messaging
+- [ ] Install Twilio: `dotnet add package Twilio`
+- [ ] Implement SMS notification service
+- [ ] Add email newsletter system using existing SmtpEmailService
+- [ ] Create notification preferences in User entity
+
+### Frontend — Communication UI
+- [ ] Create `components/messaging/MessagingPanel.tsx` — Chat interface
+- [ ] Add notification center to Header
+- [ ] Implement SMS opt-in/opt-out in ProfilePage
+- [ ] Add email subscription management
+- [ ] Create in-app announcement banner component
+
+---
+
+## 📊 Sprint 11: Impact & Transparency (NEW)
+
+### Backend — Campaign Updates
+- [ ] Create `CampaignUpdate` entity (CampaignId, Title, Content, PhotoUrls, CreatedAt)
+- [ ] Add update endpoints to CampaignController:
+  - [ ] POST /api/campaigns/{id}/updates — Post update
+  - [ ] GET /api/campaigns/{id}/updates — Get updates timeline
+- [ ] Implement impact metrics calculation (total raised, people helped, etc.)
+- [ ] Add fund allocation tracking to Campaign entity
+- [ ] Create automated thank-you email system (trigger on donation)
+- [ ] Add impact report generation endpoint
+
+### Frontend — Transparency Features
+- [ ] Create `components/campaign/ImpactDashboard.tsx` — Metrics display
+- [ ] Create `components/campaign/CampaignUpdateTimeline.tsx` — Update feed
+- [ ] Implement photo gallery for campaign updates
+- [ ] Create thank-you message templates
+- [ ] Add fund allocation pie chart (use Chart.js or Recharts)
+
+---
+
 ## 🎯 Milestones
 
 | Milestone | Ngày mục tiêu | Tiêu chí hoàn thành |
@@ -606,6 +794,13 @@
 - ✅ Build thành công: `dotnet build` 0 errors, `tsc --noEmit` 0 errors
 - ✅ Frontend chạy thành công trên http://localhost:5173
 - 🔄 Sprint 1 đang triển khai: Auth backend + frontend cơ bản đã xong, cần migration + tests + middleware
+
+### 2026-03-17 (16:55) — Competitive Analysis Research
+- ✅ **Analyzed cuutro.jci.vn** — Vietnamese relief platform with disaster reporting, two-way matching, support stations
+- ✅ **Researched global platforms** — GoFundMe, GlobalGiving, DonorsChoose, Donorbox, Givebutter
+- ✅ **Identified critical gaps** — Monetary donations, campaign management, verification badges, impact reports
+- ✅ **Created documentation** — `docs/COMPETITIVE_ANALYSIS.md` (17 recommendations), `FEATURE_ROADMAP.md` (12 sprints)
+- 🔄 **Next priority**: Sprint 4 — Donation system + verification badges
 
 ### 2026-02-25 (23:08)
 - ✅ Tạo cấu trúc agent team (4 agents)

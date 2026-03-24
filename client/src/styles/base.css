@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════
-   RELIEF CONNECT v2 — Base Styles
+   RELIEF CONNECT v3 — Base Styles
    Reset, typography, global behaviors
    ═══════════════════════════════════════════════════════ */
 
@@ -39,26 +39,27 @@ body::before {
   pointer-events: none;
   z-index: -1;
   background:
-    radial-gradient(ellipse 80% 50% at 20% 30%, var(--aurora-1), transparent),
-    radial-gradient(ellipse 60% 40% at 80% 20%, var(--aurora-2), transparent),
-    radial-gradient(ellipse 50% 50% at 60% 70%, var(--aurora-3), transparent);
-  opacity: 0.6;
+    radial-gradient(ellipse 90% 55% at 15% 25%, var(--aurora-1), transparent),
+    radial-gradient(ellipse 65% 45% at 82% 18%, var(--aurora-2), transparent),
+    radial-gradient(ellipse 55% 55% at 58% 75%, var(--aurora-3), transparent);
+  opacity: 0.65;
 }
 
 /* ─── Typography ─── */
 h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
   font-weight: 700;
   line-height: var(--leading-tight);
   letter-spacing: var(--tracking-tight);
   color: var(--text-primary);
 }
 
-h1 { font-size: var(--text-4xl); }
-h2 { font-size: var(--text-3xl); }
-h3 { font-size: var(--text-2xl); }
-h4 { font-size: var(--text-xl); }
-h5 { font-size: var(--text-lg); font-weight: 600; }
-h6 { font-size: var(--text-base); font-weight: 600; }
+h1 { font-size: var(--text-4xl); font-weight: 800; }
+h2 { font-size: var(--text-3xl); font-weight: 700; }
+h3 { font-size: var(--text-2xl); font-weight: 700; }
+h4 { font-size: var(--text-xl);  font-weight: 600; }
+h5 { font-size: var(--text-lg);  font-weight: 600; }
+h6 { font-size: var(--text-base);font-weight: 600; }
 
 p {
   line-height: var(--leading-relaxed);
@@ -77,6 +78,10 @@ a:hover {
 
 strong, b { font-weight: 600; }
 small { font-size: var(--text-xs); }
+code, kbd, samp, pre {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
 
 /* ─── Lists ─── */
 ul, ol { list-style: none; }
@@ -109,8 +114,8 @@ button {
 
 /* ─── Scrollbar (WebKit) ─── */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 
 ::-webkit-scrollbar-track {
@@ -126,7 +131,6 @@ button {
   background: var(--text-muted);
 }
 
-/* Firefox scrollbar */
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--border-strong) transparent;

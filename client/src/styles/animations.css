@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════
-   RELIEF CONNECT v2 — Animations
+   RELIEF CONNECT v3 — Animations
    Keyframes, entrance/exit, micro-interactions
    ═══════════════════════════════════════════════════════ */
 
@@ -59,8 +59,8 @@
 }
 
 @keyframes sosBlink {
-  0%, 100% { opacity: 1; box-shadow: 0 0 8px rgba(239, 68, 68, 0.6); }
-  50% { opacity: 0.6; box-shadow: 0 0 20px rgba(239, 68, 68, 0.9); }
+  0%, 100% { opacity: 1; box-shadow: 0 0 8px rgba(239, 48, 48, 0.6); }
+  50% { opacity: 0.6; box-shadow: 0 0 20px rgba(239, 48, 48, 0.9); }
 }
 
 @keyframes float {
@@ -172,3 +172,32 @@
 .transition-opacity {
   transition: opacity var(--transition-base);
 }
+
+/* ─── V3: Aurora & Scan-line ─── */
+@keyframes auroraMove {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33%       { transform: translate(5%, 3%) scale(1.05); }
+  66%       { transform: translate(-4%, 6%) scale(0.97); }
+}
+
+@keyframes scanLine {
+  from { transform: translateY(-100%); }
+  to   { transform: translateY(100vh); }
+}
+
+@keyframes gradientShift {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes glitch {
+  0%, 100% { clip-path: inset(0 0 98% 0); transform: translate(0); }
+  10%       { clip-path: inset(12% 0 76% 0); transform: translate(-3px, 1px); }
+  30%       { clip-path: inset(54% 0 30% 0); transform: translate(3px, -1px); }
+  60%       { clip-path: inset(80% 0 6% 0);  transform: translate(-2px, 0); }
+  80%       { clip-path: inset(36% 0 60% 0); transform: translate(2px, 1px); }
+}
+
+.animate-aurora { animation: auroraMove 18s ease-in-out infinite; }
+.animate-gradient { animation: gradientShift 8s ease infinite; background-size: 200% 200%; }

@@ -24,31 +24,31 @@ public class GeminiService : IGeminiService
 
     public GeminiService(IConfiguration config, ILogger<GeminiService> logger)
     {
-        _http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+        _http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
         _apiKey = config["Gemini:ApiKey"] ?? throw new InvalidOperationException("Gemini:ApiKey not configured");
-        _model = config["Gemini:Model"] ?? "gemini-2.5-flash-latest";
+        _model = config["Gemini:Model"] ?? "gemini-2.5-flash";
         _logger = logger;
+
+        _logger.LogInformation("GeminiService initialized with model: {Model}", _model);
     }
+
+    private static readonly string[] EmergencyKeywords =
+    {
+        "đau tim", "ngộ độc", "chảy máu", "ngừng thở", "tai nạn", "cấp cứu",
+        "heart attack", "poisoning", "bleeding", "emergency", "stopped breathing", "accident"
+    };
 
     public async Task<(string Response, bool HasSafetyWarning)> SendMessageAsync(
         string userMessage,
         IEnumerable<(string Role, string Content)>? conversationHistory = null)
     {
+        // Check for emergency keywords
+        var hasEmergencyKeyword = EmergencyKeywords.Any(keyword =>
+            userMessage.Contains(keyword, StringComparison.OrdinalIgnoreCase));
+
         var url = $"https://generativelanguage.googleapis.com/v1beta/models/{_model}:generateContent";
 
         var contents = new List<object>();
-
-        // System instruction as first user turn
-        contents.Add(new
-        {
-            role = "user",
-            parts = new[] { new { text = SYSTEM_PROMPT } }
-        });
-        contents.Add(new
-        {
-            role = "model",
-            parts = new[] { new { text = "Xin chào! Tôi là trợ lý AI của ReliefConnect. Tôi sẵn sàng hỗ trợ bạn." } }
-        });
 
         // Add conversation history
         if (conversationHistory != null)
@@ -72,6 +72,10 @@ public class GeminiService : IGeminiService
 
         var requestBody = new
         {
+            systemInstruction = new
+            {
+                parts = new[] { new { text = SYSTEM_PROMPT } }
+            },
             contents,
             safetySettings = new[]
             {
@@ -89,6 +93,8 @@ public class GeminiService : IGeminiService
 
         try
         {
+            _logger.LogInformation("Calling Gemini API: model={Model}, msgLen={Length}", _model, userMessage.Length);
+
             var request = new HttpRequestMessage(HttpMethod.Post, url);
             request.Headers.Add("x-goog-api-key", _apiKey);
             request.Content = JsonContent.Create(requestBody);
@@ -99,7 +105,7 @@ public class GeminiService : IGeminiService
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogWarning("Gemini API error {StatusCode}: {Body}", response.StatusCode, json);
-                return ("Xin lỗi, tôi đang gặp sự cố. Vui lòng thử lại sau.", false);
+                return ($"Xin lỗi, tôi đang gặp sự cố (HTTP {(int)response.StatusCode}). Vui lòng thử lại sau.", false);
             }
 
             using var doc = JsonDocument.Parse(json);
@@ -114,7 +120,12 @@ public class GeminiService : IGeminiService
             }
 
             // Extract text response
-            var candidates = root.GetProperty("candidates");
+            if (!root.TryGetProperty("candidates", out var candidates) || candidates.GetArrayLength() == 0)
+            {
+                _logger.LogWarning("Gemini returned no candidates. Response: {Json}", json);
+                return ("Xin lỗi, tôi không nhận được phản hồi. Vui lòng thử lại.", false);
+            }
+
             var text = candidates[0]
                 .GetProperty("content")
                 .GetProperty("parts")[0]
@@ -122,7 +133,7 @@ public class GeminiService : IGeminiService
                 .GetString() ?? "Xin lỗi, tôi không thể trả lời lúc này.";
 
             // Check for safety ratings
-            var hasSafetyWarning = false;
+            var hasSafetyWarning = hasEmergencyKeyword;
             if (candidates[0].TryGetProperty("safetyRatings", out var ratings))
             {
                 foreach (var rating in ratings.EnumerateArray())
@@ -136,7 +147,13 @@ public class GeminiService : IGeminiService
                 }
             }
 
+            _logger.LogInformation("Gemini responded successfully, length={Length}", text.Length);
             return (text, hasSafetyWarning);
+        }
+        catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException || !ex.CancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning("Gemini API timeout after 30s");
+            return ("Xin lỗi, phản hồi quá lâu. Vui lòng thử lại với câu hỏi ngắn hơn.", false);
         }
         catch (Exception ex)
         {

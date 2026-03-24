@@ -1,5 +1,5 @@
 # 🔒 Security Audit Report — Relief Connection Platform
-> **Date**: 2026-03-17 | **Auditor**: AI Security Analysis | **Scope**: OWASP Top 10 + Performance
+> **Date**: 2026-03-18 (Updated) | **Auditor**: AI Security Analysis | **Scope**: OWASP Top 10 + Performance
 
 ---
 
@@ -8,145 +8,142 @@
 ### 1. Authentication & Authorization
 - ✅ **Password Hashing**: Uses ASP.NET Core Identity with PBKDF2 (secure)
 - ✅ **JWT Implementation**: Proper token validation with issuer/audience checks
-- ✅ **Rate Limiting**: Auth endpoints limited to 10 req/min, API to 60 req/min
+- ✅ **JWT Secret Validation**: Enforces minimum 256-bit keys on startup
+- ✅ **Token Blacklist**: Logout endpoint invalidates JWT tokens
+- ✅ **Rate Limiting**: Auth endpoints (5/15min), uploads (20/5min), chatbot (30/5min)
 - ✅ **Role-Based Access Control**: Proper authorization policies for Admin, Volunteer, etc.
 - ✅ **Lockout Policy**: 5 failed attempts = 5-minute lockout
+- ✅ **Timing Attack Prevention**: Constant-time comparison for verification codes and password reset tokens
 
 ### 2. SQL Injection Prevention
 - ✅ **Parameterized Queries**: All database access via Entity Framework Core
-- ✅ **No Raw SQL**: No `FromSqlRaw` or string concatenation in queries
+- ✅ **Safe Raw SQL**: `FromSqlRaw` uses parameterized queries (PingRepository line 73-81)
 - ✅ **Input Validation**: DTOs with proper validation attributes
+- ✅ **Coordinate Validation**: Lat/lng bounds checking on spatial queries
 
-### 3. Security Headers
+### 3. XSS Prevention
+- ✅ **HTML Sanitization**: HtmlSanitizer on posts, comments, and chatbot messages
+- ✅ **Output Encoding**: ASP.NET Core automatic encoding in responses
+
+### 4. Security Headers
 - ✅ **X-Content-Type-Options**: nosniff
 - ✅ **X-Frame-Options**: DENY
-- ✅ **X-XSS-Protection**: Enabled
+- ✅ **Content-Security-Policy**: Implemented with strict directives
+- ✅ **Strict-Transport-Security**: HSTS with 1-year max-age
 - ✅ **Referrer-Policy**: strict-origin-when-cross-origin
 
-### 4. HTTPS & CORS
+### 5. HTTPS & CORS
 - ✅ **HTTPS Redirection**: Enforced
 - ✅ **CORS**: Whitelist-based (localhost:5173-5175)
 - ✅ **Credentials**: Allowed only for whitelisted origins
 
+### 6. File Upload Security
+- ✅ **File Type Validation**: Content-Type and extension checking
+- ✅ **File Size Limits**: 5MB maximum
+- ✅ **Safe File Names**: GUID-based naming prevents path traversal
+
+### 7. CSRF Protection
+- ✅ **Anti-Forgery Tokens**: Configured with strict SameSite cookies
+- ✅ **Secure Cookies**: HTTPS-only policy enforced
+
 ---
 
-## ⚠️ Security Issues Found
+## ⚠️ Remaining Security Issues
 
 ### HIGH PRIORITY
 
-#### 1. API Key Exposure Risk
-**Location**: `src/ReliefConnect.API/appsettings.Development.json`
-**Issue**: Gemini API key stored in plain text
-**Risk**: If committed to GitHub, key will be compromised
-**Fix**:
-```bash
-# Add to .gitignore
-echo "src/ReliefConnect.API/appsettings.Development.json" >> .gitignore
-
-# Use user secrets
-dotnet user-secrets set "Gemini:ApiKey" "YOUR_KEY"
-```
-
-#### 2. Missing Input Sanitization for XSS
-**Location**: `PostController.CreatePost()`, `ChatbotController.SendMessage()`
-**Issue**: User-generated content (posts, comments) not sanitized before storage
-**Risk**: Stored XSS attacks via malicious HTML/JavaScript in post content
-**Fix**: Add HTML sanitization library
-```bash
-dotnet add package HtmlSanitizer
-```
+#### 1. JWT in localStorage (XSS Vulnerability)
+**Location**: `client/src/stores/authStore.ts` line 34, 44, 69, 94
+**Issue**: JWT tokens stored in localStorage are vulnerable to XSS attacks
+**Risk**: If XSS vulnerability exists, attacker can steal tokens
+**Recommendation**: Migrate to httpOnly cookies
 ```csharp
-var sanitizer = new HtmlSanitizer();
-post.Content = sanitizer.Sanitize(dto.Content);
+// Backend: Set cookie instead of returning token in body
+Response.Cookies.Append("auth_token", token, new CookieOptions
+{
+    HttpOnly = true,
+    Secure = true,
+    SameSite = SameSiteMode.Strict,
+    Expires = expiresAt
+});
 ```
+**Note**: Already partially implemented - Program.cs line 97-99 reads from cookies
 
-#### 3. Missing CSRF Protection
-**Location**: All POST/PUT/DELETE endpoints
-**Issue**: No anti-forgery tokens for state-changing operations
-**Risk**: Cross-Site Request Forgery attacks
-**Fix**: Add anti-forgery middleware (already available in ASP.NET Core)
-```csharp
-builder.Services.AddAntiforgery();
-app.UseAntiforgery();
-```
+#### 2. No Token Rotation
+**Issue**: JWT tokens valid until expiry (60 minutes default)
+**Risk**: Stolen tokens remain valid for extended periods
+**Recommendation**: Implement refresh token rotation pattern
 
 ### MEDIUM PRIORITY
 
-#### 4. Weak JWT Secret Key
-**Location**: `Program.cs` line 67
-**Issue**: Default key "DefaultDevSecretKey_ChangeInProduction_Min32Chars!!" in code
-**Risk**: If not overridden in production, tokens can be forged
-**Fix**: Enforce strong key in production
-```csharp
-if (builder.Environment.IsProduction() && jwtKey.Contains("Default"))
-    throw new InvalidOperationException("JWT key must be configured in production");
-```
+#### 3. API Key in Configuration
+**Location**: `appsettings.json` (Gemini API key)
+**Issue**: API keys should use environment variables or secret management
+**Fix**: Use `dotnet user-secrets` or Azure Key Vault in production
 
-#### 5. No File Upload Validation
-**Location**: `PostController.CreatePost()` (image upload)
-**Issue**: Missing file type, size, and content validation
-**Risk**: Malicious file uploads (malware, XXE, zip bombs)
-**Fix**: Add validation
-```csharp
-if (file.Length > 5 * 1024 * 1024) return BadRequest("File too large");
-var allowedTypes = new[] { "image/jpeg", "image/png", "image/webp" };
-if (!allowedTypes.Contains(file.ContentType)) return BadRequest("Invalid file type");
-```
-
-#### 6. Email Verification Code Timing Attack
-**Location**: `AuthController.VerifyEmail()`
-**Issue**: Direct string comparison of verification codes
-**Risk**: Timing attacks to guess codes
-**Fix**: Use constant-time comparison
-```csharp
-if (!CryptographicOperations.FixedTimeEquals(
-    Encoding.UTF8.GetBytes(code),
-    Encoding.UTF8.GetBytes(user.EmailVerificationCode)))
-    return BadRequest("Invalid code");
-```
+#### 4. Hangfire Dashboard Authorization
+**Location**: `Program.cs` line 226-229
+**Issue**: Dashboard requires admin but uses empty authorization filter array
+**Status**: Correctly configured with RequireAuthorization("RequireAdmin")
 
 ### LOW PRIORITY
 
-#### 7. Missing Content Security Policy (CSP)
-**Issue**: No CSP header to prevent inline script execution
-**Fix**: Add CSP middleware
-```csharp
-context.Response.Headers["Content-Security-Policy"] =
-    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';";
-```
+#### 5. No Account Deletion/GDPR
+**Issue**: No endpoint for users to delete their accounts
+**Recommendation**: Add GDPR-compliant data deletion
 
-#### 8. Verbose Error Messages
-**Location**: `GlobalExceptionHandler`
-**Issue**: Stack traces may leak in production
-**Fix**: Ensure `app.Environment.IsDevelopment()` check before exposing details
+#### 6. Missing Audit Logging
+**Issue**: Limited audit trail for sensitive operations
+**Status**: Partial implementation in AdminController
+**Recommendation**: Expand to all critical operations
+
+---
+
+## 🔧 Fixes Applied (2026-03-17)
+
+### Critical Fixes
+1. ✅ **Password Reset Timing Attack**: Added constant-time comparison (AuthController line 201-208)
+2. ✅ **Chatbot XSS**: Added HtmlSanitizer for user messages (ChatbotController line 66)
+3. ✅ **Rate Limiting Expansion**: Added limits for uploads (20/5min) and chatbot (30/5min)
+4. ✅ **File Upload Hardening**: Added extension validation to prevent bypass
+5. ✅ **Spatial Query Validation**: Added coordinate bounds checking (MapController line 49-54)
+6. ✅ **CSRF Protection**: Configured anti-forgery middleware with secure cookies
+
+### Additional Improvements (2026-03-18)
+7. ✅ **Response Compression**: Enabled Brotli + Gzip compression for all responses
+8. ✅ **Gemini API Configuration**: Fixed invalid model name (gemini-3.0-flash → gemini-2.0-flash-exp)
+9. ✅ **Code Cleanup**: Removed unnecessary test files and documentation duplicates
 
 ---
 
 ## 🛡️ Recommendations
 
-### Immediate Actions (Before Production)
-1. ✅ Move all secrets to environment variables or Azure Key Vault
-2. ⚠️ Add HTML sanitization for user-generated content
-3. ⚠️ Implement CSRF protection
-4. ⚠️ Add file upload validation
-5. ✅ Enforce strong JWT key in production
+### Before Production Deployment
+1. ⚠️ **Migrate JWT to httpOnly cookies** (eliminates localStorage XSS risk)
+2. ⚠️ **Move API keys to environment variables** or Azure Key Vault
+3. ⚠️ **Implement refresh token rotation**
+4. ✅ Test CSRF protection with frontend integration
+5. ✅ Configure production CORS origins
 
 ### Future Enhancements
-- Add Content Security Policy headers
-- Implement refresh token rotation
-- Add audit logging for sensitive operations
-- Consider adding Captcha for registration
-- Implement account deletion/GDPR compliance
+- Implement refresh token rotation with sliding expiration
+- Add comprehensive audit logging for all sensitive operations
+- Add CAPTCHA for registration to prevent bot abuse
+- Implement account deletion/GDPR compliance endpoints
+- Consider adding Web Application Firewall (WAF)
+- Add security.txt file for responsible disclosure
 
 ---
 
-## 📊 Security Score: 7.5/10
+## 📊 Security Score: 8.5/10 (Improved from 7.5/10)
 
 **Breakdown**:
-- Authentication: 9/10 (excellent)
-- Authorization: 9/10 (excellent)
-- Input Validation: 6/10 (needs XSS protection)
-- Data Protection: 7/10 (needs secret management)
-- Configuration: 7/10 (needs production hardening)
+- Authentication: 9/10 (excellent - token blacklist implemented)
+- Authorization: 9/10 (excellent - proper RBAC)
+- Input Validation: 9/10 (excellent - XSS protection added)
+- Data Protection: 8/10 (good - needs httpOnly cookies)
+- Configuration: 8/10 (good - needs secret management)
+- Rate Limiting: 9/10 (excellent - comprehensive coverage)
+- CSRF Protection: 9/10 (excellent - properly configured)
 
-**Overall**: Good security foundation, but needs XSS/CSRF protection before production deployment.
+**Overall**: Strong security posture. Primary remaining concern is JWT in localStorage. Ready for production with httpOnly cookie migration.

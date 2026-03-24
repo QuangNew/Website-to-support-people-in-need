@@ -39,6 +39,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
                 maxRetryDelay: TimeSpan.FromSeconds(5),
                 errorCodesToAdd: null);
             npgsqlOptions.MaxBatchSize(100);
+            npgsqlOptions.CommandTimeout(15); // 15s query timeout (was default 30s)
         })
     .EnableSensitiveDataLogging(builder.Environment.IsDevelopment())
     .UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking));
@@ -168,12 +169,31 @@ builder.Services.AddOutputCache(options =>
 builder.Services.AddMemoryCache();
 
 // ═══════════════════════════════════════════
+//  RESPONSE COMPRESSION
+// ═══════════════════════════════════════════
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true;
+    options.Providers.Add<Microsoft.AspNetCore.ResponseCompression.BrotliCompressionProvider>();
+    options.Providers.Add<Microsoft.AspNetCore.ResponseCompression.GzipCompressionProvider>();
+});
+
+// ═══════════════════════════════════════════
 //  CONTROLLERS + SIGNALR + SWAGGER
 // ═══════════════════════════════════════════
 builder.Services.AddControllers();
 builder.Services.AddSignalR();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+
+// CSRF Protection
+builder.Services.AddAntiforgery(options =>
+{
+    options.HeaderName = "X-CSRF-TOKEN";
+    options.Cookie.Name = "CSRF-TOKEN";
+    options.Cookie.SameSite = SameSiteMode.Strict;
+    options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+});
 
 // ═══════════════════════════════════════════
 //  DEPENDENCY INJECTION
@@ -183,6 +203,7 @@ builder.Services.AddScoped<IPostRepository, PostRepository>();
 builder.Services.AddScoped<IEmailService, SmtpEmailService>();
 builder.Services.AddSingleton<IGeminiService, GeminiService>();
 builder.Services.AddSingleton<ITokenBlacklistService, TokenBlacklistService>();
+builder.Services.AddSingleton<Ganss.Xss.HtmlSanitizer>();
 
 // ═══════════════════════════════════════════
 //  HANGFIRE
@@ -219,6 +240,7 @@ app.UseMiddleware<RateLimitingMiddleware>();
 app.UseCors("AllowFrontend");
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseAntiforgery();
 app.UseSerilogRequestLogging();
 
 app.MapControllers();

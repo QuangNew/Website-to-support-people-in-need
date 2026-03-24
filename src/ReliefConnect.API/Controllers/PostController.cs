@@ -20,11 +20,11 @@ public class PostController : ControllerBase
     private readonly AppDbContext _db;
     private readonly HtmlSanitizer _sanitizer;
 
-    public PostController(IPostRepository postRepo, AppDbContext db)
+    public PostController(IPostRepository postRepo, AppDbContext db, HtmlSanitizer sanitizer)
     {
         _postRepo = postRepo;
         _db = db;
-        _sanitizer = new HtmlSanitizer();
+        _sanitizer = sanitizer;
     }
 
     private string? GetUserId() => User.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -74,8 +74,14 @@ public class PostController : ControllerBase
             return BadRequest(new { message = "No file uploaded" });
 
         var allowedTypes = new[] { "image/jpeg", "image/png", "image/webp" };
+        var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".webp" };
+
         if (!allowedTypes.Contains(file.ContentType))
             return BadRequest(new { message = "Only JPG, PNG, WEBP allowed" });
+
+        var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+        if (!allowedExtensions.Contains(extension))
+            return BadRequest(new { message = "Invalid file extension" });
 
         if (file.Length > 5 * 1024 * 1024)
             return BadRequest(new { message = "File too large (max 5MB)" });
@@ -83,7 +89,7 @@ public class PostController : ControllerBase
         var uploadsDir = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads");
         Directory.CreateDirectory(uploadsDir);
 
-        var fileName = $"{Guid.NewGuid()}{Path.GetExtension(file.FileName)}";
+        var fileName = $"{Guid.NewGuid()}{extension}";
         var filePath = Path.Combine(uploadsDir, fileName);
 
         using (var stream = new FileStream(filePath, FileMode.Create))
@@ -172,14 +178,25 @@ public class PostController : ControllerBase
 
         await _db.SaveChangesAsync();
 
-        // Return updated counts
-        var reactions = await _db.Reactions.Where(r => r.PostId == postId).ToListAsync();
+        var counts = await _db.Reactions
+            .AsNoTracking()
+            .Where(r => r.PostId == postId)
+            .GroupBy(r => r.Type)
+            .Select(g => new { Type = g.Key, Count = g.Count() })
+            .ToListAsync();
+
+        var userReaction = await _db.Reactions
+            .AsNoTracking()
+            .Where(r => r.PostId == postId && r.UserId == userId)
+            .Select(r => (ReactionType?)r.Type)
+            .FirstOrDefaultAsync();
+
         return Ok(new
         {
-            likeCount = reactions.Count(r => r.Type == ReactionType.Like),
-            loveCount = reactions.Count(r => r.Type == ReactionType.Love),
-            prayCount = reactions.Count(r => r.Type == ReactionType.Pray),
-            userReaction = reactions.FirstOrDefault(r => r.UserId == userId)?.Type.ToString()
+            likeCount = counts.FirstOrDefault(c => c.Type == ReactionType.Like)?.Count ?? 0,
+            loveCount = counts.FirstOrDefault(c => c.Type == ReactionType.Love)?.Count ?? 0,
+            prayCount = counts.FirstOrDefault(c => c.Type == ReactionType.Pray)?.Count ?? 0,
+            userReaction = userReaction?.ToString()
         });
     }
 
@@ -191,6 +208,7 @@ public class PostController : ControllerBase
         if (limit > 50) limit = 50;
 
         var query = _db.Comments
+            .AsNoTracking()
             .Include(c => c.User)
             .Where(c => c.PostId == postId)
             .OrderByDescending(c => c.CreatedAt)
@@ -198,9 +216,7 @@ public class PostController : ControllerBase
 
         if (!string.IsNullOrEmpty(cursor) && int.TryParse(cursor, out var cursorId))
         {
-            var cursorComment = await _db.Comments.FindAsync(cursorId);
-            if (cursorComment != null)
-                query = query.Where(c => c.CreatedAt < cursorComment.CreatedAt || (c.CreatedAt == cursorComment.CreatedAt && c.Id < cursorId));
+            query = query.Where(c => c.Id < cursorId);
         }
 
         var comments = await query.Take(limit + 1).ToListAsync();

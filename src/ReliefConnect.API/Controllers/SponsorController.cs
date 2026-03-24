@@ -35,9 +35,14 @@ public class SponsorController : ControllerBase
 
         if (lat.HasValue && lng.HasValue && radiusKm.HasValue)
         {
-            var r = radiusKm.Value;
+            var r = radiusKm.Value / 111.0; // Convert km to degrees (approximate)
+            var latMin = lat.Value - r;
+            var latMax = lat.Value + r;
+            var lngMin = lng.Value - r;
+            var lngMax = lng.Value + r;
             query = query.Where(p =>
-                Math.Sqrt(Math.Pow(p.CoordinatesLat - lat.Value, 2) + Math.Pow(p.CoordinatesLong - lng.Value, 2)) * 111 <= r);
+                p.CoordinatesLat >= latMin && p.CoordinatesLat <= latMax &&
+                p.CoordinatesLong >= lngMin && p.CoordinatesLong <= lngMax);
         }
 
         var posts = await _db.Posts

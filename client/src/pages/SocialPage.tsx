@@ -52,13 +52,15 @@ export default function SocialPage() {
         <div className="animate-fade-in-up" style={{ maxWidth: 640, margin: '0 auto' }}>
             <div className="page-header">
                 <div className="page-header__info">
-                    <h1 className="page-header__title">{t('social.title')}</h1>
+                    <h1 className="page-header__title" style={{ fontFamily: 'var(--font-display)', fontWeight: 700 }}>
+                        {t('social.title')}
+                    </h1>
                 </div>
             </div>
 
             {/* Create Post */}
-            <div className="glass-card" style={{ padding: 'var(--space-5)', marginBottom: 'var(--space-6)' }}>
-                <div style={{ display: 'flex', gap: 'var(--space-3)' }}>
+            <div className="glass-card" style={{ padding: 'var(--sp-5)', marginBottom: 'var(--sp-6)' }}>
+                <div style={{ display: 'flex', gap: 'var(--sp-3)' }}>
                     <div className="avatar avatar-md">{initials}</div>
                     <div style={{ flex: 1 }}>
                         <textarea
@@ -66,10 +68,10 @@ export default function SocialPage() {
                             placeholder={t('social.writePost')}
                             value={newPost}
                             onChange={(e) => setNewPost(e.target.value)}
-                            style={{ minHeight: 80, resize: 'none', marginBottom: 'var(--space-3)' }}
+                            style={{ minHeight: 80, resize: 'none', marginBottom: 'var(--sp-3)' }}
                         />
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+                            <div style={{ display: 'flex', gap: 'var(--sp-2)' }}>
                                 <button className="btn btn-ghost btn-icon btn-sm" title="Add image"><Image size={16} /></button>
                                 <button className="btn btn-ghost btn-icon btn-sm" title="Add location"><MapPin size={16} /></button>
                             </div>
@@ -82,15 +84,17 @@ export default function SocialPage() {
             </div>
 
             {/* Posts Feed */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
                 {posts.map((post) => (
-                    <div key={post.id} className="glass-card" style={{ padding: 'var(--space-5)' }}>
+                    <div key={post.id} className="glass-card" style={{ padding: 'var(--sp-5)' }}>
                         {/* Header */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', marginBottom: 'var(--space-4)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', marginBottom: 'var(--sp-4)' }}>
                             <div className="avatar avatar-md">{post.avatar}</div>
                             <div style={{ flex: 1 }}>
-                                <div style={{ fontWeight: 600, fontSize: 'var(--text-md)' }}>{post.author}</div>
-                                <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <div style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 'var(--text-base)' }}>
+                                    {post.author}
+                                </div>
+                                <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center', gap: 'var(--sp-1-5)' }}>
                                     <span className="badge badge-accent badge-sm">{post.role}</span>
                                     · {post.time}
                                 </div>
@@ -98,13 +102,16 @@ export default function SocialPage() {
                         </div>
 
                         {/* Content */}
-                        <p style={{ color: 'var(--text-primary)', lineHeight: 1.7, marginBottom: 'var(--space-4)', fontSize: 'var(--text-md)' }}>
+                        <p style={{ color: 'var(--text-primary)', lineHeight: 'var(--leading-relaxed)', marginBottom: 'var(--sp-4)', fontSize: 'var(--text-base)' }}>
                             {post.content}
                         </p>
 
                         {/* Actions */}
-                        <div style={{ display: 'flex', gap: 'var(--space-4)', paddingTop: 'var(--space-3)', borderTop: '1px solid var(--border-subtle)' }}>
-                            <button className={`btn btn-ghost btn-sm ${post.liked ? 'text-danger' : ''}`} style={post.liked ? { color: 'var(--danger-500)' } : {}}>
+                        <div style={{ display: 'flex', gap: 'var(--sp-4)', paddingTop: 'var(--sp-3)', borderTop: '1px solid var(--border-subtle)' }}>
+                            <button
+                                className="btn btn-ghost btn-sm"
+                                style={post.liked ? { color: 'var(--danger-400)' } : {}}
+                            >
                                 <Heart size={16} fill={post.liked ? 'currentColor' : 'none'} /> {post.likes}
                             </button>
                             <button className="btn btn-ghost btn-sm">
