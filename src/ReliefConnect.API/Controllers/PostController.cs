@@ -152,12 +152,17 @@ public class PostController : ControllerBase
         var existing = await _db.Reactions
             .FirstOrDefaultAsync(r => r.PostId == postId && r.UserId == userId);
 
+        bool wasToggledOff = false;
+        ReactionType? previousType = null;
+
         if (existing != null)
         {
+            previousType = existing.Type;
             if (existing.Type == reactionType)
             {
                 // Toggle off — remove reaction
                 _db.Reactions.Remove(existing);
+                wasToggledOff = true;
             }
             else
             {
@@ -178,24 +183,22 @@ public class PostController : ControllerBase
 
         await _db.SaveChangesAsync();
 
-        var counts = await _db.Reactions
+        // Single query to get all counts and user reaction
+        var reactionData = await _db.Reactions
             .AsNoTracking()
             .Where(r => r.PostId == postId)
             .GroupBy(r => r.Type)
             .Select(g => new { Type = g.Key, Count = g.Count() })
             .ToListAsync();
 
-        var userReaction = await _db.Reactions
-            .AsNoTracking()
-            .Where(r => r.PostId == postId && r.UserId == userId)
-            .Select(r => (ReactionType?)r.Type)
-            .FirstOrDefaultAsync();
+        // User reaction: null if toggled off, otherwise the current reaction type
+        var userReaction = wasToggledOff ? (ReactionType?)null : reactionType;
 
         return Ok(new
         {
-            likeCount = counts.FirstOrDefault(c => c.Type == ReactionType.Like)?.Count ?? 0,
-            loveCount = counts.FirstOrDefault(c => c.Type == ReactionType.Love)?.Count ?? 0,
-            prayCount = counts.FirstOrDefault(c => c.Type == ReactionType.Pray)?.Count ?? 0,
+            likeCount = reactionData.FirstOrDefault(c => c.Type == ReactionType.Like)?.Count ?? 0,
+            loveCount = reactionData.FirstOrDefault(c => c.Type == ReactionType.Love)?.Count ?? 0,
+            prayCount = reactionData.FirstOrDefault(c => c.Type == ReactionType.Pray)?.Count ?? 0,
             userReaction = userReaction?.ToString()
         });
     }
@@ -336,8 +339,8 @@ public class PostController : ControllerBase
             LoveCount = p.Reactions?.Count(r => r.Type == ReactionType.Love) ?? 0,
             PrayCount = p.Reactions?.Count(r => r.Type == ReactionType.Pray) ?? 0,
             CommentCount = p.Comments?.Count ?? 0,
-            UserReaction = currentUserId != null 
-                ? p.Reactions?.FirstOrDefault(r => r.UserId == currentUserId)?.Type.ToString() 
+            UserReaction = currentUserId != null
+                ? p.Reactions?.FirstOrDefault(r => r.UserId == currentUserId)?.Type.ToString()
                 : null
         };
     }

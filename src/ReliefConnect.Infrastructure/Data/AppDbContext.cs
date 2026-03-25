@@ -51,7 +51,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             entity.Property(p => p.Status).HasConversion<int>();
             entity.Property(p => p.Details).HasMaxLength(2000);
 
-            // Spatial index on coordinates for fast radius queries
+            // B-tree index on coordinates (for equality queries)
             entity.HasIndex(p => new { p.CoordinatesLat, p.CoordinatesLong });
             // Covering index for the most common query: fetch all pings sorted by date
             entity.HasIndex(p => p.CreatedAt).IsDescending();
@@ -59,6 +59,12 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             entity.HasIndex(p => p.UserId);
             // Status filter index
             entity.HasIndex(p => p.Status);
+            // Type filter index for SOS filtering
+            entity.HasIndex(p => p.Type);
+            // Priority level for urgent sorting
+            entity.HasIndex(p => p.PriorityLevel);
+            // Composite index for SOS monitoring queries (Type + Status + CreatedAt)
+            entity.HasIndex(p => new { p.Type, p.Status, p.CreatedAt }).IsDescending();
 
             entity.HasOne(p => p.User)
                   .WithMany(u => u.Pings)
@@ -138,6 +144,8 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
 
             entity.HasIndex(c => c.PostId);
             entity.HasIndex(c => c.UserId);
+            // Index for chronological ordering (newest comments first)
+            entity.HasIndex(c => c.CreatedAt).IsDescending();
 
             entity.HasOne(c => c.Post)
                   .WithMany(p => p.Comments)

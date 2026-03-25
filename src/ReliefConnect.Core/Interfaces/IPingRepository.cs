@@ -4,7 +4,7 @@ namespace ReliefConnect.Core.Interfaces;
 
 public interface IPingRepository : IRepository<Ping>
 {
-    Task<IEnumerable<Ping>> GetPingsInRadiusAsync(double lat, double lng, double radiusKm);
+    Task<IEnumerable<Ping>> GetPingsInRadiusAsync(double lat, double lng, double radiusKm, int limit = 500);
     Task<IEnumerable<Ping>> GetPingsByUserAsync(string userId);
     Task<Ping?> GetPingWithFlagAsync(int pingId);
     /// <summary>

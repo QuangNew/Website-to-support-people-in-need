@@ -169,31 +169,12 @@ builder.Services.AddOutputCache(options =>
 builder.Services.AddMemoryCache();
 
 // ═══════════════════════════════════════════
-//  RESPONSE COMPRESSION
-// ═══════════════════════════════════════════
-builder.Services.AddResponseCompression(options =>
-{
-    options.EnableForHttps = true;
-    options.Providers.Add<Microsoft.AspNetCore.ResponseCompression.BrotliCompressionProvider>();
-    options.Providers.Add<Microsoft.AspNetCore.ResponseCompression.GzipCompressionProvider>();
-});
-
-// ═══════════════════════════════════════════
 //  CONTROLLERS + SIGNALR + SWAGGER
 // ═══════════════════════════════════════════
 builder.Services.AddControllers();
 builder.Services.AddSignalR();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
-
-// CSRF Protection
-builder.Services.AddAntiforgery(options =>
-{
-    options.HeaderName = "X-CSRF-TOKEN";
-    options.Cookie.Name = "CSRF-TOKEN";
-    options.Cookie.SameSite = SameSiteMode.Strict;
-    options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
-});
 
 // ═══════════════════════════════════════════
 //  DEPENDENCY INJECTION
@@ -224,7 +205,6 @@ if (app.Environment.IsDevelopment())
 //  MIDDLEWARE PIPELINE
 // ═══════════════════════════════════════════
 app.UseResponseCompression();
-app.UseOutputCache();
 app.UseGlobalExceptionHandler();
 app.UseHttpsRedirection();
 app.UseStaticFiles();
@@ -240,7 +220,11 @@ app.UseMiddleware<RateLimitingMiddleware>();
 app.UseCors("AllowFrontend");
 app.UseAuthentication();
 app.UseAuthorization();
-app.UseAntiforgery();
+// OutputCache MUST come AFTER Authentication + Authorization so that
+// cached responses are only served to already-authenticated requests.
+// Placing it before auth caused 401 responses to be cached and served
+// to subsequent requests, breaking the admin panel.
+app.UseOutputCache();
 app.UseSerilogRequestLogging();
 
 app.MapControllers();

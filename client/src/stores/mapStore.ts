@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { mapApi } from '../services/api';
 
 export type PingType = 'need_help' | 'offering' | 'received' | 'support_point';
-export type PanelType = 'list' | 'social' | 'chat' | 'profile' | 'verify' | null;
+export type PanelType = 'list' | 'social' | 'chat' | 'profile' | 'verify' | 'guide' | null;
 
 export interface PingData {
     id: string;
@@ -84,6 +84,7 @@ interface MapState {
     setPings: (pings: PingData[]) => void;
     toggleZones: () => void;
     fetchPings: () => Promise<void>;
+    fetchPingsInBounds: (bounds: { north: number; south: number; east: number; west: number }) => Promise<void>;
     fetchZones: () => Promise<void>;
     fetchRoute: (destLat: number, destLng: number) => Promise<void>;
     clearRoute: () => void;
@@ -207,7 +208,13 @@ export const useMapStore = create<MapState>((set) => ({
     fetchPings: async () => {
         set({ pingsLoading: true });
         try {
-            const res = await mapApi.getPings();
+            // Use current map center and a default radius for initial load
+            // This reduces payload by using server-side radius filtering
+            const res = await mapApi.getPings({
+                lat: useMapStore.getState().center.lat,
+                lng: useMapStore.getState().center.lng,
+                radius: 500, // 500km radius covers all of Vietnam
+            });
             const backendPings: PingData[] = (res.data as Array<Record<string, unknown>>).map((p) => {
                 const typeMap: Record<string, PingType> = {
                     SOS: 'need_help',
@@ -238,6 +245,60 @@ export const useMapStore = create<MapState>((set) => ({
         } catch {
             console.warn('[MapStore] Backend unavailable, keeping mock pings');
             set({ pingsLoading: false }); // keep MOCK_PINGS already in state
+        }
+    },
+
+    // Fetch pings with spatial bounds - only gets pings within visible map area
+    fetchPingsInBounds: async (bounds: { north: number; south: number; east: number; west: number }) => {
+        set({ pingsLoading: true });
+        try {
+            // Calculate center and radius from visible bounds
+            const centerLat = (bounds.north + bounds.south) / 2;
+            const centerLng = (bounds.east + bounds.west) / 2;
+            // Use Haversine-inspired calculation: diagonal / 2 gives proper radius
+            // One degree of latitude ≈ 111km, one degree of longitude varies by latitude
+            const latDiff = bounds.north - bounds.south;
+            const lngDiff = bounds.east - bounds.west;
+            // Take the larger dimension, add margin, divide by 2 for radius
+            const maxDiff = Math.max(latDiff, lngDiff);
+            // Add 20% margin, convert to km, use half for radius
+            const radiusKm = (maxDiff * 111 * 0.6); // 60% of full span as radius
+
+            const res = await mapApi.getPings({
+                lat: centerLat,
+                lng: centerLng,
+                radius: Math.min(Math.max(radiusKm, 20), 500), // 20km minimum, 500km maximum
+            });
+            const backendPings: PingData[] = (res.data as Array<Record<string, unknown>>).map((p) => {
+                const typeMap: Record<string, PingType> = {
+                    SOS: 'need_help',
+                    Supply: 'offering',
+                    Shelter: 'support_point',
+                };
+                const statusMap: Record<string, 'active' | 'resolved' | 'expired'> = {
+                    Pending: 'active',
+                    InProgress: 'active',
+                    Resolved: 'resolved',
+                    VerifiedSafe: 'resolved',
+                };
+                return {
+                    id: String(p.id),
+                    lat: p.lat as number,
+                    lng: p.lng as number,
+                    type: typeMap[p.type as string] || 'need_help',
+                    title: (p.details as string) || 'SOS',
+                    description: (p.details as string) || '',
+                    address: '',
+                    createdAt: p.createdAt as string,
+                    status: statusMap[p.status as string] || 'active',
+                    items: [],
+                    contactPhone: undefined,
+                };
+            });
+            set({ pings: backendPings, pingsLoading: false });
+        } catch {
+            console.warn('[MapStore] Failed to fetch pings in bounds');
+            set({ pingsLoading: false });
         }
     },
 

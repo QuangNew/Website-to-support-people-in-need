@@ -241,5 +241,31 @@
     "confirmDelete": "Bạn chắc chắn muốn xóa bài viết này?",
     "approved": "Đã duyệt",
     "rejected": "Đã từ chối"
+  },
+  "guide": {
+    "title": "Hướng dẫn sử dụng",
+    "introTitle": "ReliefConnect là gì?",
+    "introContent": "ReliefConnect là nền tảng kết nối cứu trợ, giúp kết nối người cần hỗ trợ với những người muốn giúp đỡ trong các tình huống khẩn cấp như thiên tai, lũ lụt. Bạn có thể gửi yêu cầu cứu trợ, tìm kiếm hỗ trợ, hoặc trở thành tình nguyện viên, nhà tài trợ.",
+    "registerTitle": "Đăng ký & Đăng nhập",
+    "registerContent": "Tạo tài khoản và đăng nhập để sử dụng đầy đủ tính năng. Sau khi đăng ký, bạn có thể xác minh vai trò (Người cần hỗ trợ, Tình nguyện viên, Nhà tài trợ) để tiếp cận các tính năng phù hợp.",
+    "sosTitle": "Cách gửi yêu cầu cứu trợ (SOS)",
+    "sosContent": "Nhấn nút SOS màu đỏ ở góc phải màn hình. Chọn loại yêu cầu (Cần giúp, Muốn cho, Nơi trú ẩn), thêm mô tả chi tiết về nhu cầu của bạn. Yêu cầu sẽ được hiển thị trên bản đồ để người khác có thể hỗ trợ.",
+    "volunteerTitle": "Trở thành Tình nguyện viên",
+    "volunteerContent": "Tình nguyện viên giúp phân phối hàng cứu trợ, hỗ trợ trong các khu vực bị ảnh hưởng. Đăng ký xác minh vai trò để được phân công các nhiệm vụ phù hợp.",
+    "sponsorTitle": "Trở thành Nhà tài trợ",
+    "sponsorContent": "Nhà tài trợ cung cấp nhu yếu phẩm, tiền hoặc các nguồn lực khác để hỗ trợ người cần giúp. Bạn có thể đăng bài viết chia sẻ thông tin cứu trợ trên trang Cộng đồng.",
+    "contactTitle": "Liên hệ hỗ trợ",
+    "contactContent": "Nếu cần hỗ trợ, liên hệ qua email: support@reliefconnect.vn. Trong tình huống khẩn cấp, gọi đường dây nóng: 113 (Công an), 114 (Cứu hỏa), 115 (Y tế).",
+    "rolesTitle": "Các vai trò trong hệ thống",
+    "roleNeed": "Người cần hỗ trợ",
+    "roleNeedDesc": "Gửi yêu cầu cứu trợ khi gặp khó khăn",
+    "roleVolunteer": "Tình nguyện viên",
+    "roleVolunteerDesc": "Hỗ trợ phân phối và vận chuyển cứu trợ",
+    "roleSponsor": "Nhà tài trợ",
+    "roleSponsorDesc": "Cung cấp nguồn lực và nhu yếu phẩm",
+    "statusTitle": "Trạng thái yêu cầu",
+    "statusActive": "Đang chờ - Yêu cầu đang được hỗ trợ",
+    "statusResolved": "Đã giải quyết - Yêu cầu đã được đáp ứng",
+    "statusExpired": "Hết hạn - Yêu cầu không còn hiệu lực"
   }
 }

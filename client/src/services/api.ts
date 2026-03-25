@@ -27,9 +27,13 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      // Don't redirect — map-first architecture uses modals for auth
+      // Only clear token if there is no token at all (truly unauthenticated).
+      // If a token exists but got 401, it means the role/claim check failed —
+      // keep the token so other non-protected requests still work.
+      const token = localStorage.getItem('token');
+      if (!token) {
+        localStorage.removeItem('user');
+      }
     }
     return Promise.reject(error);
   }
@@ -202,6 +206,12 @@ export const adminApi = {
 
   getPosts: (params?: { page?: number; pageSize?: number; category?: string }) =>
     api.get('/admin/posts', { params }),
+
+  batchActions: (data: {
+    roleApprovals: { userId: string; role: string }[];
+    roleRejections: string[];
+    postDeletions: number[];
+  }) => api.post('/admin/batch', data),
 };
 
 export default api;

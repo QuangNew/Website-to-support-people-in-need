@@ -43,7 +43,8 @@ export default function PingDetailPanel() {
 
   const handleClose = () => {
     selectPing(null);
-    clearRoute();
+    // Route intentionally NOT cleared here — user must explicitly press "Clear route"
+    // or click Directions on another ping to replace it.
   };
 
   return (

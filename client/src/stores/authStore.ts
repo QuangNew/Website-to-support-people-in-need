@@ -145,14 +145,19 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     },
 
     loadUser: async () => {
-        const token = get().token;
+        const token = localStorage.getItem('token');
         if (!token) return;
 
         try {
             const res = await authApi.getMe();
-            set({ user: res.data, isAuthenticated: true });
-        } catch {
-            get().logout();
+            set({ user: res.data, isAuthenticated: true, token });
+        } catch (err: unknown) {
+            // Only logout on a confirmed 401 (expired/invalid token).
+            // Network errors, timeouts, 500s → keep the token, stay logged in.
+            const axiosErr = err as { response?: { status?: number } };
+            if (axiosErr?.response?.status === 401) {
+                get().logout();
+            }
         }
     },
 

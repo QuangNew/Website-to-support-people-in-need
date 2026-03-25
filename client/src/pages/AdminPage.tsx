@@ -1,18 +1,47 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Users, FileText, Activity, BarChart3, ShieldCheck, ArrowLeft,
-  Search, CheckCircle2, XCircle, Trash2, RefreshCw, AlertTriangle, Heart, BookOpen, Stethoscope, Home
+  Search, CheckCircle2, XCircle, Trash2, RefreshCw, AlertTriangle,
+  Heart, BookOpen, Stethoscope, Home
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
 import { adminApi } from '../services/api';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuthStore } from '../stores/authStore';
+import { useBatchStore } from '../stores/batchStore';
+
+// ─── Debounce utility ───
+function debounce<T extends (...args: Parameters<T>) => void>(fn: T, delay: number): T {
+  let timer: ReturnType<typeof setTimeout>;
+  return ((...args: Parameters<T>) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), delay);
+  }) as T;
+}
+
+// ─── Auto-refresh hook ───
+// Calls `refresh` silently (no loading state) every `intervalMs`.
+// Also refreshes when the browser tab regains focus after being hidden.
+function useAutoRefresh(refresh: () => void, intervalMs: number) {
+  const refreshRef = useRef(refresh);
+  refreshRef.current = refresh;
+
+  useEffect(() => {
+    const tick = () => refreshRef.current();
+    const timer = setInterval(tick, intervalMs);
+    const onFocus = () => { if (!document.hidden) refreshRef.current(); };
+    document.addEventListener('visibilitychange', onFocus);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', onFocus);
+    };
+  }, [intervalMs]);
+}
 
 // ═══════════════════════════════════════════
 //  TYPES
 // ═══════════════════════════════════════════
-
 interface AdminUser {
   id: string;
   userName: string;
@@ -77,6 +106,9 @@ export default function AdminPage() {
   const { user } = useAuthStore();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<Tab>('stats');
+
+  // batchStore lives globally — no local refs needed.
+  // Panels listen to the 'batch-flush-done' window event to self-refresh.
 
   // Redirect non-admin users
   useEffect(() => {
@@ -149,17 +181,26 @@ function StatsPanel() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
     setError(false);
     adminApi.getStats()
-      .then((res) => setStats(res.data))
+      .then((res) => { setStats(res.data); setLastUpdated(new Date()); })
       .catch(() => setError(true))
       .finally(() => setLoading(false));
   }, []);
 
+  // Silent background refresh (no loading state, no error flash)
+  const silentRefresh = useCallback(() => {
+    adminApi.getStats()
+      .then((res) => { setStats(res.data); setLastUpdated(new Date()); })
+      .catch(() => {}); // silently ignore poll errors
+  }, []);
+
   useEffect(() => { load(); }, [load]);
+  useAutoRefresh(silentRefresh, 60_000); // auto-refresh every 60s
 
   if (loading) return (
     <div className="animate-fade-in-up">
@@ -218,6 +259,17 @@ function StatsPanel() {
 
   return (
     <div className="animate-fade-in-up">
+      {/* Last-updated indicator */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 'var(--sp-2)', marginBottom: 'var(--sp-3)' }}>
+        {lastUpdated && (
+          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+            Cập nhật lúc {lastUpdated.toLocaleTimeString('vi-VN')}
+          </span>
+        )}
+        <button className="btn btn-ghost btn-sm" onClick={load} title="Làm mới">
+          <RefreshCw size={13} />
+        </button>
+      </div>
       <div className="admin-stats-grid">
         {cards.map((c) => (
           <div key={c.label} className="admin-stat-card glass-card">
@@ -257,57 +309,95 @@ function StatsPanel() {
 
 function VerificationsPanel() {
   const { t } = useLanguage();
-  const [verifications, setVerifications] = useState<AdminUser[]>([]);
+  const { ops, enqueue } = useBatchStore();
+  // All items from server (source of truth)
+  const [serverItems, setServerItems] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
     adminApi.getVerifications()
-      .then((res) => setVerifications(res.data))
+      .then((res) => { setServerItems(res.data); setLastUpdated(new Date()); })
       .catch(() => toast.error(t('common.error')))
       .finally(() => setLoading(false));
   }, [t]);
 
-  useEffect(() => { load(); }, [load]);
+  const silentRefresh = useCallback(() => {
+    adminApi.getVerifications()
+      .then((res) => { setServerItems(res.data); setLastUpdated(new Date()); })
+      .catch(() => {});
+  }, []);
 
-  const handleApprove = async (user: AdminUser) => {
+  useEffect(() => { load(); }, [load]);
+  // Refresh after a batch flush (fired from batchStore via CustomEvent)
+  useEffect(() => {
+    window.addEventListener('batch-flush-done', silentRefresh);
+    return () => window.removeEventListener('batch-flush-done', silentRefresh);
+  }, [silentRefresh]);
+  useAutoRefresh(silentRefresh, 60_000); // poll every 60s
+
+  // Optimistic display: hide items already queued for action
+  const queuedUserIds = new Set(
+    ops
+      .filter((o) => o.type === 'approveRole' || o.type === 'rejectVerification')
+      .map((o) => o.userId!)
+  );
+  const visibleItems = serverItems.filter((u) => !queuedUserIds.has(u.id));
+
+  const handleApprove = (user: AdminUser) => {
     const role = user.requestedRole || 'PersonInNeed';
-    if (!confirm(t('admin.confirmApprove'))) return;
-    try {
-      await adminApi.approveRole(user.id, { role });
-      toast.success(t('admin.approved'));
-      load();
-    } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
-      toast.error(msg || t('common.error'));
-    }
+    enqueue({
+      type: 'approveRole',
+      userId: user.id,
+      role,
+      rollbackLabel: `Duyệt ${user.fullName} → ${role}`,
+    });
+    toast(`⏳ Đã xếp hàng: duyệt ${user.fullName}`, { duration: 2000 });
   };
 
-  const handleReject = async (userId: string) => {
-    if (!confirm(t('admin.confirmReject'))) return;
-    try {
-      await adminApi.rejectVerification(userId);
-      toast.success(t('admin.rejected'));
-      load();
-    } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
-      toast.error(msg || t('common.error'));
-    }
+  const handleReject = (user: AdminUser) => {
+    enqueue({
+      type: 'rejectVerification',
+      userId: user.id,
+      rollbackLabel: `Từ chối ${user.fullName}`,
+    });
+    toast(`⏳ Đã xếp hàng: từ chối ${user.fullName}`, { duration: 2000 });
   };
 
   if (loading) return <div className="admin-loading"><span className="spinner" /></div>;
 
-  if (verifications.length === 0) {
+  if (visibleItems.length === 0) {
     return (
       <div className="admin-empty animate-fade-in-up">
         <ShieldCheck size={48} strokeWidth={1.5} />
-        <p>{t('admin.noPending')}</p>
+        <p>{ops.length > 0 ? 'Tất cả đã xếp hàng — nhấn "Ghi ngay" để xác nhận' : t('admin.noPending')}</p>
+        {lastUpdated && (
+          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: 'var(--sp-1)' }}>
+            Cập nhật lúc {lastUpdated.toLocaleTimeString('vi-VN')}
+          </span>
+        )}
       </div>
     );
   }
 
   return (
     <div className="animate-fade-in-up">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--sp-3)' }}>
+        <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text-primary)' }}>
+          {visibleItems.length} yêu cầu đang chờ
+        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
+          {lastUpdated && (
+            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+              Cập nhật lúc {lastUpdated.toLocaleTimeString('vi-VN')}
+            </span>
+          )}
+          <button className="btn btn-ghost btn-sm" onClick={load} title="Làm mới">
+            <RefreshCw size={13} />
+          </button>
+        </div>
+      </div>
       <div className="admin-table-wrap">
         <table className="admin-table">
           <thead>
@@ -320,7 +410,7 @@ function VerificationsPanel() {
             </tr>
           </thead>
           <tbody>
-            {verifications.map((v) => (
+            {visibleItems.map((v) => (
               <tr key={v.id}>
                 <td>
                   <div className="admin-user-cell">
@@ -343,7 +433,7 @@ function VerificationsPanel() {
                     <button className="btn btn-sm btn-primary" onClick={() => handleApprove(v)}>
                       <CheckCircle2 size={14} /> {t('admin.approve')}
                     </button>
-                    <button className="btn btn-sm btn-danger" onClick={() => handleReject(v.id)}>
+                    <button className="btn btn-sm btn-danger" onClick={() => handleReject(v)}>
                       <XCircle size={14} /> {t('admin.reject')}
                     </button>
                   </div>
@@ -366,20 +456,30 @@ function UsersPanel() {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState(''); // Debounced version for API calls
   const [roleFilter, setRoleFilter] = useState('');
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
 
+  // Debounce search input - wait 300ms after last keystroke before API call
+  const debouncedSetSearch = useCallback(
+    debounce((value: string) => {
+      setDebouncedSearch(value);
+      setPage(1);
+    }, 300),
+    []
+  );
+
   const load = useCallback(() => {
     setLoading(true);
-    adminApi.getUsers({ search: search || undefined, role: roleFilter || undefined, page, pageSize: 15 })
+    adminApi.getUsers({ search: debouncedSearch || undefined, role: roleFilter || undefined, page, pageSize: 15 })
       .then((res) => {
         setUsers(res.data.items);
         setTotalPages(res.data.totalPages);
       })
       .catch(() => toast.error(t('common.error')))
       .finally(() => setLoading(false));
-  }, [search, roleFilter, page, t]);
+  }, [debouncedSearch, roleFilter, page, t]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -403,7 +503,7 @@ function UsersPanel() {
             type="text"
             placeholder={t('admin.searchPlaceholder')}
             value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+            onChange={(e) => { setSearch(e.target.value); debouncedSetSearch(e.target.value); }}
           />
         </div>
         <select
@@ -507,6 +607,7 @@ function UsersPanel() {
 
 function PostsPanel() {
   const { t } = useLanguage();
+  const { ops, enqueue } = useBatchStore();
   const [posts, setPosts] = useState<PostItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -525,17 +626,32 @@ function PostsPanel() {
       .finally(() => setLoading(false));
   }, [page, categoryFilter, t]);
 
-  useEffect(() => { load(); }, [load]);
+  const silentRefresh = useCallback(() => {
+    adminApi.getPosts({ page, pageSize: 20, category: categoryFilter || undefined })
+      .then((res) => { setPosts(res.data.items); setTotalPages(res.data.totalPages); })
+      .catch(() => {});
+  }, [page, categoryFilter]);
 
-  const handleDelete = async (postId: number) => {
-    if (!confirm(t('admin.confirmDelete'))) return;
-    try {
-      await adminApi.deletePost(postId);
-      toast.success(t('admin.delete'));
-      load();
-    } catch {
-      toast.error(t('common.error'));
-    }
+  useEffect(() => { load(); }, [load]);
+  // Refresh after a batch flush
+  useEffect(() => {
+    window.addEventListener('batch-flush-done', silentRefresh);
+    return () => window.removeEventListener('batch-flush-done', silentRefresh);
+  }, [silentRefresh]);
+
+  // Optimistic: hide posts already queued for deletion
+  const queuedPostIds = new Set(
+    ops.filter((o) => o.type === 'deletePost').map((o) => o.postId!)
+  );
+  const visiblePosts = posts.filter((p) => !queuedPostIds.has(p.id));
+
+  const handleDelete = (post: PostItem) => {
+    enqueue({
+      type: 'deletePost',
+      postId: post.id,
+      rollbackLabel: `Xóa bài #${post.id} của ${post.authorName}`,
+    });
+    toast(`⏳ Đã xếp hàng: xóa bài #${post.id}`, { duration: 2000 });
   };
 
   if (loading) return <div className="admin-loading"><span className="spinner" /></div>;
@@ -569,7 +685,7 @@ function PostsPanel() {
             </tr>
           </thead>
           <tbody>
-            {posts.map((p) => (
+            {visiblePosts.map((p) => (
               <tr key={p.id}>
                 <td>#{p.id}</td>
                 <td>{p.authorName}</td>
@@ -577,14 +693,16 @@ function PostsPanel() {
                 <td><span className="admin-badge">{p.category}</span></td>
                 <td className="admin-td-date">{new Date(p.createdAt).toLocaleDateString()}</td>
                 <td>
-                  <button className="btn btn-ghost btn-sm btn-danger-text" onClick={() => handleDelete(p.id)}>
+                  <button className="btn btn-ghost btn-sm btn-danger-text" onClick={() => handleDelete(p)}>
                     <Trash2 size={14} /> {t('admin.delete')}
                   </button>
                 </td>
               </tr>
             ))}
-            {posts.length === 0 && (
-              <tr><td colSpan={6} style={{ textAlign: 'center', padding: 'var(--sp-8)', color: 'var(--text-muted)' }}>{t('admin.noData')}</td></tr>
+            {visiblePosts.length === 0 && (
+              <tr><td colSpan={6} style={{ textAlign: 'center', padding: 'var(--sp-8)', color: 'var(--text-muted)' }}>
+                {ops.length > 0 ? 'Tất cả đã xếp hàng xóa — nhấn "Ghi ngay" để xác nhận' : t('admin.noData')}
+              </td></tr>
             )}
           </tbody>
         </table>

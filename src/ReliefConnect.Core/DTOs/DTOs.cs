@@ -269,6 +269,48 @@ public class AdminUserDto
     public DateTime CreatedAt { get; set; }
 }
 
+/// <summary>
+/// Batch admin operations — all processed in a single DB transaction.
+/// </summary>
+public class AdminBatchDto
+{
+    /// <summary>List of role approval operations.</summary>
+    public List<BatchRoleApprovalItem> RoleApprovals { get; set; } = [];
+
+    /// <summary>UserIds to reject verification for.</summary>
+    public List<string> RoleRejections { get; set; } = [];
+
+    /// <summary>PostIds to delete.</summary>
+    public List<int> PostDeletions { get; set; } = [];
+}
+
+public class BatchRoleApprovalItem
+{
+    [Required]
+    public string UserId { get; set; } = string.Empty;
+
+    [Required]
+    public string Role { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Result of each operation in a batch — used for partial-failure reporting.
+/// </summary>
+public class BatchResultItem
+{
+    public string OpType  { get; set; } = string.Empty; // "approveRole" | "rejectVerification" | "deletePost"
+    public string Key     { get; set; } = string.Empty; // userId or postId as string
+    public bool   Success { get; set; }
+    public string? Error  { get; set; }
+}
+
+public class AdminBatchResultDto
+{
+    public int Applied { get; set; }
+    public int Failed  { get; set; }
+    public List<BatchResultItem> Results { get; set; } = [];
+}
+
 public class SystemStatsDto
 {
     public int TotalUsers { get; set; }

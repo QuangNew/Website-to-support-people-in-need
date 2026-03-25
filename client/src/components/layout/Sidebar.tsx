@@ -12,6 +12,7 @@ import {
   LogOut,
   ChevronRight,
   Menu,
+  BookOpen,
   type LucideIcon,
 } from 'lucide-react';
 import { useMapStore, type PanelType } from '../../stores/mapStore';
@@ -20,7 +21,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 
 interface NavItem {
-  id: PanelType | 'theme' | 'locale' | 'login' | 'logout' | 'admin';
+  id: PanelType | 'theme' | 'locale' | 'login' | 'logout' | 'admin' | 'guide';
   icon: LucideIcon;
   labelKey: string;
   action?: () => void;
@@ -50,9 +51,10 @@ export default function Sidebar() {
     { id: 'profile', icon: User, labelKey: 'sidebar.profile' },
   ];
 
-  // ─── Mid-bottom section: verify, admin ───
+  // ─── Mid-bottom section: verify, admin, guide ───
   const midBottomItems: NavItem[] = [
     { id: 'verify', icon: UserCheck, labelKey: 'sidebar.verify' },
+    { id: 'guide', icon: BookOpen, labelKey: 'sidebar.guide' },
   ];
 
   if (isAuthenticated && user?.role === 'Admin') {
@@ -76,8 +78,8 @@ export default function Sidebar() {
       );
     }
 
-    // Panel items (list, social, chat, profile, verify, admin)
-    if (['list', 'social', 'chat', 'profile', 'verify', 'admin'].includes(item.id as string)) {
+    // Panel items (list, social, chat, profile, verify, guide, admin)
+    if (['list', 'social', 'chat', 'profile', 'verify', 'guide', 'admin'].includes(item.id as string)) {
       const panelId = item.id as PanelType;
       return (
         <button

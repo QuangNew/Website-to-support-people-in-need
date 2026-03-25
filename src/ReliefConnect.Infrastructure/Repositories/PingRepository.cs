@@ -63,8 +63,9 @@ public class PingRepository : IPingRepository
 
     /// <summary>
     /// Get pings within a radius using PostGIS ST_DWithin for optimal spatial queries.
+    /// Limited to 500 most recent pings for performance.
     /// </summary>
-    public async Task<IEnumerable<Ping>> GetPingsInRadiusAsync(double lat, double lng, double radiusKm)
+    public async Task<IEnumerable<Ping>> GetPingsInRadiusAsync(double lat, double lng, double radiusKm, int limit = 500)
     {
         var radiusMeters = radiusKm * 1000;
 
@@ -76,8 +77,9 @@ public class PingRepository : IPingRepository
                     ST_MakePoint({0}, {1})::geography,
                     {2}
                 )
-                ORDER BY p.""CreatedAt"" DESC",
-                lng, lat, radiusMeters)
+                ORDER BY p.""CreatedAt"" DESC
+                LIMIT {3}",
+                lng, lat, radiusMeters, limit)
             .AsNoTracking()
             .Include(p => p.User)
             .Include(p => p.PingFlag)

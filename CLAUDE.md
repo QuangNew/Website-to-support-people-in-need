@@ -39,6 +39,9 @@ dotnet restore
 cd ../ReliefConnect.Tests
 dotnet test
 
+# Run a single test
+dotnet test --filter "TestMethodName"
+
 # Database migrations
 dotnet ef migrations add <MigrationName> --project ../ReliefConnect.Infrastructure --startup-project .
 dotnet ef database update --project ../ReliefConnect.Infrastructure --startup-project .
@@ -215,7 +218,7 @@ npx playwright show-report
 - No token rotation mechanism
 - See `docs/SECURITY_AUDIT_REPORT.md` for full details
 
-## Performance Optimizations
+## Adding New Features
 
 ### Adding a New Entity
 1. Create entity in `ReliefConnect.Core/Entities/`

@@ -241,5 +241,31 @@
         "confirmDelete": "Are you sure you want to delete this post?",
         "approved": "Approved",
         "rejected": "Rejected"
+    },
+    "guide": {
+        "title": "User Guide",
+        "introTitle": "What is ReliefConnect?",
+        "introContent": "ReliefConnect is a relief connection platform that helps connect people in need with those who want to help in emergency situations like natural disasters and floods. You can send relief requests, search for support, or become a volunteer or sponsor.",
+        "registerTitle": "Registration & Login",
+        "registerContent": "Create an account and log in to use all features. After registering, you can verify your role (Person in Need, Volunteer, Sponsor) to access appropriate features.",
+        "sosTitle": "How to Send a Relief Request (SOS)",
+        "sosContent": "Press the red SOS button on the right side of the screen. Select the request type (Need Help, Want to Give, Shelter), add a detailed description of your needs. Your request will be displayed on the map so others can help.",
+        "volunteerTitle": "Become a Volunteer",
+        "volunteerContent": "Volunteers help distribute relief supplies and provide support in affected areas. Register for role verification to be assigned appropriate tasks.",
+        "sponsorTitle": "Become a Sponsor",
+        "sponsorContent": "Sponsors provide necessities, money, or other resources to help those in need. You can post relief information on the Community page.",
+        "contactTitle": "Contact Support",
+        "contactContent": "For support, contact via email: support@reliefconnect.vn. In emergency situations, call hotlines: 113 (Police), 114 (Fire), 115 (Medical).",
+        "rolesTitle": "Roles in the System",
+        "roleNeed": "Person in Need",
+        "roleNeedDesc": "Send relief requests when facing difficulties",
+        "roleVolunteer": "Volunteer",
+        "roleVolunteerDesc": "Help distribute and transport relief supplies",
+        "roleSponsor": "Sponsor",
+        "roleSponsorDesc": "Provide resources and necessities",
+        "statusTitle": "Request Status",
+        "statusActive": "Active - Request is being supported",
+        "statusResolved": "Resolved - Request has been fulfilled",
+        "statusExpired": "Expired - Request is no longer valid"
     }
 }

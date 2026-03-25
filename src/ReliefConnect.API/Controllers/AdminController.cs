@@ -26,17 +26,20 @@ public class AdminController : ControllerBase
     private readonly AppDbContext _db;
     private readonly ILogger<AdminController> _logger;
     private readonly ITokenBlacklistService _tokenBlacklist;
+    private readonly IMemoryCache _cache;
 
     public AdminController(
         UserManager<ApplicationUser> userManager,
         AppDbContext db,
         ILogger<AdminController> logger,
-        ITokenBlacklistService tokenBlacklist)
+        ITokenBlacklistService tokenBlacklist,
+        IMemoryCache cache)
     {
         _userManager = userManager;
         _db = db;
         _logger = logger;
         _tokenBlacklist = tokenBlacklist;
+        _cache = cache;
     }
 
     // ═══════════════════════════════════════════
@@ -132,8 +135,9 @@ public class AdminController : ControllerBase
         user.VerificationReason = null;
         await _userManager.UpdateAsync(user);
 
-        // Note: User must re-login to get new role claims in token
-        // Existing tokens will have old role until expiry
+        // Invalidate both stats and verifications caches immediately
+        _cache.Remove("admin:stats");
+        _cache.Remove("admin:verifications");
 
         // Audit log
         await LogAction("RoleApproved", $"User {user.UserName}: {oldRole} → {newRole}");
@@ -148,11 +152,16 @@ public class AdminController : ControllerBase
     // ═══════════════════════════════════════════
 
     /// <summary>
-    /// Get all pending verification requests.
+    /// Get all pending verification requests. Cached 20 seconds.
+    /// Cache is invalidated immediately when a request is approved or rejected.
     /// </summary>
     [HttpGet("verifications")]
-    public async Task<ActionResult> GetPendingVerifications()
+    public async Task<ActionResult> GetPendingVerifications([FromServices] IMemoryCache cache)
     {
+        const string cacheKey = "admin:verifications";
+        if (cache.TryGetValue(cacheKey, out List<AdminUserDto>? cachedList) && cachedList != null)
+            return Ok(cachedList);
+
         var pending = await _userManager.Users
             .AsNoTracking()
             .Where(u => u.VerificationStatus == VerificationStatus.Pending)
@@ -173,6 +182,7 @@ public class AdminController : ControllerBase
             })
             .ToListAsync();
 
+        cache.Set(cacheKey, pending, TimeSpan.FromSeconds(20));
         return Ok(pending);
     }
 
@@ -191,6 +201,7 @@ public class AdminController : ControllerBase
         user.VerificationStatus = VerificationStatus.Rejected;
         await _userManager.UpdateAsync(user);
 
+        _cache.Remove("admin:verifications"); // Invalidate cache immediately
         await LogAction("VerificationRejected", $"Rejected verification for {user.UserName}");
         _logger.LogInformation("Admin rejected verification: {Username}", user.UserName);
 
@@ -287,11 +298,127 @@ public class AdminController : ControllerBase
     }
 
     // ═══════════════════════════════════════════
-    //  SYSTEM STATS
+    //  BATCH OPERATIONS
     // ═══════════════════════════════════════════
 
     /// <summary>
-    /// Get system-wide statistics. Results cached 5 minutes in IMemoryCache.
+    /// Execute multiple admin operations in a single DB transaction.
+    /// Processes: role approvals, role rejections, post deletions.
+    /// Returns per-operation results so the frontend can handle partial failures.
+    /// </summary>
+    [HttpPost("batch")]
+    public async Task<ActionResult<AdminBatchResultDto>> BatchActions([FromBody] AdminBatchDto dto)
+    {
+        var results = new List<BatchResultItem>();
+
+        // Validate totals — cap to 100 ops per batch as a safety limit
+        var total = dto.RoleApprovals.Count + dto.RoleRejections.Count + dto.PostDeletions.Count;
+        if (total == 0)
+            return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Batch rỗng." });
+        if (total > 100)
+            return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Tối đa 100 operations mỗi batch." });
+
+        // ── All operations inside a single transaction ──
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        try
+        {
+            // 1. Role approvals
+            foreach (var op in dto.RoleApprovals)
+            {
+                var user = await _userManager.FindByIdAsync(op.UserId);
+                if (user == null)
+                {
+                    results.Add(new BatchResultItem { OpType = "approveRole", Key = op.UserId, Success = false, Error = "User not found" });
+                    continue;
+                }
+                if (!Enum.TryParse<RoleEnum>(op.Role, true, out var newRole))
+                {
+                    results.Add(new BatchResultItem { OpType = "approveRole", Key = op.UserId, Success = false, Error = $"Invalid role: {op.Role}" });
+                    continue;
+                }
+                var oldRole = user.Role;
+                user.Role = newRole;
+                user.VerificationStatus = VerificationStatus.Approved;
+                user.RequestedRole = null;
+                user.VerificationReason = null;
+                await _userManager.UpdateAsync(user);
+                results.Add(new BatchResultItem { OpType = "approveRole", Key = op.UserId, Success = true });
+                _logger.LogInformation("[Batch] ApproveRole: {Username} {Old}→{New}", user.UserName, oldRole, newRole);
+            }
+
+            // 2. Role rejections
+            foreach (var userId in dto.RoleRejections)
+            {
+                var user = await _userManager.FindByIdAsync(userId);
+                if (user == null)
+                {
+                    results.Add(new BatchResultItem { OpType = "rejectVerification", Key = userId, Success = false, Error = "User not found" });
+                    continue;
+                }
+                user.VerificationStatus = VerificationStatus.Rejected;
+                await _userManager.UpdateAsync(user);
+                results.Add(new BatchResultItem { OpType = "rejectVerification", Key = userId, Success = true });
+                _logger.LogInformation("[Batch] RejectVerification: {Username}", user.UserName);
+            }
+
+            // 3. Post deletions — single ExecuteDelete per ID avoids N+1 loads
+            foreach (var postId in dto.PostDeletions)
+            {
+                var deleted = await _db.Posts.Where(p => p.Id == postId).ExecuteDeleteAsync();
+                if (deleted == 0)
+                    results.Add(new BatchResultItem { OpType = "deletePost", Key = postId.ToString(), Success = false, Error = "Post not found" });
+                else
+                    results.Add(new BatchResultItem { OpType = "deletePost", Key = postId.ToString(), Success = true });
+            }
+
+            await tx.CommitAsync();
+        }
+        catch (Exception ex)
+        {
+            await tx.RollbackAsync();
+            _logger.LogError(ex, "[Batch] Transaction rolled back");
+            return StatusCode(500, new ApiErrorResponse { StatusCode = 500, Message = "Batch thất bại, mọi thay đổi đã được hoàn tác." });
+        }
+
+        // Invalidate caches after batch
+        _cache.Remove("admin:stats");
+        _cache.Remove("admin:verifications");
+
+        // Audit log (single entry for the whole batch)
+        var adminId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        var adminName = User.FindFirstValue(ClaimTypes.Name);
+        _db.SystemLogs.Add(new SystemLog
+        {
+            Action = "BatchActions",
+            Details = $"approvals={dto.RoleApprovals.Count} rejections={dto.RoleRejections.Count} deletions={dto.PostDeletions.Count} applied={results.Count(r => r.Success)}",
+            UserId = adminId,
+            UserName = adminName,
+            CreatedAt = DateTime.UtcNow
+        });
+        await _db.SaveChangesAsync();
+
+        var applied = results.Count(r => r.Success);
+        var failed  = results.Count(r => !r.Success);
+
+        return Ok(new AdminBatchResultDto { Applied = applied, Failed = failed, Results = results });
+    }
+
+    // ═══════════════════════════════════════════
+    //  SYSTEM STATS
+    // ═══════════════════════════════════════════
+
+    // Projection type for the single-query stats approach
+    private sealed class StatsRow
+    {
+        public string Bucket { get; set; } = "";
+        public string Key    { get; set; } = "";
+        public int    Count  { get; set; }
+    }
+
+    /// <summary>
+    /// Get system-wide statistics.
+    /// Uses a single UNION ALL SQL query (1 DB round-trip) instead of 3 sequential queries.
+    /// Results cached 60 seconds in IMemoryCache.
     /// </summary>
     [HttpGet("stats")]
     public async Task<ActionResult<SystemStatsDto>> GetStats(
@@ -300,47 +427,46 @@ public class AdminController : ControllerBase
         if (cache.TryGetValue("admin:stats", out SystemStatsDto? cached) && cached != null)
             return Ok(cached);
 
-        // Round-trip 1: user role breakdown
-        var userCounts = await _userManager.Users
-            .AsNoTracking()
-            .GroupBy(u => u.Role)
-            .Select(g => new { Role = g.Key, Count = g.Count() })
+        // Single round-trip: 3 GROUP BY aggregations via UNION ALL
+        // MapItemType.SOS = 0, enums stored as integers in PostgreSQL
+        const int sosType = 0; // MapItemType.SOS
+        var rows = await _db.Database
+            .SqlQuery<StatsRow>($"""
+                SELECT 'role'::text  AS "Bucket", "Role"::text  AS "Key", COUNT(*)::int AS "Count"
+                FROM "AspNetUsers"
+                GROUP BY "Role"
+                UNION ALL
+                SELECT 'ping', "Status"::text, COUNT(*)::int
+                FROM "Pings"
+                WHERE "Type" = {sosType}
+                GROUP BY "Status"
+                UNION ALL
+                SELECT 'post', "Category"::text, COUNT(*)::int
+                FROM "Posts"
+                GROUP BY "Category"
+                """)
             .ToListAsync();
 
-        // Round-trip 2: ping status breakdown (SOS pings only)
-        var pingCounts = await _db.Pings
-            .AsNoTracking()
-            .Where(p => p.Type == MapItemType.SOS)
-            .GroupBy(p => p.Status)
-            .Select(g => new { Status = g.Key, Count = g.Count() })
-            .ToListAsync();
-
-        // Round-trip 3: post category breakdown
-        var postCounts = await _db.Posts
-            .AsNoTracking()
-            .GroupBy(p => p.Category)
-            .Select(g => new { Category = g.Key, Count = g.Count() })
-            .ToListAsync();
-
-        int UserCount(RoleEnum role)    => userCounts.FirstOrDefault(x => x.Role == role)?.Count ?? 0;
-        int PingCount(SOSStatus status) => pingCounts.FirstOrDefault(x => x.Status == status)?.Count ?? 0;
-        int PostCount(PostCategory cat) => postCounts.FirstOrDefault(x => x.Category == cat)?.Count ?? 0;
+        // Parse integer enum keys back to enum values
+        int RoleBucket(RoleEnum r)      => rows.Where(x => x.Bucket == "role" && x.Key == ((int)r).ToString()).Sum(x => x.Count);
+        int PingBucket(SOSStatus s)     => rows.Where(x => x.Bucket == "ping" && x.Key == ((int)s).ToString()).Sum(x => x.Count);
+        int PostBucket(PostCategory c)  => rows.Where(x => x.Bucket == "post" && x.Key == ((int)c).ToString()).Sum(x => x.Count);
 
         var stats = new SystemStatsDto
         {
-            TotalUsers           = userCounts.Sum(x => x.Count),
-            TotalPersonsInNeed   = UserCount(RoleEnum.PersonInNeed),
-            TotalSponsors        = UserCount(RoleEnum.Sponsor),
-            TotalVolunteers      = UserCount(RoleEnum.Volunteer),
-            ActiveSOS            = PingCount(SOSStatus.Pending),
-            ResolvedCases        = PingCount(SOSStatus.Resolved),
-            TotalPosts           = postCounts.Sum(x => x.Count),
-            TotalPostsLivelihood = PostCount(PostCategory.Livelihood),
-            TotalPostsMedical    = PostCount(PostCategory.Medical),
-            TotalPostsEducation  = PostCount(PostCategory.Education),
+            TotalUsers           = rows.Where(x => x.Bucket == "role").Sum(x => x.Count),
+            TotalPersonsInNeed   = RoleBucket(RoleEnum.PersonInNeed),
+            TotalSponsors        = RoleBucket(RoleEnum.Sponsor),
+            TotalVolunteers      = RoleBucket(RoleEnum.Volunteer),
+            ActiveSOS            = PingBucket(SOSStatus.Pending),
+            ResolvedCases        = PingBucket(SOSStatus.Resolved),
+            TotalPosts           = rows.Where(x => x.Bucket == "post").Sum(x => x.Count),
+            TotalPostsLivelihood = PostBucket(PostCategory.Livelihood),
+            TotalPostsMedical    = PostBucket(PostCategory.Medical),
+            TotalPostsEducation  = PostBucket(PostCategory.Education),
         };
 
-        cache.Set("admin:stats", stats, TimeSpan.FromMinutes(5));
+        cache.Set("admin:stats", stats, TimeSpan.FromSeconds(60));
         return Ok(stats);
     }
 

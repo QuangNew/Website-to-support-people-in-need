@@ -76,8 +76,12 @@ export default function SocialPanel() {
   const [commentInputs, setCommentInputs] = useState<Record<number, string>>({});
   const [loadingComments, setLoadingComments] = useState<Record<number, boolean>>({});
   const observerRef = useRef<HTMLDivElement>(null);
+  const inflightRef = useRef(false); // Track inflight requests to prevent race conditions
 
   const fetchPosts = useCallback(async (cursor?: string) => {
+    // Prevent concurrent requests - critical for preventing race conditions
+    if (inflightRef.current && cursor) return;
+    inflightRef.current = true;
     setLoading(true);
     try {
       const res = await socialApi.getPosts({ cursor: cursor, limit: 10 });
@@ -92,6 +96,7 @@ export default function SocialPanel() {
       // Silently fail — show empty feed
     } finally {
       setLoading(false);
+      inflightRef.current = false;
     }
   }, []);
 
@@ -99,11 +104,11 @@ export default function SocialPanel() {
     fetchPosts();
   }, [fetchPosts]);
 
-  // Infinite scroll
+  // Infinite scroll with proper concurrency control
   useEffect(() => {
     if (!observerRef.current || !nextCursor) return;
     const obs = new IntersectionObserver(entries => {
-      if (entries[0].isIntersecting && nextCursor && !loading) {
+      if (entries[0].isIntersecting && nextCursor && !loading && !inflightRef.current) {
         fetchPosts(nextCursor);
       }
     }, { threshold: 0.5 });

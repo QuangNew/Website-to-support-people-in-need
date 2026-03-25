@@ -9,6 +9,7 @@ import { LanguageProvider } from './contexts/LanguageContext';
 
 // Layout
 import MapShell from './components/layout/MapShell';
+import PendingBar from './components/layout/PendingBar';
 
 // Pages
 import AdminPage from './pages/AdminPage';
@@ -71,6 +72,9 @@ function App() {
 
           {/* Agentation — dev only */}
           {import.meta.env.DEV && <Agentation />}
+
+          {/* Batch-write HUD — persists across all routes */}
+          <PendingBar />
         </QueryClientProvider>
       </LanguageProvider>
     </ThemeProvider>

@@ -68,7 +68,7 @@ export default function MapView() {
   const {
     center, zoom, activeFilters, pings, zones, showZones,
     selectedPingId, selectPing, setCenter, setZoom, route,
-    flyToTarget, setFlyTo, sosDraftLocation,
+    flyToTarget, setFlyTo, sosDraftLocation, fetchPingsInBounds,
   } = useMapStore();
   const { isDark } = useTheme();
 
@@ -84,10 +84,32 @@ export default function MapView() {
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [errorMsg, setErrorMsg] = useState('');
 
+  // Debounce timer ref for map move/zoom events
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const filteredPings = useMemo(() => {
     const filterSet = new Set(activeFilters);
     return pings.filter((p) => filterSet.has(p.type));
   }, [pings, activeFilters]);
+
+  // ─── Debounced fetch pings in bounds ───
+  const debouncedFetchInBounds = useCallback(() => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    debounceTimerRef.current = setTimeout(() => {
+      const map = mapRef.current;
+      if (map) {
+        const bounds = map.getBounds();
+        fetchPingsInBounds({
+          north: bounds.getNorth(),
+          south: bounds.getSouth(),
+          east: bounds.getEast(),
+          west: bounds.getWest(),
+        });
+      }
+    }, 500);
+  }, [fetchPingsInBounds]);
 
   // ─── Initialize map (once) ───
   useEffect(() => {
@@ -111,13 +133,15 @@ export default function MapView() {
         maxZoom: 19,
       }).addTo(map);
 
-      // Sync store on user interaction
+      // Sync store on user interaction with debounced pings fetch
       map.on('moveend', () => {
         const c = map.getCenter();
         setCenter({ lat: c.lat, lng: c.lng });
+        debouncedFetchInBounds();
       });
       map.on('zoomend', () => {
         setZoom(map.getZoom());
+        debouncedFetchInBounds();
       });
       map.on('click', () => {
         selectPing(null);
@@ -146,6 +170,9 @@ export default function MapView() {
     }
 
     return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
       if (mapRef.current) {
         mapRef.current.remove();
         mapRef.current = null;
