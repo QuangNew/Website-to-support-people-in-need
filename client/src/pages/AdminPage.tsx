@@ -252,9 +252,9 @@ function StatsPanel() {
 
   const postCards = [
     { label: t('admin.totalPosts'), value: stats.totalPosts, icon: FileText, color: 'var(--info-500)', bg: 'rgba(59, 130, 246, 0.1)' },
-    { label: 'Gia cảnh', value: stats.totalPostsLivelihood, icon: Home, color: 'var(--primary-400)', bg: 'rgba(249, 115, 22, 0.1)' },
-    { label: 'Bệnh tật', value: stats.totalPostsMedical, icon: Stethoscope, color: 'var(--danger-500)', bg: 'rgba(239, 68, 68, 0.1)' },
-    { label: 'Giáo dục', value: stats.totalPostsEducation, icon: BookOpen, color: 'var(--accent-400)', bg: 'rgba(6, 182, 212, 0.1)' },
+    { label: t('admin.postsLivelihood'), value: stats.totalPostsLivelihood, icon: Home, color: 'var(--primary-400)', bg: 'rgba(249, 115, 22, 0.1)' },
+    { label: t('admin.postsMedical'), value: stats.totalPostsMedical, icon: Stethoscope, color: 'var(--danger-500)', bg: 'rgba(239, 68, 68, 0.1)' },
+    { label: t('admin.postsEducation'), value: stats.totalPostsEducation, icon: BookOpen, color: 'var(--accent-400)', bg: 'rgba(6, 182, 212, 0.1)' },
   ];
 
   return (
@@ -263,10 +263,10 @@ function StatsPanel() {
       <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 'var(--sp-2)', marginBottom: 'var(--sp-3)' }}>
         {lastUpdated && (
           <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
-            Cập nhật lúc {lastUpdated.toLocaleTimeString('vi-VN')}
+            {t('admin.lastUpdated')} {lastUpdated.toLocaleTimeString()}
           </span>
         )}
-        <button className="btn btn-ghost btn-sm" onClick={load} title="Làm mới">
+        <button className="btn btn-ghost btn-sm" onClick={load} title={t('admin.refresh')}>
           <RefreshCw size={13} />
         </button>
       </div>
@@ -371,10 +371,10 @@ function VerificationsPanel() {
     return (
       <div className="admin-empty animate-fade-in-up">
         <ShieldCheck size={48} strokeWidth={1.5} />
-        <p>{ops.length > 0 ? 'Tất cả đã xếp hàng — nhấn "Ghi ngay" để xác nhận' : t('admin.noPending')}</p>
+        <p>{ops.length > 0 ? t('admin.queuedAll') : t('admin.noPending')}</p>
         {lastUpdated && (
           <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: 'var(--sp-1)' }}>
-            Cập nhật lúc {lastUpdated.toLocaleTimeString('vi-VN')}
+            {t('admin.lastUpdated')} {lastUpdated.toLocaleTimeString()}
           </span>
         )}
       </div>
@@ -385,15 +385,15 @@ function VerificationsPanel() {
     <div className="animate-fade-in-up">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--sp-3)' }}>
         <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text-primary)' }}>
-          {visibleItems.length} yêu cầu đang chờ
+          {visibleItems.length} {t('admin.pendingRequests')}
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
           {lastUpdated && (
             <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
-              Cập nhật lúc {lastUpdated.toLocaleTimeString('vi-VN')}
+              {t('admin.lastUpdated')} {lastUpdated.toLocaleTimeString()}
             </span>
           )}
-          <button className="btn btn-ghost btn-sm" onClick={load} title="Làm mới">
+          <button className="btn btn-ghost btn-sm" onClick={load} title={t('admin.refresh')}>
             <RefreshCw size={13} />
           </button>
         </div>
@@ -664,10 +664,10 @@ function PostsPanel() {
           value={categoryFilter}
           onChange={(e) => { setCategoryFilter(e.target.value); setPage(1); }}
         >
-          <option value="">All Categories</option>
-          <option value="Livelihood">Gia cảnh</option>
-          <option value="Medical">Bệnh tật</option>
-          <option value="Education">Giáo dục</option>
+          <option value="">{t('admin.allCategories')}</option>
+          <option value="Livelihood">{t('admin.postsLivelihood')}</option>
+          <option value="Medical">{t('admin.postsMedical')}</option>
+          <option value="Education">{t('admin.postsEducation')}</option>
         </select>
         <button className="btn btn-ghost btn-sm" onClick={load}><RefreshCw size={16} /></button>
       </div>
@@ -701,7 +701,7 @@ function PostsPanel() {
             ))}
             {visiblePosts.length === 0 && (
               <tr><td colSpan={6} style={{ textAlign: 'center', padding: 'var(--sp-8)', color: 'var(--text-muted)' }}>
-                {ops.length > 0 ? 'Tất cả đã xếp hàng xóa — nhấn "Ghi ngay" để xác nhận' : t('admin.noData')}
+                {ops.length > 0 ? t('admin.queuedAllDelete') : t('admin.noData')}
               </td></tr>
             )}
           </tbody>
@@ -765,21 +765,21 @@ function LogsPanel() {
           className="admin-select"
           value={fromDate}
           onChange={(e) => { setFromDate(e.target.value); setPage(1); }}
-          placeholder="From"
+          placeholder={t('admin.from')}
         />
         <input
           type="date"
           className="admin-select"
           value={toDate}
           onChange={(e) => { setToDate(e.target.value); setPage(1); }}
-          placeholder="To"
+          placeholder={t('admin.to')}
         />
         <select
           className="admin-select"
           value={actionFilter}
           onChange={(e) => { setActionFilter(e.target.value); setPage(1); }}
         >
-          <option value="">All Actions</option>
+          <option value="">{t('admin.allActions')}</option>
           <option value="Login">Login</option>
           <option value="Register">Register</option>
           <option value="CreatePost">CreatePost</option>

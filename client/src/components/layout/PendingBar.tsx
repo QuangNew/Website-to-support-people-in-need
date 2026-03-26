@@ -4,9 +4,11 @@
  */
 import { Clock, Undo2, Upload, XCircle } from 'lucide-react';
 import { useBatchStore } from '../../stores/batchStore';
+import { useLanguage } from '../../contexts/LanguageContext';
 
 export default function PendingBar() {
   const { ops, secondsLeft, flushing, dequeue, flush, cancel } = useBatchStore();
+  const { t } = useLanguage();
 
   if (ops.length === 0 && !flushing) return null;
 
@@ -15,26 +17,26 @@ export default function PendingBar() {
       {flushing ? (
         <>
           <span className="spinner pending-bar__spinner" />
-          <span className="pending-bar__text">Đang ghi…</span>
+          <span className="pending-bar__text">{t('pendingBar.writing')}</span>
         </>
       ) : (
         <>
           <Clock size={16} className="pending-bar__icon" />
 
           <span className="pending-bar__text">
-            <strong>{ops.length}</strong> thay đổi chờ ghi
+            <strong>{ops.length}</strong> {t('pendingBar.pendingChanges')}
             &nbsp;·&nbsp;
-            <span className="pending-bar__countdown">tự động sau {secondsLeft}s</span>
+            <span className="pending-bar__countdown">{t('pendingBar.autoAfter', { s: secondsLeft })}</span>
           </span>
 
           {ops.length > 0 && (
             <button
               className="pending-bar__btn pending-bar__btn--ghost"
-              title={`Hoàn tác: ${ops[ops.length - 1].rollbackLabel}`}
+              title={`${t('pendingBar.undo')}: ${ops[ops.length - 1].rollbackLabel}`}
               onClick={() => dequeue(ops[ops.length - 1].id)}
             >
               <Undo2 size={13} />
-              Hoàn tác
+              {t('pendingBar.undo')}
             </button>
           )}
 
@@ -43,12 +45,12 @@ export default function PendingBar() {
             onClick={() => flush()}
           >
             <Upload size={13} />
-            Ghi ngay
+            {t('pendingBar.writeNow')}
           </button>
 
           <button
             className="pending-bar__btn pending-bar__btn--ghost pending-bar__btn--icon"
-            title="Hủy tất cả thay đổi chưa ghi"
+            title={t('pendingBar.cancelAll')}
             onClick={() => cancel()}
           >
             <XCircle size={14} />

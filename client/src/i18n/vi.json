@@ -240,7 +240,27 @@
     "confirmReject": "Từ chối yêu cầu xác minh này?",
     "confirmDelete": "Bạn chắc chắn muốn xóa bài viết này?",
     "approved": "Đã duyệt",
-    "rejected": "Đã từ chối"
+    "rejected": "Đã từ chối",
+    "lastUpdated": "Cập nhật lúc",
+    "refresh": "Làm mới",
+    "pendingRequests": "yêu cầu đang chờ",
+    "queuedAll": "Tất cả đã xếp hàng — nhấn \"Ghi ngay\" để xác nhận",
+    "queuedAllDelete": "Tất cả đã xếp hàng xóa — nhấn \"Ghi ngay\" để xác nhận",
+    "allCategories": "Tất cả danh mục",
+    "allActions": "Tất cả hành động",
+    "from": "Từ",
+    "to": "Đến",
+    "postsLivelihood": "Gia cảnh",
+    "postsMedical": "Bệnh tật",
+    "postsEducation": "Giáo dục"
+  },
+  "pendingBar": {
+    "writing": "Đang ghi…",
+    "pendingChanges": "thay đổi chờ ghi",
+    "autoAfter": "tự động sau {{s}}s",
+    "undo": "Hoàn tác",
+    "writeNow": "Ghi ngay",
+    "cancelAll": "Hủy tất cả thay đổi chưa ghi"
   },
   "guide": {
     "title": "Hướng dẫn sử dụng",

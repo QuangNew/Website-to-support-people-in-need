@@ -302,15 +302,13 @@ public class AdminController : ControllerBase
     // ═══════════════════════════════════════════
 
     /// <summary>
-    /// Execute multiple admin operations in a single DB transaction.
+    /// Execute multiple admin operations in a single request.
     /// Processes: role approvals, role rejections, post deletions.
     /// Returns per-operation results so the frontend can handle partial failures.
     /// </summary>
     [HttpPost("batch")]
     public async Task<ActionResult<AdminBatchResultDto>> BatchActions([FromBody] AdminBatchDto dto)
     {
-        var results = new List<BatchResultItem>();
-
         // Validate totals — cap to 100 ops per batch as a safety limit
         var total = dto.RoleApprovals.Count + dto.RoleRejections.Count + dto.PostDeletions.Count;
         if (total == 0)
@@ -318,12 +316,12 @@ public class AdminController : ControllerBase
         if (total > 100)
             return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Tối đa 100 operations mỗi batch." });
 
-        // ── All operations inside a single transaction ──
-        await using var tx = await _db.Database.BeginTransactionAsync();
-        try
+        var results = new List<BatchResultItem>();
+
+        // 1. Role approvals
+        foreach (var op in dto.RoleApprovals)
         {
-            // 1. Role approvals
-            foreach (var op in dto.RoleApprovals)
+            try
             {
                 var user = await _userManager.FindByIdAsync(op.UserId);
                 if (user == null)
@@ -345,9 +343,17 @@ public class AdminController : ControllerBase
                 results.Add(new BatchResultItem { OpType = "approveRole", Key = op.UserId, Success = true });
                 _logger.LogInformation("[Batch] ApproveRole: {Username} {Old}→{New}", user.UserName, oldRole, newRole);
             }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[Batch] ApproveRole failed for {UserId}", op.UserId);
+                results.Add(new BatchResultItem { OpType = "approveRole", Key = op.UserId, Success = false, Error = ex.Message });
+            }
+        }
 
-            // 2. Role rejections
-            foreach (var userId in dto.RoleRejections)
+        // 2. Role rejections
+        foreach (var userId in dto.RoleRejections)
+        {
+            try
             {
                 var user = await _userManager.FindByIdAsync(userId);
                 if (user == null)
@@ -360,42 +366,54 @@ public class AdminController : ControllerBase
                 results.Add(new BatchResultItem { OpType = "rejectVerification", Key = userId, Success = true });
                 _logger.LogInformation("[Batch] RejectVerification: {Username}", user.UserName);
             }
-
-            // 3. Post deletions — single ExecuteDelete per ID avoids N+1 loads
-            foreach (var postId in dto.PostDeletions)
+            catch (Exception ex)
             {
-                var deleted = await _db.Posts.Where(p => p.Id == postId).ExecuteDeleteAsync();
-                if (deleted == 0)
+                _logger.LogError(ex, "[Batch] RejectVerification failed for {UserId}", userId);
+                results.Add(new BatchResultItem { OpType = "rejectVerification", Key = userId, Success = false, Error = ex.Message });
+            }
+        }
+
+        // 3. Post deletions via raw SQL — avoids SaveChangesAsync execution strategy issues
+        foreach (var postId in dto.PostDeletions)
+        {
+            try
+            {
+                var rowsAffected = await _db.Database.ExecuteSqlRawAsync(
+                    @"DELETE FROM ""Posts"" WHERE ""Id"" = {0}", postId);
+                if (rowsAffected == 0)
                     results.Add(new BatchResultItem { OpType = "deletePost", Key = postId.ToString(), Success = false, Error = "Post not found" });
                 else
                     results.Add(new BatchResultItem { OpType = "deletePost", Key = postId.ToString(), Success = true });
             }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[Batch] DeletePost failed for {PostId}", postId);
+                results.Add(new BatchResultItem { OpType = "deletePost", Key = postId.ToString(), Success = false, Error = ex.Message });
+            }
+        }
 
-            await tx.CommitAsync();
+        // Audit log via raw SQL — avoids SaveChangesAsync execution strategy issues
+        try
+        {
+            var adminId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            var adminName = User.FindFirstValue(ClaimTypes.Name);
+            await _db.Database.ExecuteSqlRawAsync(
+                @"INSERT INTO ""SystemLogs"" (""Action"", ""CreatedAt"", ""Details"", ""UserId"", ""UserName"")
+                  VALUES ({0}, {1}, {2}, {3}, {4})",
+                "BatchActions",
+                DateTime.UtcNow,
+                $"approvals={dto.RoleApprovals.Count} rejections={dto.RoleRejections.Count} deletions={dto.PostDeletions.Count} applied={results.Count(o => o.Success)}",
+                adminId ?? "",
+                adminName ?? "");
         }
         catch (Exception ex)
         {
-            await tx.RollbackAsync();
-            _logger.LogError(ex, "[Batch] Transaction rolled back");
-            return StatusCode(500, new ApiErrorResponse { StatusCode = 500, Message = "Batch thất bại, mọi thay đổi đã được hoàn tác." });
+            _logger.LogError(ex, "[Batch] Failed to write audit log");
         }
 
-        // Invalidate caches after batch
+        // Invalidate caches
         _cache.Remove("admin:stats");
         _cache.Remove("admin:verifications");
-
-        // Audit log (single entry for the whole batch)
-        var adminId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        var adminName = User.FindFirstValue(ClaimTypes.Name);
-        _db.SystemLogs.Add(new SystemLog
-        {
-            Action = "BatchActions",
-            Details = $"approvals={dto.RoleApprovals.Count} rejections={dto.RoleRejections.Count} deletions={dto.PostDeletions.Count} applied={results.Count(r => r.Success)}",
-            UserId = adminId,
-            UserName = adminName,
-            CreatedAt = DateTime.UtcNow
-        });
-        await _db.SaveChangesAsync();
 
         var applied = results.Count(r => r.Success);
         var failed  = results.Count(r => !r.Success);
