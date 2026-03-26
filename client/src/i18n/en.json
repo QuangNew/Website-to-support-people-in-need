@@ -240,7 +240,27 @@
         "confirmReject": "Reject this verification request?",
         "confirmDelete": "Are you sure you want to delete this post?",
         "approved": "Approved",
-        "rejected": "Rejected"
+        "rejected": "Rejected",
+        "lastUpdated": "Last updated",
+        "refresh": "Refresh",
+        "pendingRequests": "requests pending",
+        "queuedAll": "All queued — press \"Ghi ngay\" to confirm",
+        "queuedAllDelete": "All queued for deletion — press \"Ghi ngay\" to confirm",
+        "allCategories": "All Categories",
+        "allActions": "All Actions",
+        "from": "From",
+        "to": "To",
+        "postsLivelihood": "Livelihood",
+        "postsMedical": "Medical",
+        "postsEducation": "Education"
+    },
+    "pendingBar": {
+        "writing": "Writing...",
+        "pendingChanges": "changes pending",
+        "autoAfter": "auto in {{s}}s",
+        "undo": "Undo",
+        "writeNow": "Write now",
+        "cancelAll": "Cancel all pending changes"
     },
     "guide": {
         "title": "User Guide",

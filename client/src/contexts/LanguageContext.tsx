@@ -13,7 +13,7 @@ interface LanguageContextType {
     locale: Locale;
     setLocale: (locale: Locale) => void;
     toggleLocale: () => void;
-    t: (key: string) => string;
+    t: (key: string, params?: Record<string, string | number>) => string;
 }
 
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined);
@@ -25,7 +25,7 @@ function getInitialLocale(): Locale {
     return 'vi';
 }
 
-function getNestedValue(obj: TranslationDict, path: string): string {
+function getNestedValue(obj: TranslationDict, path: string, params?: Record<string, string | number>): string {
     const keys = path.split('.');
     let current: unknown = obj;
     for (const key of keys) {
@@ -35,7 +35,13 @@ function getNestedValue(obj: TranslationDict, path: string): string {
             return path; // fallback to key
         }
     }
-    return typeof current === 'string' ? current : path;
+    if (typeof current !== 'string') return path;
+
+    // Simple {{variable}} interpolation
+    if (params) {
+        return current.replace(/\{\{(\w+)\}\}/g, (_, k) => String(params[k] ?? `{{${k}}}`));
+    }
+    return current;
 }
 
 export function LanguageProvider({ children }: { children: ReactNode }) {
@@ -51,8 +57,8 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
         setLocale(locale === 'vi' ? 'en' : 'vi');
     }, [locale, setLocale]);
 
-    const t = useCallback((key: string): string => {
-        return getNestedValue(translations[locale], key);
+    const t = useCallback((key: string, params?: Record<string, string | number>): string => {
+        return getNestedValue(translations[locale], key, params);
     }, [locale]);
 
     const value = useMemo(() => ({
