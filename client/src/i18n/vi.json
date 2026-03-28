@@ -5,6 +5,7 @@
     "save": "Lưu",
     "cancel": "Hủy",
     "close": "Đóng",
+    "delete": "Xóa",
     "search": "Tìm kiếm",
     "back": "Quay lại"
   },
@@ -111,6 +112,8 @@
     "minutes": "phút",
     "altRoute": "Tuyến khác",
     "clearRoute": "Xóa tuyến đường",
+    "deleted": "Đã xóa ping",
+    "deleteFailed": "Xóa ping thất bại",
     "status": {
       "active": "Đang hoạt động",
       "resolved": "Đã giải quyết",
@@ -220,6 +223,7 @@
     "approve": "Duyệt",
     "reject": "Từ chối",
     "delete": "Xóa",
+    "confirmDeletePing": "Bạn có chắc muốn xóa ping này không?",
     "noData": "Không có dữ liệu",
     "noPending": "Không có yêu cầu xác minh chờ duyệt",
     "requestedRole": "Vai trò yêu cầu",

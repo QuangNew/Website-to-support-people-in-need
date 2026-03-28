@@ -5,6 +5,7 @@
         "save": "Save",
         "cancel": "Cancel",
         "close": "Close",
+        "delete": "Delete",
         "search": "Search",
         "back": "Back"
     },
@@ -111,6 +112,8 @@
         "minutes": "min",
         "altRoute": "Alt. route",
         "clearRoute": "Clear route",
+        "deleted": "Ping deleted",
+        "deleteFailed": "Failed to delete ping",
         "status": {
             "active": "Active",
             "resolved": "Resolved",
@@ -220,6 +223,7 @@
         "approve": "Approve",
         "reject": "Reject",
         "delete": "Delete",
+        "confirmDeletePing": "Are you sure you want to delete this ping?",
         "noData": "No data",
         "noPending": "No pending verification requests",
         "requestedRole": "Requested Role",

@@ -82,6 +82,7 @@ interface MapState {
     setShowWelcome: (show: boolean) => void;
     setSidebarExpanded: (expanded: boolean) => void;
     setPings: (pings: PingData[]) => void;
+    removePing: (id: string) => void;
     toggleZones: () => void;
     fetchPings: () => Promise<void>;
     fetchPingsInBounds: (bounds: { north: number; south: number; east: number; west: number }) => Promise<void>;
@@ -414,4 +415,6 @@ export const useMapStore = create<MapState>((set) => ({
     },
 
     clearRoute: () => set({ route: null, routeError: null }),
+
+    removePing: (id) => set((state) => ({ pings: state.pings.filter((p) => p.id !== id) })),
 }));
