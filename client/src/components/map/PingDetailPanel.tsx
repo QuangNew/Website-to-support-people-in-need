@@ -156,7 +156,7 @@ export default function PingDetailPanel() {
       {/* Actions */}
       <div className="ping-detail-actions">
         <button
-          className="btn btn-primary btn-sm"
+          className="btn btn-primary btn-sm ping-directions-btn"
           onClick={handleDirections}
           disabled={isRouting}
         >
