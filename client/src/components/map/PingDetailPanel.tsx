@@ -10,9 +10,13 @@ import {
   Package,
   Navigation,
   Loader2,
+  Trash2,
 } from 'lucide-react';
 import { useMapStore, type PingType } from '../../stores/mapStore';
+import { useAuthStore } from '../../stores/authStore';
 import { useLanguage } from '../../contexts/LanguageContext';
+import { mapApi } from '../../services/api';
+import toast from 'react-hot-toast';
 
 const TYPE_CONFIG: Record<PingType, { label: string; icon: typeof AlertTriangle; colorClass: string }> = {
   need_help: { label: 'filter.needHelp', icon: AlertTriangle, colorClass: 'text-danger' },
@@ -22,7 +26,8 @@ const TYPE_CONFIG: Record<PingType, { label: string; icon: typeof AlertTriangle;
 };
 
 export default function PingDetailPanel() {
-  const { selectedPingId, pings, selectPing, fetchRoute, clearRoute, route, isRouting, routeError } = useMapStore();
+  const { selectedPingId, pings, selectPing, fetchRoute, clearRoute, route, isRouting, routeError, removePing } = useMapStore();
+  const { user } = useAuthStore();
   const { t } = useLanguage();
 
   const ping = useMemo(
@@ -35,6 +40,24 @@ export default function PingDetailPanel() {
   const config = TYPE_CONFIG[ping.type];
   const Icon = config.icon;
   const timeAgo = getRelativeTime(ping.createdAt, t);
+  const isAdmin = user?.role === 'Admin';
+
+  const handleDeletePing = async () => {
+    if (!isAdmin) return;
+    if (!window.confirm(t('admin.confirmDeletePing') || 'Are you sure you want to delete this ping?')) return;
+    try {
+      await mapApi.deletePing(Number(ping.id));
+      removePing(ping.id);
+      selectPing(null);
+      // Clear route if this ping was the destination
+      if (route && route.destination.lat === ping.lat && route.destination.lng === ping.lng) {
+        clearRoute();
+      }
+      toast.success(t('ping.deleted') || 'Ping deleted');
+    } catch {
+      toast.error(t('ping.deleteFailed') || 'Failed to delete ping');
+    }
+  };
 
   const handleDirections = () => {
     if (isRouting) return;
@@ -66,7 +89,7 @@ export default function PingDetailPanel() {
       </div>
 
       {/* Title */}
-      <h3 className="ping-detail-title">{ping.title}</h3>
+      <h3 className="ping-detail-title">{t(config.label)}</h3>
 
       {/* Description */}
       <p className="ping-detail-description">{ping.description}</p>
@@ -167,6 +190,15 @@ export default function PingDetailPanel() {
           <button className="btn btn-accent btn-sm">
             <Gift size={14} />
             {t('ping.support')}
+          </button>
+        )}
+        {isAdmin && (
+          <button
+            className="btn btn-danger btn-sm"
+            onClick={handleDeletePing}
+          >
+            <Trash2 size={14} />
+            {t('common.delete')}
           </button>
         )}
       </div>
