@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Search, X, AlertTriangle, Gift, CheckCircle2, MapPin, Layers, SlidersHorizontal } from 'lucide-react';
+import { Search, X, AlertTriangle, Gift, CheckCircle2, MapPin, Layers, Package, SlidersHorizontal } from 'lucide-react';
 import { useMapStore, type PingType } from '../../stores/mapStore';
 import { useLanguage } from '../../contexts/LanguageContext';
 
@@ -18,7 +18,7 @@ const FILTER_CHIPS: FilterChip[] = [
 ];
 
 export default function FilterBar() {
-  const { activeFilters, toggleFilter, showZones, toggleZones } = useMapStore();
+  const { activeFilters, toggleFilter, showZones, toggleZones, showSupplyPoints, toggleSupplyPoints } = useMapStore();
   const { t } = useLanguage();
   const [search, setSearch] = useState('');
   const [expanded, setExpanded] = useState(false);
@@ -68,6 +68,20 @@ export default function FilterBar() {
             />
             <Layers size={14} />
             <span className="filter-chip-label">{t('filter.zones')}</span>
+          </button>
+
+          {/* Supply points toggle */}
+          <button
+            className={`filter-chip ${showSupplyPoints ? 'filter-chip-active' : ''}`}
+            onClick={toggleSupplyPoints}
+            style={showSupplyPoints ? { '--chip-color': 'var(--info-500, #3b82f6)' } as React.CSSProperties : undefined}
+          >
+            <span
+              className="filter-chip-dot"
+              style={{ backgroundColor: showSupplyPoints ? 'var(--info-500, #3b82f6)' : 'var(--text-muted)' }}
+            />
+            <Package size={14} />
+            <span className="filter-chip-label">Vật tư</span>
           </button>
         </div>
       )}

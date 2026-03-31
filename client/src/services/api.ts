@@ -98,8 +98,17 @@ export const mapApi = {
   getZones: () =>
     api.get('/zone'),
 
+  getZone: (id: number) =>
+    api.get(`/zone/${id}`),
+
   createZone: (data: { name: string; boundaryGeoJson: string; riskLevel: number }) =>
     api.post('/zone', data),
+
+  updateZone: (id: number, data: { name: string; boundaryGeoJson: string; riskLevel: number }) =>
+    api.put(`/zone/${id}`, data),
+
+  deleteZone: (id: number) =>
+    api.delete(`/zone/${id}`),
 
   getPingsByUser: (userId: string) =>
     api.get(`/map/pings/user/${userId}`),
@@ -180,11 +189,15 @@ export const chatbotApi = {
 };
 
 // ═══════════════════════════════════════════
-//  ADMIN API
+//  ADMIN API (3-controller split)
 // ═══════════════════════════════════════════
 export const adminApi = {
+  // ── User Management (AdminController: /api/admin) ──
   getUsers: (params?: { search?: string; role?: string; verificationStatus?: string; page?: number; pageSize?: number }) =>
     api.get('/admin/users', { params }),
+
+  getUserDetail: (userId: string) =>
+    api.get(`/admin/users/${userId}`),
 
   approveRole: (userId: string, data: { role: string }) =>
     api.put(`/admin/users/${userId}/role`, data),
@@ -195,23 +208,99 @@ export const adminApi = {
   rejectVerification: (userId: string) =>
     api.post(`/admin/verifications/${userId}/reject`),
 
-  deletePost: (postId: number) =>
-    api.delete(`/admin/posts/${postId}`),
+  suspendUser: (userId: string, data: { reason: string; until?: string }) =>
+    api.post(`/admin/users/${userId}/suspend`, data),
 
-  getLogs: (params?: { from?: string; to?: string; action?: string; page?: number; pageSize?: number }) =>
-    api.get('/admin/logs', { params }),
+  unsuspendUser: (userId: string) =>
+    api.post(`/admin/users/${userId}/unsuspend`),
 
-  getStats: () =>
-    api.get('/admin/stats'),
+  banUser: (userId: string, data: { reason: string }) =>
+    api.post(`/admin/users/${userId}/ban`, data),
 
-  getPosts: (params?: { page?: number; pageSize?: number; category?: string }) =>
-    api.get('/admin/posts', { params }),
+  forceLogout: (userId: string) =>
+    api.post(`/admin/users/${userId}/force-logout`),
+
+  resetVerification: (userId: string) =>
+    api.post(`/admin/users/${userId}/reset-verification`),
 
   batchActions: (data: {
     roleApprovals: { userId: string; role: string }[];
     roleRejections: string[];
     postDeletions: number[];
   }) => api.post('/admin/batch', data),
+
+  // ── Content Moderation (AdminModerationController: /api/admin/moderation) ──
+  getPosts: (params?: { page?: number; pageSize?: number; category?: string }) =>
+    api.get('/admin/moderation/posts', { params }),
+
+  pinPost: (postId: number) =>
+    api.post(`/admin/moderation/posts/${postId}/pin`),
+
+  deletePost: (postId: number) =>
+    api.delete(`/admin/moderation/posts/${postId}`),
+
+  deleteComment: (postId: number, commentId: number) =>
+    api.delete(`/admin/moderation/posts/${postId}/comments/${commentId}`),
+
+  getReports: (params?: { status?: string; page?: number; pageSize?: number }) =>
+    api.get('/admin/moderation/reports', { params }),
+
+  reviewReport: (reportId: number) =>
+    api.post(`/admin/moderation/reports/${reportId}/review`),
+
+  dismissReport: (reportId: number) =>
+    api.post(`/admin/moderation/reports/${reportId}/dismiss`),
+
+  // ── System Operations (AdminSystemController: /api/admin/system) ──
+  getStats: () =>
+    api.get('/admin/system/stats'),
+
+  getLogs: (params?: { from?: string; to?: string; action?: string; page?: number; pageSize?: number }) =>
+    api.get('/admin/system/logs', { params }),
+
+  getLogChildren: (logId: number) =>
+    api.get(`/admin/system/logs/${logId}/children`),
+
+  getAnnouncements: (params?: { page?: number; pageSize?: number }) =>
+    api.get('/admin/system/announcements', { params }),
+
+  createAnnouncement: (data: { title: string; content: string; expiresAt?: string }) =>
+    api.post('/admin/system/announcements', data),
+
+  updateAnnouncement: (id: number, data: { title?: string; content?: string; expiresAt?: string }) =>
+    api.put(`/admin/system/announcements/${id}`, data),
+
+  deleteAnnouncement: (id: number) =>
+    api.delete(`/admin/system/announcements/${id}`),
+
+  exportUsersCsv: () =>
+    api.get('/admin/system/export/users', { responseType: 'blob' }),
+
+  exportLogsCsv: () =>
+    api.get('/admin/system/export/logs', { responseType: 'blob' }),
+
+  forceResolveSOS: (pingId: number) =>
+    api.post(`/admin/system/sos/${pingId}/force-resolve`),
+};
+
+// ═══════════════════════════════════════════
+//  NOTIFICATION API
+// ═══════════════════════════════════════════
+export const notificationApi = {
+  getNotifications: (params?: { page?: number; pageSize?: number; unreadOnly?: boolean }) =>
+    api.get('/notifications', { params }),
+
+  getUnreadCount: () =>
+    api.get('/notifications/unread-count'),
+
+  markRead: (id: number) =>
+    api.put(`/notifications/${id}/read`),
+
+  markAllRead: () =>
+    api.put('/notifications/read-all'),
+
+  deleteNotification: (id: number) =>
+    api.delete(`/notifications/${id}`),
 };
 
 export default api;

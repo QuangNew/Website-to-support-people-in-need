@@ -5,7 +5,7 @@ import 'leaflet/dist/leaflet.css';
 import 'leaflet.markercluster';
 import 'leaflet.markercluster/dist/MarkerCluster.css';
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
-import { useMapStore, type PingData, type PingType } from '../../stores/mapStore';
+import { useMapStore, type PingData, type PingType, type SupplyData } from '../../stores/mapStore';
 import { useTheme } from '../../contexts/ThemeContext';
 
 // ─── Vietnam bounds (rectangle covering mainland + islands, 1.2× padding) ───
@@ -45,12 +45,23 @@ const PING_SVGS: Record<PingType, string> = {
 function createPingIcon(ping: PingData, isSelected: boolean): L.DivIcon {
   const color = PING_COLORS[ping.type];
   const svg = PING_SVGS[ping.type];
-  const isPulsing = ping.type === 'need_help' && ping.status === 'active';
+  const isPulsing = ping.isBlinking === true;
   return L.divIcon({
     className: '', // no default leaflet icon styles
     iconSize: [36, 36],
     iconAnchor: [18, 18],
     html: `<button class="map-marker ${isSelected ? 'map-marker-selected' : ''} ${isPulsing ? 'map-marker-pulse' : ''}" style="background-color:${color}" aria-label="${ping.title}">${svg}</button>`,
+  });
+}
+
+/** Create a Leaflet DivIcon for a supply marker */
+function createSupplyIcon(supply: SupplyData): L.DivIcon {
+  const color = supply.quantity > 0 ? '#3b82f6' : '#6b7280';
+  return L.divIcon({
+    className: '',
+    iconSize: [32, 32],
+    iconAnchor: [16, 16],
+    html: `<button class="map-marker" style="background-color:${color};width:32px;height:32px" aria-label="${supply.name}"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg></button>`,
   });
 }
 
@@ -69,6 +80,7 @@ export default function MapView() {
     center, zoom, activeFilters, pings, zones, showZones,
     selectedPingId, selectPing, setCenter, setZoom, route,
     flyToTarget, setFlyTo, sosDraftLocation, fetchPingsInBounds,
+    supplyItems, showSupplyPoints, fetchSupplyItems,
   } = useMapStore();
   const { isDark } = useTheme();
 
@@ -81,6 +93,8 @@ export default function MapView() {
   const routeLayersRef = useRef<L.Polyline[]>([]);
   const routeMarkersRef = useRef<L.CircleMarker[]>([]);
   const sosDraftMarkerRef = useRef<L.Marker | null>(null);
+  const supplyLayerRef = useRef<L.LayerGroup | null>(null);
+  const supplyMarkersRef = useRef<Map<number, L.Marker>>(new Map());
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [errorMsg, setErrorMsg] = useState('');
 
@@ -162,6 +176,10 @@ export default function MapView() {
       });
       map.addLayer(clusterGroup);
       clusterGroupRef.current = clusterGroup;
+
+      const supplyLayer = L.layerGroup();
+      map.addLayer(supplyLayer);
+      supplyLayerRef.current = supplyLayer;
 
       setStatus('ready');
     } catch (err) {
@@ -315,6 +333,60 @@ export default function MapView() {
     }
   }, [zones, showZones, status, isDark]);
 
+  // ─── Fetch supply items on mount ───
+  useEffect(() => {
+    if (status === 'ready') {
+      fetchSupplyItems();
+    }
+  }, [status, fetchSupplyItems]);
+
+  // ─── Supply point markers ───
+  useEffect(() => {
+    const layer = supplyLayerRef.current;
+    if (!layer || !mapRef.current || status !== 'ready') return;
+
+    const cur = supplyMarkersRef.current;
+
+    if (!showSupplyPoints) {
+      // Hide all supply markers
+      for (const [, marker] of cur) layer.removeLayer(marker);
+      cur.clear();
+      return;
+    }
+
+    const activeIds = new Set(supplyItems.map((s) => s.id));
+
+    // Remove stale markers
+    for (const [id, marker] of cur) {
+      if (!activeIds.has(id)) {
+        layer.removeLayer(marker);
+        cur.delete(id);
+      }
+    }
+
+    // Add or update markers
+    for (const supply of supplyItems) {
+      const existing = cur.get(supply.id);
+      if (existing) {
+        existing.setIcon(createSupplyIcon(supply));
+      } else {
+        const marker = L.marker([supply.lat, supply.lng], {
+          icon: createSupplyIcon(supply),
+          interactive: true,
+        });
+        marker.bindPopup(
+          `<div style="font-family:Inter,sans-serif;padding:2px 4px">
+            <strong>${supply.name}</strong><br/>
+            <span style="color:var(--text-secondary)">Số lượng: ${supply.quantity}</span><br/>
+            <span style="font-size:0.8em;color:#6b7280">${supply.lat.toFixed(4)}, ${supply.lng.toFixed(4)}</span>
+          </div>`
+        );
+        layer.addLayer(marker);
+        cur.set(supply.id, marker);
+      }
+    }
+  }, [supplyItems, showSupplyPoints, status]);
+
   // ─── Route polyline rendering ───
   useEffect(() => {
     // Clean up previous route layers
@@ -392,6 +464,12 @@ export default function MapView() {
       routeLayersRef.current = [];
       for (const marker of routeMarkersRef.current) marker.remove();
       routeMarkersRef.current = [];
+      if (supplyLayerRef.current) {
+        supplyLayerRef.current.clearLayers();
+        supplyLayerRef.current = null;
+      }
+      for (const marker of supplyMarkersRef.current.values()) marker.remove();
+      supplyMarkersRef.current.clear();
     };
   }, []);
 

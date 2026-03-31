@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { mapApi } from '../services/api';
+import { mapApi, supplyApi } from '../services/api';
 
 export type PingType = 'need_help' | 'offering' | 'received' | 'support_point';
 export type PanelType = 'list' | 'social' | 'chat' | 'profile' | 'verify' | 'guide' | null;
@@ -16,6 +16,7 @@ export interface PingData {
     items?: string[];
     contactPhone?: string;
     status: 'active' | 'resolved' | 'expired';
+    isBlinking?: boolean;
 }
 
 export interface ZoneData {
@@ -23,6 +24,14 @@ export interface ZoneData {
     name: string;
     riskLevel: number;
     boundary: Array<{ lat: number; lng: number }>;
+}
+
+export interface SupplyData {
+    id: number;
+    name: string;
+    quantity: number;
+    lat: number;
+    lng: number;
 }
 
 export interface RouteInfo {
@@ -58,6 +67,8 @@ interface MapState {
     pingsLoading: boolean;
     zones: ZoneData[];
     showZones: boolean;
+    supplyItems: SupplyData[];
+    showSupplyPoints: boolean;
 
     // FlyTo
     flyToTarget: { lat: number; lng: number; zoom?: number } | null;
@@ -89,6 +100,8 @@ interface MapState {
     fetchZones: () => Promise<void>;
     fetchRoute: (destLat: number, destLng: number) => Promise<void>;
     clearRoute: () => void;
+    toggleSupplyPoints: () => void;
+    fetchSupplyItems: () => Promise<void>;
 }
 
 // Mock data for Vietnam map
@@ -173,6 +186,8 @@ export const useMapStore = create<MapState>((set) => ({
     pingsLoading: true,
     zones: [],
     showZones: true,
+    supplyItems: [],
+    showSupplyPoints: true,
 
     // FlyTo
     flyToTarget: null,
@@ -206,6 +221,7 @@ export const useMapStore = create<MapState>((set) => ({
     setSidebarExpanded: (expanded) => set({ sidebarExpanded: expanded }),
     setPings: (pings) => set({ pings, pingsLoading: false }),
     toggleZones: () => set((state) => ({ showZones: !state.showZones })),
+    toggleSupplyPoints: () => set((state) => ({ showSupplyPoints: !state.showSupplyPoints })),
     fetchPings: async () => {
         set({ pingsLoading: true });
         try {
@@ -240,6 +256,7 @@ export const useMapStore = create<MapState>((set) => ({
                     status: statusMap[p.status as string] || 'active',
                     items: [],
                     contactPhone: undefined,
+                    isBlinking: (p.isBlinking as boolean) || false,
                 };
             });
             set({ pings: backendPings, pingsLoading: false });
@@ -294,6 +311,7 @@ export const useMapStore = create<MapState>((set) => ({
                     status: statusMap[p.status as string] || 'active',
                     items: [],
                     contactPhone: undefined,
+                    isBlinking: (p.isBlinking as boolean) || false,
                 };
             });
             set({ pings: backendPings, pingsLoading: false });
@@ -415,6 +433,22 @@ export const useMapStore = create<MapState>((set) => ({
     },
 
     clearRoute: () => set({ route: null, routeError: null }),
+
+    fetchSupplyItems: async () => {
+        try {
+            const res = await supplyApi.getSupplies();
+            const items: SupplyData[] = (res.data as Array<Record<string, unknown>>).map((s) => ({
+                id: s.id as number,
+                name: (s.name as string) || '',
+                quantity: (s.quantity as number) || 0,
+                lat: s.lat as number,
+                lng: s.lng as number,
+            }));
+            set({ supplyItems: items });
+        } catch {
+            console.warn('[MapStore] Failed to fetch supply items');
+        }
+    },
 
     removePing: (id) => set((state) => ({ pings: state.pings.filter((p) => p.id !== id) })),
 }));
