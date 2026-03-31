@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ReliefConnect.Core.DTOs;
 using ReliefConnect.Core.Entities;
+using ReliefConnect.Core.Interfaces;
 using ReliefConnect.Infrastructure.Data;
 
 namespace ReliefConnect.API.Controllers;
@@ -16,11 +17,13 @@ namespace ReliefConnect.API.Controllers;
 public class SupplyController : ControllerBase
 {
     private readonly AppDbContext _db;
+    private readonly INotificationService _notifications;
     private readonly ILogger<SupplyController> _logger;
 
-    public SupplyController(AppDbContext db, ILogger<SupplyController> logger)
+    public SupplyController(AppDbContext db, INotificationService notifications, ILogger<SupplyController> logger)
     {
         _db = db;
+        _notifications = notifications;
         _logger = logger;
     }
 
@@ -77,6 +80,10 @@ public class SupplyController : ControllerBase
         _db.SupplyItems.Add(supply);
         await _db.SaveChangesAsync();
         _logger.LogInformation("Supply item created: Id={SupplyId}, Name={Name}", supply.Id, supply.Name);
+
+        // Notify volunteers about new supply point
+        _ = _notifications.SendToRoleAsync((int)Core.Enums.RoleEnum.Volunteer,
+            $"Điểm cung cấp mới: {supply.Name} (SL: {supply.Quantity})");
 
         return CreatedAtAction(nameof(GetSupplyById), new { id = supply.Id }, MapToDto(supply));
     }

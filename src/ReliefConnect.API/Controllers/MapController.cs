@@ -21,15 +21,18 @@ public class MapController : ControllerBase
 {
     private readonly IPingRepository _pingRepo;
     private readonly UserManager<ApplicationUser> _userManager;
+    private readonly INotificationService _notifications;
     private readonly ILogger<MapController> _logger;
 
     public MapController(
         IPingRepository pingRepo,
         UserManager<ApplicationUser> userManager,
+        INotificationService notifications,
         ILogger<MapController> logger)
     {
         _pingRepo = pingRepo;
         _userManager = userManager;
+        _notifications = notifications;
         _logger = logger;
     }
 
@@ -123,6 +126,14 @@ public class MapController : ControllerBase
         var created = await _pingRepo.AddAsync(ping);
         _logger.LogInformation("Ping created: Id={PingId}, Type={Type}, User={UserId}", created.Id, dto.Type, userId);
 
+        // Notify volunteers about new SOS request
+        if (ping.Type == MapItemType.SOS)
+        {
+            var detail = ping.Details?.Length > 100 ? ping.Details[..100] + "…" : ping.Details ?? "Không có chi tiết";
+            _ = _notifications.SendToRoleAsync((int)Core.Enums.RoleEnum.Volunteer,
+                $"SOS mới từ {userName}: {detail}");
+        }
+
         // Build DTO directly — avoid reload round-trip
         var responseDto = new PingResponseDto
         {
@@ -169,6 +180,10 @@ public class MapController : ControllerBase
         await _pingRepo.UpdateAsync(ping);
         _logger.LogInformation("Ping {PingId} status updated to {Status}", id, dto.Status);
 
+        // Notify ping owner about status change
+        _ = _notifications.SendAsync(ping.UserId,
+            $"Trạng thái SOS của bạn đã được cập nhật: {newStatus}");
+
         return Ok(MapPingToDto(ping));
     }
 
@@ -197,6 +212,10 @@ public class MapController : ControllerBase
 
         await _pingRepo.UpdateAsync(ping);
         _logger.LogInformation("Ping {PingId} confirmed safe by user {UserId}", id, userId);
+
+        // Notify volunteers that user confirmed safe
+        _ = _notifications.SendToRoleAsync((int)Core.Enums.RoleEnum.Volunteer,
+            $"Người dùng đã xác nhận an toàn cho SOS #{id}");
 
         return Ok(MapPingToDto(ping));
     }

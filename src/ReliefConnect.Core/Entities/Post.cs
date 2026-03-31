@@ -23,6 +23,9 @@ public class Post
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
+    /// <summary>Whether this post is pinned by admin to the top of feeds.</summary>
+    public bool IsPinned { get; set; }
+
     // Foreign keys
     public string AuthorId { get; set; } = string.Empty;
     public ApplicationUser Author { get; set; } = null!;

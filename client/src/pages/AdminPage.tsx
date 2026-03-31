@@ -1,15 +1,28 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Users, FileText, Activity, BarChart3, ShieldCheck, ArrowLeft,
-  Search, CheckCircle2, XCircle, Trash2, RefreshCw, AlertTriangle,
-  Heart, BookOpen, Stethoscope, Home
+  Users, Shield, FileText, Flag, ScrollText, Megaphone, BarChart3,
+  ChevronDown, ChevronRight, RefreshCw, Download, Trash2, Pin, Ban,
+  LogOut, Eye,
+  ArrowLeft, Search, CheckCircle2, XCircle, AlertTriangle,
+  Heart, BookOpen, Stethoscope, Home, Activity, ShieldCheck, Plus, Edit2,
+  MapPin, Package,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
 import { adminApi } from '../services/api';
+import { mapApi, supplyApi } from '../services/api';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuthStore } from '../stores/authStore';
 import { useBatchStore } from '../stores/batchStore';
+import type {
+  AdminUser,
+  AdminPost,
+  SystemLog,
+  Report,
+  Announcement,
+  SystemStats,
+  PagedResponse,
+} from '../types/admin';
 
 // ─── Debounce utility ───
 function debounce<T extends (...args: Parameters<T>) => void>(fn: T, delay: number): T {
@@ -21,8 +34,6 @@ function debounce<T extends (...args: Parameters<T>) => void>(fn: T, delay: numb
 }
 
 // ─── Auto-refresh hook ───
-// Calls `refresh` silently (no loading state) every `intervalMs`.
-// Also refreshes when the browser tab regains focus after being hidden.
 function useAutoRefresh(refresh: () => void, intervalMs: number) {
   const refreshRef = useRef(refresh);
   refreshRef.current = refresh;
@@ -39,63 +50,17 @@ function useAutoRefresh(refresh: () => void, intervalMs: number) {
   }, [intervalMs]);
 }
 
-// ═══════════════════════════════════════════
-//  TYPES
-// ═══════════════════════════════════════════
-interface AdminUser {
-  id: string;
-  userName: string;
-  email: string;
-  fullName: string;
-  role: string;
-  verificationStatus: string;
-  requestedRole?: string;
-  verificationReason?: string;
-  emailVerified: boolean;
-  avatarUrl?: string;
-  createdAt: string;
+// ─── CSV download helper ───
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
-interface Stats {
-  totalUsers: number;
-  totalPersonsInNeed: number;
-  totalSponsors: number;
-  totalVolunteers: number;
-  activeSOS: number;
-  resolvedCases: number;
-  totalPosts: number;
-  totalPostsLivelihood: number;
-  totalPostsMedical: number;
-  totalPostsEducation: number;
-}
-
-interface LogEntry {
-  id: number;
-  action: string;
-  details?: string;
-  userId?: string;
-  userName?: string;
-  createdAt: string;
-}
-
-interface PostItem {
-  id: number;
-  content: string;
-  category: string;
-  authorId: string;
-  authorName: string;
-  createdAt: string;
-}
-
-interface PostsResponse {
-  items: PostItem[];
-  total: number;
-  page: number;
-  pageSize: number;
-  totalPages: number;
-}
-
-type Tab = 'stats' | 'users' | 'verifications' | 'posts' | 'logs';
+type Tab = 'stats' | 'verifications' | 'users' | 'posts' | 'reports' | 'logs' | 'announcements' | 'zones' | 'supply';
 
 // ═══════════════════════════════════════════
 //  ADMIN PAGE
@@ -107,10 +72,6 @@ export default function AdminPage() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<Tab>('stats');
 
-  // batchStore lives globally — no local refs needed.
-  // Panels listen to the 'batch-flush-done' window event to self-refresh.
-
-  // Redirect non-admin users
   useEffect(() => {
     if (user && user.role !== 'Admin') {
       navigate('/');
@@ -122,7 +83,11 @@ export default function AdminPage() {
     { key: 'verifications', label: t('admin.verifications'), icon: ShieldCheck },
     { key: 'users', label: t('admin.users'), icon: Users },
     { key: 'posts', label: t('admin.posts'), icon: FileText },
-    { key: 'logs', label: t('admin.logs'), icon: Activity },
+    { key: 'reports', label: 'Reports', icon: Flag },
+    { key: 'logs', label: t('admin.logs'), icon: ScrollText },
+    { key: 'announcements', label: 'Announcements', icon: Megaphone },
+    { key: 'zones', label: 'Zones', icon: MapPin },
+    { key: 'supply', label: 'Supply', icon: Package },
   ];
 
   return (
@@ -165,7 +130,11 @@ export default function AdminPage() {
           {activeTab === 'verifications' && <VerificationsPanel />}
           {activeTab === 'users' && <UsersPanel />}
           {activeTab === 'posts' && <PostsPanel />}
+          {activeTab === 'reports' && <ReportsPanel />}
           {activeTab === 'logs' && <LogsPanel />}
+          {activeTab === 'announcements' && <AnnouncementsPanel />}
+          {activeTab === 'zones' && <ZonesPanel />}
+          {activeTab === 'supply' && <SupplyPanel />}
         </div>
       </main>
     </div>
@@ -178,7 +147,7 @@ export default function AdminPage() {
 
 function StatsPanel() {
   const { t } = useLanguage();
-  const [stats, setStats] = useState<Stats | null>(null);
+  const [stats, setStats] = useState<SystemStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -192,31 +161,19 @@ function StatsPanel() {
       .finally(() => setLoading(false));
   }, []);
 
-  // Silent background refresh (no loading state, no error flash)
   const silentRefresh = useCallback(() => {
     adminApi.getStats()
       .then((res) => { setStats(res.data); setLastUpdated(new Date()); })
-      .catch(() => {}); // silently ignore poll errors
+      .catch(() => {});
   }, []);
 
   useEffect(() => { load(); }, [load]);
-  useAutoRefresh(silentRefresh, 60_000); // auto-refresh every 60s
+  useAutoRefresh(silentRefresh, 60_000);
 
   if (loading) return (
     <div className="animate-fade-in-up">
       <div className="admin-stats-grid">
         {Array.from({ length: 6 }).map((_, i) => (
-          <div key={i} className="admin-stat-card glass-card" style={{ opacity: 0.5 }}>
-            <div className="admin-stat-card__icon" style={{ background: 'var(--bg-tertiary)' }} />
-            <div className="admin-stat-card__info">
-              <span className="admin-stat-card__value" style={{ background: 'var(--bg-tertiary)', borderRadius: 4, color: 'transparent' }}>000</span>
-              <span className="admin-stat-card__label" style={{ background: 'var(--bg-tertiary)', borderRadius: 4, color: 'transparent' }}>Loading</span>
-            </div>
-          </div>
-        ))}
-      </div>
-      <div className="admin-stats-grid" style={{ marginTop: 'var(--sp-6)' }}>
-        {Array.from({ length: 4 }).map((_, i) => (
           <div key={i} className="admin-stat-card glass-card" style={{ opacity: 0.5 }}>
             <div className="admin-stat-card__icon" style={{ background: 'var(--bg-tertiary)' }} />
             <div className="admin-stat-card__info">
@@ -248,6 +205,8 @@ function StatsPanel() {
     { label: t('admin.volunteers'), value: stats.totalVolunteers, icon: ShieldCheck, color: 'var(--success-500)', bg: 'rgba(34, 197, 94, 0.1)' },
     { label: t('admin.activeSOS'), value: stats.activeSOS, icon: AlertTriangle, color: 'var(--danger-500)', bg: 'rgba(239, 68, 68, 0.15)' },
     { label: t('admin.resolvedCases'), value: stats.resolvedCases, icon: CheckCircle2, color: 'var(--success-500)', bg: 'rgba(34, 197, 94, 0.15)' },
+    { label: 'Pending Verifications', value: stats.pendingVerifications, icon: Shield, color: 'var(--warning-500, #f59e0b)', bg: 'rgba(245, 158, 11, 0.1)' },
+    { label: 'Pending Reports', value: stats.pendingReports, icon: Flag, color: 'var(--danger-500)', bg: 'rgba(239, 68, 68, 0.1)' },
   ];
 
   const postCards = [
@@ -259,7 +218,6 @@ function StatsPanel() {
 
   return (
     <div className="animate-fade-in-up">
-      {/* Last-updated indicator */}
       <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 'var(--sp-2)', marginBottom: 'var(--sp-3)' }}>
         {lastUpdated && (
           <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
@@ -310,7 +268,6 @@ function StatsPanel() {
 function VerificationsPanel() {
   const { t } = useLanguage();
   const { ops, enqueue } = useBatchStore();
-  // All items from server (source of truth)
   const [serverItems, setServerItems] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -330,14 +287,12 @@ function VerificationsPanel() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
-  // Refresh after a batch flush (fired from batchStore via CustomEvent)
   useEffect(() => {
     window.addEventListener('batch-flush-done', silentRefresh);
     return () => window.removeEventListener('batch-flush-done', silentRefresh);
   }, [silentRefresh]);
-  useAutoRefresh(silentRefresh, 60_000); // poll every 60s
+  useAutoRefresh(silentRefresh, 60_000);
 
-  // Optimistic display: hide items already queued for action
   const queuedUserIds = new Set(
     ops
       .filter((o) => o.type === 'approveRole' || o.type === 'rejectVerification')
@@ -351,18 +306,18 @@ function VerificationsPanel() {
       type: 'approveRole',
       userId: user.id,
       role,
-      rollbackLabel: `Duyệt ${user.fullName} → ${role}`,
+      rollbackLabel: `Approve ${user.fullName} → ${role}`,
     });
-    toast(`⏳ Đã xếp hàng: duyệt ${user.fullName}`, { duration: 2000 });
+    toast(`⏳ Queued: approve ${user.fullName}`, { duration: 2000 });
   };
 
   const handleReject = (user: AdminUser) => {
     enqueue({
       type: 'rejectVerification',
       userId: user.id,
-      rollbackLabel: `Từ chối ${user.fullName}`,
+      rollbackLabel: `Reject ${user.fullName}`,
     });
-    toast(`⏳ Đã xếp hàng: từ chối ${user.fullName}`, { duration: 2000 });
+    toast(`⏳ Queued: reject ${user.fullName}`, { duration: 2000 });
   };
 
   if (loading) return <div className="admin-loading"><span className="spinner" /></div>;
@@ -456,12 +411,11 @@ function UsersPanel() {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState(''); // Debounced version for API calls
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
 
-  // Debounce search input - wait 300ms after last keystroke before API call
   const debouncedSetSearch = useCallback(
     debounce((value: string) => {
       setDebouncedSearch(value);
@@ -474,14 +428,58 @@ function UsersPanel() {
     setLoading(true);
     adminApi.getUsers({ search: debouncedSearch || undefined, role: roleFilter || undefined, page, pageSize: 15 })
       .then((res) => {
-        setUsers(res.data.items);
-        setTotalPages(res.data.totalPages);
+        const data: PagedResponse<AdminUser> = res.data;
+        setUsers(data.items);
+        setTotalPages(data.totalPages);
       })
       .catch(() => toast.error(t('common.error')))
       .finally(() => setLoading(false));
   }, [debouncedSearch, roleFilter, page, t]);
 
   useEffect(() => { load(); }, [load]);
+
+  const handleSuspend = async (userId: string, fullName: string) => {
+    const reason = prompt(`Suspend reason for ${fullName}:`);
+    if (!reason) return;
+    try {
+      await adminApi.suspendUser(userId, { reason });
+      toast.success(`Suspended ${fullName}`);
+      load();
+    } catch {
+      toast.error(t('common.error'));
+    }
+  };
+
+  const handleUnsuspend = async (userId: string, fullName: string) => {
+    try {
+      await adminApi.unsuspendUser(userId);
+      toast.success(`Unsuspended ${fullName}`);
+      load();
+    } catch {
+      toast.error(t('common.error'));
+    }
+  };
+
+  const handleBan = async (userId: string, fullName: string) => {
+    const reason = prompt(`Ban reason for ${fullName}:`);
+    if (!reason) return;
+    try {
+      await adminApi.banUser(userId, { reason });
+      toast.success(`Banned ${fullName}`);
+      load();
+    } catch {
+      toast.error(t('common.error'));
+    }
+  };
+
+  const handleForceLogout = async (userId: string, fullName: string) => {
+    try {
+      await adminApi.forceLogout(userId);
+      toast.success(`Force-logged out ${fullName}`);
+    } catch {
+      toast.error(t('common.error'));
+    }
+  };
 
   const handleRoleChange = async (userId: string, role: string) => {
     try {
@@ -539,7 +537,7 @@ function UsersPanel() {
               </thead>
               <tbody>
                 {users.map((u) => (
-                  <tr key={u.id}>
+                  <tr key={u.id} style={u.isSuspended ? { opacity: 0.7 } : undefined}>
                     <td>
                       <div className="admin-user-cell">
                         <div className="admin-avatar" style={{ background: 'var(--bg-subtle)' }}>
@@ -550,6 +548,9 @@ function UsersPanel() {
                         <div>
                           <div className="admin-user-name">{u.fullName}</div>
                           <div className="admin-user-sub">@{u.userName}</div>
+                          {u.isSuspended && (
+                            <span className="admin-badge admin-badge--danger" style={{ fontSize: '10px' }}>Suspended</span>
+                          )}
                         </div>
                       </div>
                     </td>
@@ -574,9 +575,39 @@ function UsersPanel() {
                     </td>
                     <td className="admin-td-date">{new Date(u.createdAt).toLocaleDateString()}</td>
                     <td>
-                      {u.emailVerified
-                        ? <CheckCircle2 size={16} className="text-success" />
-                        : <XCircle size={16} className="text-danger" />}
+                      <div className="admin-action-btns" style={{ flexWrap: 'wrap' }}>
+                        {u.isSuspended ? (
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            title="Unsuspend"
+                            onClick={() => handleUnsuspend(u.id, u.fullName)}
+                          >
+                            <CheckCircle2 size={14} />
+                          </button>
+                        ) : (
+                          <button
+                            className="btn btn-ghost btn-sm btn-danger-text"
+                            title="Suspend"
+                            onClick={() => handleSuspend(u.id, u.fullName)}
+                          >
+                            <AlertTriangle size={14} />
+                          </button>
+                        )}
+                        <button
+                          className="btn btn-ghost btn-sm btn-danger-text"
+                          title="Ban"
+                          onClick={() => handleBan(u.id, u.fullName)}
+                        >
+                          <Ban size={14} />
+                        </button>
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          title="Force logout"
+                          onClick={() => handleForceLogout(u.id, u.fullName)}
+                        >
+                          <LogOut size={14} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -587,7 +618,6 @@ function UsersPanel() {
             </table>
           </div>
 
-          {/* Pagination */}
           {totalPages > 1 && (
             <div className="admin-pagination">
               <button className="btn btn-ghost btn-sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>← Prev</button>
@@ -608,7 +638,7 @@ function UsersPanel() {
 function PostsPanel() {
   const { t } = useLanguage();
   const { ops, enqueue } = useBatchStore();
-  const [posts, setPosts] = useState<PostItem[]>([]);
+  const [posts, setPosts] = useState<AdminPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -618,7 +648,7 @@ function PostsPanel() {
     setLoading(true);
     adminApi.getPosts({ page, pageSize: 20, category: categoryFilter || undefined })
       .then((res) => {
-        const data: PostsResponse = res.data;
+        const data: PagedResponse<AdminPost> = res.data;
         setPosts(data.items);
         setTotalPages(data.totalPages);
       })
@@ -628,30 +658,42 @@ function PostsPanel() {
 
   const silentRefresh = useCallback(() => {
     adminApi.getPosts({ page, pageSize: 20, category: categoryFilter || undefined })
-      .then((res) => { setPosts(res.data.items); setTotalPages(res.data.totalPages); })
+      .then((res) => {
+        const data: PagedResponse<AdminPost> = res.data;
+        setPosts(data.items);
+        setTotalPages(data.totalPages);
+      })
       .catch(() => {});
   }, [page, categoryFilter]);
 
   useEffect(() => { load(); }, [load]);
-  // Refresh after a batch flush
   useEffect(() => {
     window.addEventListener('batch-flush-done', silentRefresh);
     return () => window.removeEventListener('batch-flush-done', silentRefresh);
   }, [silentRefresh]);
 
-  // Optimistic: hide posts already queued for deletion
   const queuedPostIds = new Set(
     ops.filter((o) => o.type === 'deletePost').map((o) => o.postId!)
   );
   const visiblePosts = posts.filter((p) => !queuedPostIds.has(p.id));
 
-  const handleDelete = (post: PostItem) => {
+  const handleDelete = (post: AdminPost) => {
     enqueue({
       type: 'deletePost',
       postId: post.id,
-      rollbackLabel: `Xóa bài #${post.id} của ${post.authorName}`,
+      rollbackLabel: `Delete post #${post.id} by ${post.authorName}`,
     });
-    toast(`⏳ Đã xếp hàng: xóa bài #${post.id}`, { duration: 2000 });
+    toast(`⏳ Queued: delete post #${post.id}`, { duration: 2000 });
+  };
+
+  const handlePin = async (postId: number) => {
+    try {
+      await adminApi.pinPost(postId);
+      toast.success(`Post #${postId} pin toggled`);
+      load();
+    } catch {
+      toast.error(t('common.error'));
+    }
   };
 
   if (loading) return <div className="admin-loading"><span className="spinner" /></div>;
@@ -680,6 +722,7 @@ function PostsPanel() {
               <th>{t('admin.user')}</th>
               <th>Content</th>
               <th>Category</th>
+              <th>Stats</th>
               <th>{t('admin.date')}</th>
               <th>{t('admin.action')}</th>
             </tr>
@@ -689,18 +732,33 @@ function PostsPanel() {
               <tr key={p.id}>
                 <td>#{p.id}</td>
                 <td>{p.authorName}</td>
-                <td className="admin-td-content">{p.content.substring(0, 100)}{p.content.length > 100 ? '…' : ''}</td>
+                <td className="admin-td-content">
+                  {p.isPinned && <Pin size={12} style={{ color: 'var(--primary-400)', marginRight: 4 }} />}
+                  {p.content.substring(0, 100)}{p.content.length > 100 ? '…' : ''}
+                </td>
                 <td><span className="admin-badge">{p.category}</span></td>
+                <td style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                  💬 {p.commentCount} · ❤️ {p.reactionCount}
+                </td>
                 <td className="admin-td-date">{new Date(p.createdAt).toLocaleDateString()}</td>
                 <td>
-                  <button className="btn btn-ghost btn-sm btn-danger-text" onClick={() => handleDelete(p)}>
-                    <Trash2 size={14} /> {t('admin.delete')}
-                  </button>
+                  <div className="admin-action-btns">
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      title={p.isPinned ? 'Unpin' : 'Pin'}
+                      onClick={() => handlePin(p.id)}
+                    >
+                      <Pin size={14} />
+                    </button>
+                    <button className="btn btn-ghost btn-sm btn-danger-text" onClick={() => handleDelete(p)}>
+                      <Trash2 size={14} /> {t('admin.delete')}
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
             {visiblePosts.length === 0 && (
-              <tr><td colSpan={6} style={{ textAlign: 'center', padding: 'var(--sp-8)', color: 'var(--text-muted)' }}>
+              <tr><td colSpan={7} style={{ textAlign: 'center', padding: 'var(--sp-8)', color: 'var(--text-muted)' }}>
                 {ops.length > 0 ? t('admin.queuedAllDelete') : t('admin.noData')}
               </td></tr>
             )}
@@ -720,18 +778,148 @@ function PostsPanel() {
 }
 
 // ═══════════════════════════════════════════
-//  LOGS PANEL
+//  REPORTS PANEL
+// ═══════════════════════════════════════════
+
+function ReportsPanel() {
+  const { t } = useLanguage();
+  const [reports, setReports] = useState<Report[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [statusFilter, setStatusFilter] = useState('Pending');
+
+  const load = useCallback(() => {
+    setLoading(true);
+    adminApi.getReports({ status: statusFilter || undefined, page, pageSize: 20 })
+      .then((res) => {
+        const data: PagedResponse<Report> = res.data;
+        setReports(data.items);
+        setTotalPages(data.totalPages);
+      })
+      .catch(() => toast.error(t('common.error')))
+      .finally(() => setLoading(false));
+  }, [statusFilter, page, t]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleReview = async (reportId: number) => {
+    try {
+      await adminApi.reviewReport(reportId);
+      toast.success('Report marked as reviewed');
+      load();
+    } catch {
+      toast.error(t('common.error'));
+    }
+  };
+
+  const handleDismiss = async (reportId: number) => {
+    try {
+      await adminApi.dismissReport(reportId);
+      toast.success('Report dismissed');
+      load();
+    } catch {
+      toast.error(t('common.error'));
+    }
+  };
+
+  if (loading) return <div className="admin-loading"><span className="spinner" /></div>;
+
+  return (
+    <div className="animate-fade-in-up">
+      <div className="admin-filters">
+        <select
+          className="admin-select"
+          value={statusFilter}
+          onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+        >
+          <option value="">All Statuses</option>
+          <option value="Pending">Pending</option>
+          <option value="Reviewed">Reviewed</option>
+          <option value="Dismissed">Dismissed</option>
+        </select>
+        <button className="btn btn-ghost btn-sm" onClick={load}><RefreshCw size={16} /></button>
+      </div>
+
+      <div className="admin-table-wrap">
+        <table className="admin-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Post</th>
+              <th>Reporter</th>
+              <th>Reason</th>
+              <th>Status</th>
+              <th>{t('admin.date')}</th>
+              <th>{t('admin.action')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {reports.map((r) => (
+              <tr key={r.id}>
+                <td>#{r.id}</td>
+                <td className="admin-td-content">
+                  <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>Post #{r.postId}: </span>
+                  {r.postContentPreview.substring(0, 80)}{r.postContentPreview.length > 80 ? '…' : ''}
+                </td>
+                <td>{r.reporterName}</td>
+                <td className="admin-td-content">{r.reason}</td>
+                <td>
+                  <span className={`admin-badge admin-badge--${r.status.toLowerCase()}`}>{r.status}</span>
+                </td>
+                <td className="admin-td-date">{new Date(r.createdAt).toLocaleDateString()}</td>
+                <td>
+                  {r.status === 'Pending' && (
+                    <div className="admin-action-btns">
+                      <button className="btn btn-ghost btn-sm" title="Mark reviewed" onClick={() => handleReview(r.id)}>
+                        <Eye size={14} />
+                      </button>
+                      <button className="btn btn-ghost btn-sm btn-danger-text" title="Dismiss" onClick={() => handleDismiss(r.id)}>
+                        <XCircle size={14} />
+                      </button>
+                    </div>
+                  )}
+                </td>
+              </tr>
+            ))}
+            {reports.length === 0 && (
+              <tr><td colSpan={7} style={{ textAlign: 'center', padding: 'var(--sp-8)', color: 'var(--text-muted)' }}>
+                No reports found
+              </td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {totalPages > 1 && (
+        <div className="admin-pagination">
+          <button className="btn btn-ghost btn-sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>← Prev</button>
+          <span className="admin-page-info">{page} / {totalPages}</span>
+          <button className="btn btn-ghost btn-sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>Next →</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════
+//  LOGS PANEL  (expandable batch rows)
 // ═══════════════════════════════════════════
 
 function LogsPanel() {
   const { t } = useLanguage();
-  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [logs, setLogs] = useState<SystemLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [actionFilter, setActionFilter] = useState('');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+  const [childrenMap, setChildrenMap] = useState<Record<number, SystemLog[]>>({});
+  const [loadingChildren, setLoadingChildren] = useState<Set<number>>(new Set());
+  const [exportingUsers, setExportingUsers] = useState(false);
+  const [exportingLogs, setExportingLogs] = useState(false);
   const pageSize = 30;
 
   const load = useCallback(() => {
@@ -741,11 +929,12 @@ function LogsPanel() {
       pageSize,
       action: actionFilter || undefined,
       from: fromDate || undefined,
-      to: toDate || undefined
+      to: toDate || undefined,
     })
       .then((res) => {
-        setLogs(res.data.items);
-        setTotal(res.data.total);
+        const data: PagedResponse<SystemLog> = res.data;
+        setLogs(data.items);
+        setTotal(data.total);
       })
       .catch(() => toast.error(t('common.error')))
       .finally(() => setLoading(false));
@@ -755,11 +944,60 @@ function LogsPanel() {
 
   const totalPages = Math.ceil(total / pageSize);
 
+  const toggleExpand = async (logId: number) => {
+    const next = new Set(expandedIds);
+    if (next.has(logId)) {
+      next.delete(logId);
+      setExpandedIds(next);
+      return;
+    }
+    next.add(logId);
+    setExpandedIds(next);
+
+    if (!childrenMap[logId]) {
+      setLoadingChildren((s) => new Set(s).add(logId));
+      try {
+        const res = await adminApi.getLogChildren(logId);
+        setChildrenMap((m) => ({ ...m, [logId]: res.data }));
+      } catch {
+        toast.error('Failed to load child logs');
+      } finally {
+        setLoadingChildren((s) => { const ns = new Set(s); ns.delete(logId); return ns; });
+      }
+    }
+  };
+
+  const handleExportUsers = async () => {
+    setExportingUsers(true);
+    try {
+      const res = await adminApi.exportUsersCsv();
+      downloadBlob(res.data as Blob, 'users.csv');
+      toast.success('Users CSV downloaded');
+    } catch {
+      toast.error('Export failed');
+    } finally {
+      setExportingUsers(false);
+    }
+  };
+
+  const handleExportLogs = async () => {
+    setExportingLogs(true);
+    try {
+      const res = await adminApi.exportLogsCsv();
+      downloadBlob(res.data as Blob, 'logs.csv');
+      toast.success('Logs CSV downloaded');
+    } catch {
+      toast.error('Export failed');
+    } finally {
+      setExportingLogs(false);
+    }
+  };
+
   if (loading) return <div className="admin-loading"><span className="spinner" /></div>;
 
   return (
     <div className="animate-fade-in-up">
-      <div className="admin-filters">
+      <div className="admin-filters" style={{ flexWrap: 'wrap' }}>
         <input
           type="date"
           className="admin-select"
@@ -786,14 +1024,35 @@ function LogsPanel() {
           <option value="DeletePost">DeletePost</option>
           <option value="ApproveRole">ApproveRole</option>
           <option value="RejectVerification">RejectVerification</option>
+          <option value="SuspendUser">SuspendUser</option>
+          <option value="BanUser">BanUser</option>
         </select>
         <button className="btn btn-ghost btn-sm" onClick={load}><RefreshCw size={16} /></button>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 'var(--sp-2)' }}>
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={handleExportUsers}
+            disabled={exportingUsers}
+            title="Export users CSV"
+          >
+            <Download size={14} /> {exportingUsers ? '…' : 'Users CSV'}
+          </button>
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={handleExportLogs}
+            disabled={exportingLogs}
+            title="Export logs CSV"
+          >
+            <Download size={14} /> {exportingLogs ? '…' : 'Logs CSV'}
+          </button>
+        </div>
       </div>
 
       <div className="admin-table-wrap">
         <table className="admin-table">
           <thead>
             <tr>
+              <th style={{ width: 32 }}></th>
               <th>ID</th>
               <th>{t('admin.action')}</th>
               <th>{t('admin.details')}</th>
@@ -803,16 +1062,64 @@ function LogsPanel() {
           </thead>
           <tbody>
             {logs.map((l) => (
-              <tr key={l.id}>
-                <td>#{l.id}</td>
-                <td><span className="admin-badge admin-badge--action">{l.action}</span></td>
-                <td className="admin-td-content">{l.details || '-'}</td>
-                <td>{l.userName || '-'}</td>
-                <td className="admin-td-date">{new Date(l.createdAt).toLocaleString()}</td>
-              </tr>
+              <>
+                <tr key={l.id}>
+                  <td>
+                    {l.hasChildren && (
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        style={{ padding: '2px 4px' }}
+                        onClick={() => toggleExpand(l.id)}
+                        title={expandedIds.has(l.id) ? 'Collapse' : 'Expand children'}
+                      >
+                        {loadingChildren.has(l.id)
+                          ? <span className="spinner" style={{ width: 12, height: 12 }} />
+                          : expandedIds.has(l.id)
+                            ? <ChevronDown size={14} />
+                            : <ChevronRight size={14} />}
+                      </button>
+                    )}
+                  </td>
+                  <td>#{l.id}</td>
+                  <td><span className="admin-badge admin-badge--action">{l.action}</span></td>
+                  <td className="admin-td-content">{l.details || '-'}</td>
+                  <td>{l.userName || '-'}</td>
+                  <td className="admin-td-date">{new Date(l.createdAt).toLocaleString()}</td>
+                </tr>
+                {expandedIds.has(l.id) && childrenMap[l.id]?.map((child) => (
+                  <tr
+                    key={`child-${child.id}`}
+                    style={{ background: 'var(--bg-subtle, rgba(0,0,0,0.04))' }}
+                  >
+                    <td></td>
+                    <td>
+                      <div style={{
+                        paddingLeft: 'var(--sp-4)',
+                        borderLeft: '2px solid var(--accent-400, #06b6d4)',
+                        color: 'var(--text-muted)',
+                        fontSize: 'var(--text-xs)',
+                      }}>
+                        #{child.id}
+                      </div>
+                    </td>
+                    <td>
+                      <span className="admin-badge admin-badge--action" style={{ opacity: 0.75 }}>
+                        {child.action}
+                      </span>
+                    </td>
+                    <td className="admin-td-content" style={{ color: 'var(--text-secondary)' }}>
+                      {child.details || '-'}
+                    </td>
+                    <td style={{ color: 'var(--text-muted)' }}>{child.userName || '-'}</td>
+                    <td className="admin-td-date" style={{ color: 'var(--text-muted)' }}>
+                      {new Date(child.createdAt).toLocaleString()}
+                    </td>
+                  </tr>
+                ))}
+              </>
             ))}
             {logs.length === 0 && (
-              <tr><td colSpan={5} style={{ textAlign: 'center', padding: 'var(--sp-8)', color: 'var(--text-muted)' }}>{t('admin.noData')}</td></tr>
+              <tr><td colSpan={6} style={{ textAlign: 'center', padding: 'var(--sp-8)', color: 'var(--text-muted)' }}>{t('admin.noData')}</td></tr>
             )}
           </tbody>
         </table>
@@ -825,6 +1132,639 @@ function LogsPanel() {
           <button className="btn btn-ghost btn-sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>Next →</button>
         </div>
       )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════
+//  ANNOUNCEMENTS PANEL
+// ═══════════════════════════════════════════
+
+interface AnnouncementFormState {
+  title: string;
+  content: string;
+  expiresAt: string;
+}
+
+const emptyForm: AnnouncementFormState = { title: '', content: '', expiresAt: '' };
+
+function AnnouncementsPanel() {
+  const { t } = useLanguage();
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [form, setForm] = useState<AnnouncementFormState>(emptyForm);
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    adminApi.getAnnouncements({ page, pageSize: 20 })
+      .then((res) => {
+        const data: PagedResponse<Announcement> = res.data;
+        setAnnouncements(data.items);
+        setTotalPages(data.totalPages);
+      })
+      .catch(() => toast.error(t('common.error')))
+      .finally(() => setLoading(false));
+  }, [page, t]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const openCreate = () => {
+    setEditingId(null);
+    setForm(emptyForm);
+    setShowForm(true);
+  };
+
+  const openEdit = (a: Announcement) => {
+    setEditingId(a.id);
+    setForm({
+      title: a.title,
+      content: a.content,
+      expiresAt: a.expiresAt ? a.expiresAt.substring(0, 16) : '',
+    });
+    setShowForm(true);
+  };
+
+  const handleSave = async () => {
+    if (!form.title.trim() || !form.content.trim()) {
+      toast.error('Title and content are required');
+      return;
+    }
+    setSaving(true);
+    try {
+      const payload = {
+        title: form.title.trim(),
+        content: form.content.trim(),
+        expiresAt: form.expiresAt || undefined,
+      };
+      if (editingId !== null) {
+        await adminApi.updateAnnouncement(editingId, payload);
+        toast.success('Announcement updated');
+      } else {
+        await adminApi.createAnnouncement(payload);
+        toast.success('Announcement created');
+      }
+      setShowForm(false);
+      setForm(emptyForm);
+      setEditingId(null);
+      load();
+    } catch {
+      toast.error(t('common.error'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!confirm('Delete this announcement?')) return;
+    try {
+      await adminApi.deleteAnnouncement(id);
+      toast.success('Announcement deleted');
+      load();
+    } catch {
+      toast.error(t('common.error'));
+    }
+  };
+
+  if (loading) return <div className="admin-loading"><span className="spinner" /></div>;
+
+  return (
+    <div className="animate-fade-in-up">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--sp-4)' }}>
+        <h3 style={{ margin: 0 }}>System Announcements</h3>
+        <div style={{ display: 'flex', gap: 'var(--sp-2)' }}>
+          <button className="btn btn-ghost btn-sm" onClick={load}><RefreshCw size={16} /></button>
+          <button className="btn btn-primary btn-sm" onClick={openCreate}>
+            <Plus size={14} /> New Announcement
+          </button>
+        </div>
+      </div>
+
+      {/* Inline form */}
+      {showForm && (
+        <div className="glass-card" style={{ padding: 'var(--sp-4)', marginBottom: 'var(--sp-4)', borderRadius: 'var(--radius-lg)' }}>
+          <h4 style={{ marginBottom: 'var(--sp-3)', marginTop: 0 }}>
+            {editingId !== null ? 'Edit Announcement' : 'New Announcement'}
+          </h4>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
+            <input
+              type="text"
+              className="admin-select"
+              placeholder="Title *"
+              value={form.title}
+              onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+              style={{ width: '100%' }}
+            />
+            <textarea
+              className="admin-select"
+              placeholder="Content *"
+              value={form.content}
+              onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))}
+              rows={4}
+              style={{ width: '100%', resize: 'vertical', fontFamily: 'inherit' }}
+            />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
+              <label style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                Expires at (optional):
+              </label>
+              <input
+                type="datetime-local"
+                className="admin-select"
+                value={form.expiresAt}
+                onChange={(e) => setForm((f) => ({ ...f, expiresAt: e.target.value }))}
+              />
+            </div>
+            <div style={{ display: 'flex', gap: 'var(--sp-2)', justifyContent: 'flex-end' }}>
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => { setShowForm(false); setForm(emptyForm); setEditingId(null); }}
+                disabled={saving}
+              >
+                Cancel
+              </button>
+              <button className="btn btn-primary btn-sm" onClick={handleSave} disabled={saving}>
+                {saving ? <span className="spinner" style={{ width: 14, height: 14 }} /> : null}
+                {saving ? 'Saving…' : editingId !== null ? 'Update' : 'Create'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="admin-table-wrap">
+        <table className="admin-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Title</th>
+              <th>Content</th>
+              <th>Author</th>
+              <th>Expires</th>
+              <th>Status</th>
+              <th>{t('admin.action')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {announcements.map((a) => (
+              <tr key={a.id} style={a.isExpired ? { opacity: 0.6 } : undefined}>
+                <td>#{a.id}</td>
+                <td style={{ fontWeight: 600, maxWidth: 160 }}>{a.title}</td>
+                <td className="admin-td-content">
+                  {a.content.substring(0, 100)}{a.content.length > 100 ? '…' : ''}
+                </td>
+                <td>{a.adminName}</td>
+                <td className="admin-td-date">
+                  {a.expiresAt ? new Date(a.expiresAt).toLocaleDateString() : '—'}
+                </td>
+                <td>
+                  <span className={`admin-badge admin-badge--${a.isExpired ? 'danger' : 'success'}`}>
+                    {a.isExpired ? 'Expired' : 'Active'}
+                  </span>
+                </td>
+                <td>
+                  <div className="admin-action-btns">
+                    <button className="btn btn-ghost btn-sm" title="Edit" onClick={() => openEdit(a)}>
+                      <Edit2 size={14} />
+                    </button>
+                    <button className="btn btn-ghost btn-sm btn-danger-text" title="Delete" onClick={() => handleDelete(a.id)}>
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {announcements.length === 0 && (
+              <tr><td colSpan={7} style={{ textAlign: 'center', padding: 'var(--sp-8)', color: 'var(--text-muted)' }}>
+                No announcements yet
+              </td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {totalPages > 1 && (
+        <div className="admin-pagination">
+          <button className="btn btn-ghost btn-sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>← Prev</button>
+          <span className="admin-page-info">{page} / {totalPages}</span>
+          <button className="btn btn-ghost btn-sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>Next →</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Unused icon suppression (keeps imports clean for future use) ───
+void Activity;
+void Shield;
+
+// ═══════════════════════════════════════════
+//  ZONES PANEL
+// ═══════════════════════════════════════════
+
+interface ZoneRow {
+  id: number;
+  name: string;
+  boundaryGeoJson: string;
+  riskLevel: number;
+  createdAt: string;
+}
+
+interface ZoneFormState {
+  name: string;
+  boundaryGeoJson: string;
+  riskLevel: number;
+}
+
+const emptyZoneForm: ZoneFormState = { name: '', boundaryGeoJson: '', riskLevel: 1 };
+
+function ZonesPanel() {
+  const { t } = useLanguage();
+  const [zones, setZones] = useState<ZoneRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [form, setForm] = useState<ZoneFormState>(emptyZoneForm);
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    mapApi.getZones()
+      .then((res) => setZones(res.data as ZoneRow[]))
+      .catch(() => toast.error(t('common.error')))
+      .finally(() => setLoading(false));
+  }, [t]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const openCreate = () => {
+    setEditingId(null);
+    setForm(emptyZoneForm);
+    setShowForm(true);
+  };
+
+  const openEdit = (z: ZoneRow) => {
+    setEditingId(z.id);
+    setForm({ name: z.name, boundaryGeoJson: z.boundaryGeoJson, riskLevel: z.riskLevel });
+    setShowForm(true);
+  };
+
+  const handleSave = async () => {
+    if (!form.name.trim() || !form.boundaryGeoJson.trim()) {
+      toast.error('Name and boundary GeoJSON are required');
+      return;
+    }
+    setSaving(true);
+    try {
+      if (editingId !== null) {
+        await mapApi.updateZone(editingId, form);
+        toast.success('Zone updated');
+      } else {
+        await mapApi.createZone(form);
+        toast.success('Zone created');
+      }
+      setShowForm(false);
+      setForm(emptyZoneForm);
+      setEditingId(null);
+      load();
+    } catch {
+      toast.error(t('common.error'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!confirm('Delete this zone?')) return;
+    try {
+      await mapApi.deleteZone(id);
+      toast.success('Zone deleted');
+      load();
+    } catch {
+      toast.error(t('common.error'));
+    }
+  };
+
+  const riskLabel = (level: number) => {
+    const labels: Record<number, string> = { 1: 'Low', 2: 'Medium', 3: 'High', 4: 'Critical', 5: 'Extreme' };
+    return labels[level] || String(level);
+  };
+
+  const riskBadgeClass = (level: number) => {
+    if (level >= 4) return 'admin-badge--danger';
+    if (level >= 3) return 'admin-badge--warning';
+    return 'admin-badge--success';
+  };
+
+  if (loading) return <div className="admin-loading"><span className="spinner" /></div>;
+
+  return (
+    <div className="animate-fade-in-up">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--sp-4)' }}>
+        <h3 style={{ margin: 0 }}>Priority Zones</h3>
+        <div style={{ display: 'flex', gap: 'var(--sp-2)' }}>
+          <button className="btn btn-ghost btn-sm" onClick={load}><RefreshCw size={16} /></button>
+          <button className="btn btn-primary btn-sm" onClick={openCreate}>
+            <Plus size={14} /> New Zone
+          </button>
+        </div>
+      </div>
+
+      {showForm && (
+        <div className="glass-card" style={{ padding: 'var(--sp-4)', marginBottom: 'var(--sp-4)', borderRadius: 'var(--radius-lg)' }}>
+          <h4 style={{ marginBottom: 'var(--sp-3)', marginTop: 0 }}>
+            {editingId !== null ? 'Edit Zone' : 'New Zone'}
+          </h4>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
+            <input
+              type="text"
+              className="admin-select"
+              placeholder="Zone name *"
+              value={form.name}
+              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+              style={{ width: '100%' }}
+            />
+            <textarea
+              className="admin-select"
+              placeholder="Boundary GeoJSON *"
+              value={form.boundaryGeoJson}
+              onChange={(e) => setForm((f) => ({ ...f, boundaryGeoJson: e.target.value }))}
+              rows={4}
+              style={{ width: '100%', resize: 'vertical', fontFamily: 'monospace', fontSize: 'var(--text-sm)' }}
+            />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
+              <label style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>Risk Level:</label>
+              <select
+                className="admin-select"
+                value={form.riskLevel}
+                onChange={(e) => setForm((f) => ({ ...f, riskLevel: Number(e.target.value) }))}
+              >
+                <option value={1}>1 — Low</option>
+                <option value={2}>2 — Medium</option>
+                <option value={3}>3 — High</option>
+                <option value={4}>4 — Critical</option>
+                <option value={5}>5 — Extreme</option>
+              </select>
+            </div>
+            <div style={{ display: 'flex', gap: 'var(--sp-2)', justifyContent: 'flex-end' }}>
+              <button className="btn btn-ghost btn-sm" onClick={() => { setShowForm(false); setForm(emptyZoneForm); setEditingId(null); }} disabled={saving}>
+                Cancel
+              </button>
+              <button className="btn btn-primary btn-sm" onClick={handleSave} disabled={saving}>
+                {saving ? <span className="spinner" style={{ width: 14, height: 14 }} /> : null}
+                {saving ? 'Saving…' : editingId !== null ? 'Update' : 'Create'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="admin-table-wrap">
+        <table className="admin-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Name</th>
+              <th>Risk Level</th>
+              <th>Created</th>
+              <th>{t('admin.action')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {zones.map((z) => (
+              <tr key={z.id}>
+                <td>#{z.id}</td>
+                <td style={{ fontWeight: 600 }}>{z.name}</td>
+                <td><span className={`admin-badge ${riskBadgeClass(z.riskLevel)}`}>{riskLabel(z.riskLevel)}</span></td>
+                <td className="admin-td-date">{new Date(z.createdAt).toLocaleDateString()}</td>
+                <td>
+                  <div className="admin-action-btns">
+                    <button className="btn btn-ghost btn-sm" title="Edit" onClick={() => openEdit(z)}><Edit2 size={14} /></button>
+                    <button className="btn btn-ghost btn-sm btn-danger-text" title="Delete" onClick={() => handleDelete(z.id)}><Trash2 size={14} /></button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {zones.length === 0 && (
+              <tr><td colSpan={5} style={{ textAlign: 'center', padding: 'var(--sp-8)', color: 'var(--text-muted)' }}>No zones configured yet</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════
+//  SUPPLY PANEL
+// ═══════════════════════════════════════════
+
+interface SupplyRow {
+  id: number;
+  name: string;
+  quantity: number;
+  lat: number;
+  lng: number;
+  createdAt: string;
+}
+
+interface SupplyFormState {
+  name: string;
+  quantity: number;
+  lat: number;
+  lng: number;
+}
+
+const emptySupplyForm: SupplyFormState = { name: '', quantity: 0, lat: 0, lng: 0 };
+
+function SupplyPanel() {
+  const { t } = useLanguage();
+  const [supplies, setSupplies] = useState<SupplyRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [form, setForm] = useState<SupplyFormState>(emptySupplyForm);
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    supplyApi.getSupplies()
+      .then((res) => setSupplies(res.data as SupplyRow[]))
+      .catch(() => toast.error(t('common.error')))
+      .finally(() => setLoading(false));
+  }, [t]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const openCreate = () => {
+    setEditingId(null);
+    setForm(emptySupplyForm);
+    setShowForm(true);
+  };
+
+  const openEdit = (s: SupplyRow) => {
+    setEditingId(s.id);
+    setForm({ name: s.name, quantity: s.quantity, lat: s.lat, lng: s.lng });
+    setShowForm(true);
+  };
+
+  const handleSave = async () => {
+    if (!form.name.trim()) {
+      toast.error('Supply name is required');
+      return;
+    }
+    if (form.quantity < 0) {
+      toast.error('Quantity must be non-negative');
+      return;
+    }
+    setSaving(true);
+    try {
+      if (editingId !== null) {
+        await supplyApi.updateSupply(editingId, { name: form.name, quantity: form.quantity });
+        toast.success('Supply updated');
+      } else {
+        await supplyApi.createSupply(form);
+        toast.success('Supply created');
+      }
+      setShowForm(false);
+      setForm(emptySupplyForm);
+      setEditingId(null);
+      load();
+    } catch {
+      toast.error(t('common.error'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!confirm('Delete this supply item?')) return;
+    try {
+      await supplyApi.deleteSupply(id);
+      toast.success('Supply deleted');
+      load();
+    } catch {
+      toast.error(t('common.error'));
+    }
+  };
+
+  if (loading) return <div className="admin-loading"><span className="spinner" /></div>;
+
+  return (
+    <div className="animate-fade-in-up">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--sp-4)' }}>
+        <h3 style={{ margin: 0 }}>Supply Items</h3>
+        <div style={{ display: 'flex', gap: 'var(--sp-2)' }}>
+          <button className="btn btn-ghost btn-sm" onClick={load}><RefreshCw size={16} /></button>
+          <button className="btn btn-primary btn-sm" onClick={openCreate}>
+            <Plus size={14} /> New Supply
+          </button>
+        </div>
+      </div>
+
+      {showForm && (
+        <div className="glass-card" style={{ padding: 'var(--sp-4)', marginBottom: 'var(--sp-4)', borderRadius: 'var(--radius-lg)' }}>
+          <h4 style={{ marginBottom: 'var(--sp-3)', marginTop: 0 }}>
+            {editingId !== null ? 'Edit Supply' : 'New Supply'}
+          </h4>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
+            <input
+              type="text"
+              className="admin-select"
+              placeholder="Supply name *"
+              value={form.name}
+              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+              style={{ width: '100%' }}
+            />
+            <div style={{ display: 'flex', gap: 'var(--sp-3)' }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>Quantity</label>
+                <input
+                  type="number"
+                  className="admin-select"
+                  value={form.quantity}
+                  onChange={(e) => setForm((f) => ({ ...f, quantity: Number(e.target.value) }))}
+                  min={0}
+                  style={{ width: '100%' }}
+                />
+              </div>
+              {editingId === null && (
+                <>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>Latitude</label>
+                    <input
+                      type="number"
+                      className="admin-select"
+                      value={form.lat}
+                      onChange={(e) => setForm((f) => ({ ...f, lat: Number(e.target.value) }))}
+                      step={0.0001}
+                      style={{ width: '100%' }}
+                    />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>Longitude</label>
+                    <input
+                      type="number"
+                      className="admin-select"
+                      value={form.lng}
+                      onChange={(e) => setForm((f) => ({ ...f, lng: Number(e.target.value) }))}
+                      step={0.0001}
+                      style={{ width: '100%' }}
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: 'var(--sp-2)', justifyContent: 'flex-end' }}>
+              <button className="btn btn-ghost btn-sm" onClick={() => { setShowForm(false); setForm(emptySupplyForm); setEditingId(null); }} disabled={saving}>
+                Cancel
+              </button>
+              <button className="btn btn-primary btn-sm" onClick={handleSave} disabled={saving}>
+                {saving ? <span className="spinner" style={{ width: 14, height: 14 }} /> : null}
+                {saving ? 'Saving…' : editingId !== null ? 'Update' : 'Create'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="admin-table-wrap">
+        <table className="admin-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Name</th>
+              <th>Quantity</th>
+              <th>Coordinates</th>
+              <th>Created</th>
+              <th>{t('admin.action')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {supplies.map((s) => (
+              <tr key={s.id}>
+                <td>#{s.id}</td>
+                <td style={{ fontWeight: 600 }}>{s.name}</td>
+                <td>{s.quantity}</td>
+                <td className="admin-td-date">{s.lat.toFixed(4)}, {s.lng.toFixed(4)}</td>
+                <td className="admin-td-date">{new Date(s.createdAt).toLocaleDateString()}</td>
+                <td>
+                  <div className="admin-action-btns">
+                    <button className="btn btn-ghost btn-sm" title="Edit" onClick={() => openEdit(s)}><Edit2 size={14} /></button>
+                    <button className="btn btn-ghost btn-sm btn-danger-text" title="Delete" onClick={() => handleDelete(s.id)}><Trash2 size={14} /></button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {supplies.length === 0 && (
+              <tr><td colSpan={6} style={{ textAlign: 'center', padding: 'var(--sp-8)', color: 'var(--text-muted)' }}>No supply items yet</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

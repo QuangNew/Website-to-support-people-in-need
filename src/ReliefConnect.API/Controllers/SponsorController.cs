@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ReliefConnect.Core.DTOs;
 using ReliefConnect.Core.Enums;
+using ReliefConnect.Core.Interfaces;
 using ReliefConnect.Infrastructure.Data;
 
 namespace ReliefConnect.API.Controllers;
@@ -14,8 +15,13 @@ namespace ReliefConnect.API.Controllers;
 public class SponsorController : ControllerBase
 {
     private readonly AppDbContext _db;
+    private readonly INotificationService _notifications;
 
-    public SponsorController(AppDbContext db) => _db = db;
+    public SponsorController(AppDbContext db, INotificationService notifications)
+    {
+        _db = db;
+        _notifications = notifications;
+    }
 
     [HttpGet("cases")]
     public async Task<ActionResult> SearchSupportCases(
@@ -84,13 +90,9 @@ public class SponsorController : ControllerBase
         var ping = await _db.Pings.FindAsync(dto.PingId);
         if (ping == null) return NotFound(new ApiErrorResponse { StatusCode = 404, Message = "Không tìm thấy yêu cầu." });
 
-        _db.Notifications.Add(new Core.Entities.Notification
-        {
-            UserId = ping.UserId,
-            MessageText = $"Nhà tài trợ đã đề nghị hỗ trợ: {dto.Message ?? "Sẵn sàng giúp đỡ"}",
-            CreatedAt = DateTime.UtcNow
-        });
-        await _db.SaveChangesAsync();
+        // Use centralized NotificationService instead of inline creation
+        await _notifications.SendAsync(ping.UserId,
+            $"Nhà tài trợ đã đề nghị hỗ trợ: {dto.Message ?? "Sẵn sàng giúp đỡ"}");
 
         return Ok(new { message = "Đã gửi đề nghị hỗ trợ." });
     }

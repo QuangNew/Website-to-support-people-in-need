@@ -24,6 +24,9 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<Tag> Tags => Set<Tag>();
     public DbSet<Notification> Notifications => Set<Notification>();
     public DbSet<SystemLog> SystemLogs => Set<SystemLog>();
+    public DbSet<Report> Reports => Set<Report>();
+    public DbSet<HelpOffer> HelpOffers => Set<HelpOffer>();
+    public DbSet<SystemAnnouncement> SystemAnnouncements => Set<SystemAnnouncement>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -232,6 +235,102 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
 
             entity.HasIndex(l => l.CreatedAt).IsDescending();
             entity.HasIndex(l => l.Action);
+
+            // Self-referencing parent-child for batch log hierarchy
+            entity.HasOne(l => l.ParentLog)
+                  .WithMany(l => l.ChildLogs)
+                  .HasForeignKey(l => l.ParentLogId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(l => l.BatchId);
+            entity.HasIndex(l => l.ParentLogId);
+        });
+
+        // ═══════ REPORT ═══════
+        builder.Entity<Report>(entity =>
+        {
+            entity.HasKey(r => r.Id);
+            entity.Property(r => r.Reason).HasMaxLength(500).IsRequired();
+            entity.Property(r => r.Status).HasConversion<int>();
+
+            entity.HasIndex(r => r.Status);
+            entity.HasIndex(r => r.PostId);
+            entity.HasIndex(r => r.ReporterId);
+
+            entity.HasOne(r => r.Post)
+                  .WithMany()
+                  .HasForeignKey(r => r.PostId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(r => r.Reporter)
+                  .WithMany()
+                  .HasForeignKey(r => r.ReporterId)
+                  .OnDelete(DeleteBehavior.NoAction);
+        });
+
+        // ═══════ HELP OFFER ═══════
+        builder.Entity<HelpOffer>(entity =>
+        {
+            entity.HasKey(h => h.Id);
+            entity.Property(h => h.Message).HasMaxLength(1000).IsRequired();
+            entity.Property(h => h.Status).HasConversion<int>();
+
+            entity.HasIndex(h => h.SponsorId);
+            entity.HasIndex(h => h.TargetUserId);
+            entity.HasIndex(h => h.Status);
+
+            entity.HasOne(h => h.Sponsor)
+                  .WithMany()
+                  .HasForeignKey(h => h.SponsorId)
+                  .OnDelete(DeleteBehavior.NoAction);
+
+            entity.HasOne(h => h.TargetUser)
+                  .WithMany()
+                  .HasForeignKey(h => h.TargetUserId)
+                  .OnDelete(DeleteBehavior.NoAction);
+
+            entity.HasOne(h => h.Ping)
+                  .WithMany()
+                  .HasForeignKey(h => h.PingId)
+                  .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne(h => h.Post)
+                  .WithMany()
+                  .HasForeignKey(h => h.PostId)
+                  .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // ═══════ SYSTEM ANNOUNCEMENT ═══════
+        builder.Entity<SystemAnnouncement>(entity =>
+        {
+            entity.HasKey(a => a.Id);
+            entity.Property(a => a.Title).HasMaxLength(200).IsRequired();
+            entity.Property(a => a.Content).HasMaxLength(5000).IsRequired();
+
+            entity.HasIndex(a => a.ExpiresAt);
+            entity.HasIndex(a => a.AdminId);
+
+            entity.HasOne(a => a.Admin)
+                  .WithMany()
+                  .HasForeignKey(a => a.AdminId)
+                  .OnDelete(DeleteBehavior.NoAction);
+        });
+
+        // ═══════ PING (AssignedVolunteer FK extension) ═══════
+        builder.Entity<Ping>(entity =>
+        {
+            entity.HasOne(p => p.AssignedVolunteer)
+                  .WithMany()
+                  .HasForeignKey(p => p.AssignedVolunteerId)
+                  .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasIndex(p => p.AssignedVolunteerId);
+        });
+
+        // ═══════ APPLICATION USER (Suspension index) ═══════
+        builder.Entity<ApplicationUser>(entity =>
+        {
+            entity.HasIndex(u => u.IsSuspended);
         });
     }
 }

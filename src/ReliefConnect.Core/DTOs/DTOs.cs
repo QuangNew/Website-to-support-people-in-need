@@ -108,6 +108,9 @@ public class AdminPostDto
     public string AuthorId { get; set; } = string.Empty;
     public string AuthorName { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; }
+    public bool IsPinned { get; set; }
+    public int CommentCount { get; set; }
+    public int ReactionCount { get; set; }
 }
 
 // ═══════════════════════════════════════════
@@ -267,6 +270,9 @@ public class AdminUserDto
     public bool EmailVerified { get; set; }
     public string? AvatarUrl { get; set; }
     public DateTime CreatedAt { get; set; }
+    public bool IsSuspended { get; set; }
+    public DateTime? SuspendedUntil { get; set; }
+    public string? BanReason { get; set; }
 }
 
 /// <summary>
@@ -323,6 +329,110 @@ public class SystemStatsDto
     public int TotalPostsLivelihood { get; set; }
     public int TotalPostsMedical { get; set; }
     public int TotalPostsEducation { get; set; }
+    public int PendingVerifications { get; set; }
+    public int PendingReports { get; set; }
+}
+
+public class SuspendUserDto
+{
+    [Required, StringLength(500)]
+    public string Reason { get; set; } = string.Empty;
+
+    /// <summary>Null = permanent suspension.</summary>
+    public DateTime? Until { get; set; }
+}
+
+public class BanUserDto
+{
+    [Required, StringLength(500)]
+    public string Reason { get; set; } = string.Empty;
+}
+
+public class CreateAnnouncementDto
+{
+    [Required, StringLength(200)]
+    public string Title { get; set; } = string.Empty;
+
+    [Required, StringLength(5000)]
+    public string Content { get; set; } = string.Empty;
+
+    public string? ExpiresAt { get; set; }
+}
+
+public class UpdateAnnouncementDto
+{
+    [StringLength(200)]
+    public string? Title { get; set; }
+
+    [StringLength(5000)]
+    public string? Content { get; set; }
+
+    public string? ExpiresAt { get; set; }
+}
+
+public class AnnouncementDto
+{
+    public int Id { get; set; }
+    public string Title { get; set; } = string.Empty;
+    public string Content { get; set; } = string.Empty;
+    public string AdminId { get; set; } = string.Empty;
+    public string AdminName { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; }
+    public DateTime? ExpiresAt { get; set; }
+    public bool IsExpired { get; set; }
+}
+
+public class ReportDto
+{
+    public int Id { get; set; }
+    public int PostId { get; set; }
+    public string PostContentPreview { get; set; } = string.Empty;
+    public string ReporterId { get; set; } = string.Empty;
+    public string ReporterName { get; set; } = string.Empty;
+    public string Reason { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; }
+}
+
+public class ReportPostDto
+{
+    [Required, StringLength(500)]
+    public string Reason { get; set; } = string.Empty;
+}
+
+public class SystemLogDto
+{
+    public int Id { get; set; }
+    public string Action { get; set; } = string.Empty;
+    public string? Details { get; set; }
+    public string? UserId { get; set; }
+    public string? UserName { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public Guid? BatchId { get; set; }
+    public bool HasChildren { get; set; }
+}
+
+public class AdminUserDetailDto : AdminUserDto
+{
+    public int PostCount { get; set; }
+    public int CommentCount { get; set; }
+    public int PingCount { get; set; }
+}
+
+public class CompleteTaskDto
+{
+    [StringLength(1000)]
+    public string? Notes { get; set; }
+}
+
+/// <summary>Paginated response with total count and page metadata.</summary>
+public class PagedResponse<T>
+{
+    public IEnumerable<T> Items { get; set; } = Enumerable.Empty<T>();
+    public int Total { get; set; }
+    public int Page { get; set; }
+    public int PageSize { get; set; }
+    public int TotalPages => PageSize > 0 ? (int)Math.Ceiling((double)Total / PageSize) : 0;
 }
 
 // ═══════════════════════════════════════════

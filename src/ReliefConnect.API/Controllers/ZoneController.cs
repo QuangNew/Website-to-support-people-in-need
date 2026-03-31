@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ReliefConnect.Core.DTOs;
 using ReliefConnect.Core.Entities;
+using ReliefConnect.Core.Interfaces;
 using ReliefConnect.Infrastructure.Data;
 
 namespace ReliefConnect.API.Controllers;
@@ -15,11 +16,13 @@ namespace ReliefConnect.API.Controllers;
 public class ZoneController : ControllerBase
 {
     private readonly AppDbContext _context;
+    private readonly INotificationService _notifications;
     private readonly ILogger<ZoneController> _logger;
 
-    public ZoneController(AppDbContext context, ILogger<ZoneController> logger)
+    public ZoneController(AppDbContext context, INotificationService notifications, ILogger<ZoneController> logger)
     {
         _context = context;
+        _notifications = notifications;
         _logger = logger;
     }
 
@@ -79,6 +82,10 @@ public class ZoneController : ControllerBase
         await _context.SaveChangesAsync();
 
         _logger.LogInformation("Zone created: {ZoneId} — {ZoneName}, risk={Risk}", zone.Id, zone.Name, zone.RiskLevel);
+
+        // Notify admins about new priority zone
+        _ = _notifications.SendToRoleAsync((int)Core.Enums.RoleEnum.Admin,
+            $"Vùng ưu tiên mới: {zone.Name} (Mức rủi ro: {zone.RiskLevel})");
 
         return CreatedAtAction(nameof(GetZone), new { id = zone.Id }, new ZoneResponseDto
         {

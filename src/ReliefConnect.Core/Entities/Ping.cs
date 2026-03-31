@@ -35,4 +35,11 @@ public class Ping
 
     // Navigation
     public PingFlag? PingFlag { get; set; }
+
+    /// <summary>Volunteer assigned to this task.</summary>
+    public string? AssignedVolunteerId { get; set; }
+    public ApplicationUser? AssignedVolunteer { get; set; }
+
+    /// <summary>Notes from volunteer upon task completion.</summary>
+    public string? CompletionNotes { get; set; }
 }

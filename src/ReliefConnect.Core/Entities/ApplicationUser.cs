@@ -40,6 +40,18 @@ public class ApplicationUser : IdentityUser
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
+    /// <summary>Whether user is currently suspended or banned.</summary>
+    public bool IsSuspended { get; set; }
+
+    /// <summary>When temporary suspension expires. Null = permanent ban.</summary>
+    public DateTime? SuspendedUntil { get; set; }
+
+    /// <summary>Admin-provided reason for ban.</summary>
+    public string? BanReason { get; set; }
+
+    /// <summary>JTI of user's most recent JWT token (for force-logout).</summary>
+    public string? LastTokenJti { get; set; }
+
     // Navigation properties
     public ICollection<Ping> Pings { get; set; } = new List<Ping>();
     public ICollection<Post> Posts { get; set; } = new List<Post>();

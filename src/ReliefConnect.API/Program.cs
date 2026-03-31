@@ -182,6 +182,7 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddScoped<IPingRepository, PingRepository>();
 builder.Services.AddScoped<IPostRepository, PostRepository>();
 builder.Services.AddScoped<IEmailService, SmtpEmailService>();
+builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddSingleton<IGeminiService, GeminiService>();
 builder.Services.AddSingleton<ITokenBlacklistService, TokenBlacklistService>();
 builder.Services.AddSingleton<Ganss.Xss.HtmlSanitizer>();
@@ -191,6 +192,11 @@ builder.Services.AddSingleton<Ganss.Xss.HtmlSanitizer>();
 // ═══════════════════════════════════════════
 builder.Services.AddHangfire(config => config.UseMemoryStorage());
 builder.Services.AddHangfireServer();
+
+// ═══════════════════════════════════════════
+//  BACKGROUND SERVICES
+// ═══════════════════════════════════════════
+builder.Services.AddHostedService<ReliefConnect.API.BackgroundServices.PingFlagMonitorService>();
 
 var app = builder.Build();
 
