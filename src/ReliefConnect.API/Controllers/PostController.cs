@@ -37,20 +37,18 @@ public class PostController : ControllerBase
         if (limit < 1) limit = 1;
         if (limit > 50) limit = 50;
 
-        (IEnumerable<Post> posts, string? nextCursor) result;
-
-        if (!string.IsNullOrEmpty(category) && Enum.TryParse<PostCategory>(category, true, out var cat))
-            result = await _postRepo.GetPostsByCategoryAsync(cat, cursor, limit);
-        else
-            result = await _postRepo.GetPostsAsync(cursor, limit);
+        PostCategory? cat = !string.IsNullOrEmpty(category) && Enum.TryParse<PostCategory>(category, true, out var parsed)
+            ? parsed
+            : null;
 
         var userId = GetUserId();
-        var items = result.posts.Select(p => MapToDto(p, userId));
+        var (posts, nextCursor) = await _postRepo.GetPostsWithCountsAsync(cursor, limit, category: cat);
+        var items = posts.Select(p => MapWithCountsToDto(p, userId));
 
         return Ok(new PaginatedResponse<PostResponseDto>
         {
             Items = items,
-            NextCursor = result.nextCursor
+            NextCursor = nextCursor
         });
     }
 
@@ -288,9 +286,9 @@ public class PostController : ControllerBase
         if (limit < 1) limit = 1;
         if (limit > 50) limit = 50;
 
-        var (posts, nextCursor) = await _postRepo.GetPostsByUserAsync(userId, cursor, limit);
         var currentUserId = GetUserId();
-        var items = posts.Select(p => MapToDto(p, currentUserId));
+        var (posts, nextCursor) = await _postRepo.GetPostsWithCountsAsync(cursor, limit, userId: userId);
+        var items = posts.Select(p => MapWithCountsToDto(p, currentUserId));
 
         return Ok(new PaginatedResponse<PostResponseDto>
         {
@@ -323,6 +321,32 @@ public class PostController : ControllerBase
         return NoContent();
     }
 
+    /// <summary>
+    /// Maps a <see cref="PostWithCounts"/> (from <see cref="IPostRepository.GetPostsWithCountsAsync"/>) to the
+    /// response DTO using pre-computed counts — no in-memory collection iteration required.
+    /// Used by list endpoints (GetPosts, GetUserWall).
+    /// </summary>
+    private static PostResponseDto MapWithCountsToDto(PostWithCounts pwc, string? currentUserId = null) => new()
+    {
+        Id           = pwc.Post.Id,
+        Content      = pwc.Post.Content,
+        ImageUrl     = pwc.Post.ImageUrl,
+        Category     = pwc.Post.Category.ToString(),
+        CreatedAt    = pwc.Post.CreatedAt,
+        AuthorId     = pwc.Post.AuthorId,
+        AuthorName   = pwc.Post.Author?.FullName ?? pwc.Post.Author?.UserName ?? "Ẩn danh",
+        AuthorAvatar = pwc.Post.Author?.AvatarUrl,
+        LikeCount    = pwc.LikeCount,
+        LoveCount    = pwc.LoveCount,
+        PrayCount    = pwc.PrayCount,
+        CommentCount = pwc.CommentCount,
+        UserReaction = pwc.UserReaction?.ToString()
+    };
+
+    /// <summary>
+    /// Maps a fully-loaded <see cref="Post"/> entity (with Reactions/Comments Included) to the response DTO.
+    /// Used by single-post operations: GetPost, CreatePost.
+    /// </summary>
     private static PostResponseDto MapToDto(Post p, string? currentUserId)
     {
         return new PostResponseDto

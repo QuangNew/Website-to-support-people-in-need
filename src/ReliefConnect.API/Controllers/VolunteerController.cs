@@ -21,25 +21,36 @@ public class VolunteerController : ControllerBase
     public async Task<ActionResult> GetAvailableTasks([FromQuery] double? lat, [FromQuery] double? lng)
     {
         var query = _db.Pings
-            .Include(p => p.User)
             .Where(p => p.Type == MapItemType.SOS && p.Status == SOSStatus.Pending)
             .AsNoTracking();
 
         if (lat.HasValue && lng.HasValue)
-            query = query.OrderBy(p => Math.Pow(p.CoordinatesLat - lat.Value, 2) + Math.Pow(p.CoordinatesLong - lng.Value, 2));
-
-        var tasks = await query.Take(50).ToListAsync();
-
-        return Ok(tasks.Select(p => new
         {
-            p.Id,
-            Lat = p.CoordinatesLat,
-            Lng = p.CoordinatesLong,
-            p.Details,
-            p.PriorityLevel,
-            p.CreatedAt,
-            UserName = p.User?.FullName
-        }));
+            var delta = 0.5; // ~55km radius bounding box pre-filter
+            query = query.Where(p =>
+                p.CoordinatesLat  >= lat.Value - delta && p.CoordinatesLat  <= lat.Value + delta &&
+                p.CoordinatesLong >= lng.Value - delta && p.CoordinatesLong <= lng.Value + delta);
+
+            query = query.OrderBy(p =>
+                (p.CoordinatesLat  - lat.Value) * (p.CoordinatesLat  - lat.Value) +
+                (p.CoordinatesLong - lng.Value) * (p.CoordinatesLong - lng.Value));
+        }
+
+        var tasks = await query
+            .Take(50)
+            .Select(p => new
+            {
+                p.Id,
+                Lat      = p.CoordinatesLat,
+                Lng      = p.CoordinatesLong,
+                p.Details,
+                p.PriorityLevel,
+                p.CreatedAt,
+                UserName = p.User != null ? p.User.FullName : null
+            })
+            .ToListAsync();
+
+        return Ok(tasks);
     }
 
     [HttpPost("accept-task")]
@@ -61,20 +72,21 @@ public class VolunteerController : ControllerBase
     public async Task<ActionResult> GetActiveTasks()
     {
         var tasks = await _db.Pings
-            .Include(p => p.User)
             .Where(p => p.Status == SOSStatus.InProgress)
             .AsNoTracking()
             .OrderByDescending(p => p.CreatedAt)
+            .Take(100)
+            .Select(p => new
+            {
+                p.Id,
+                Lat    = p.CoordinatesLat,
+                Lng    = p.CoordinatesLong,
+                Status = p.Status.ToString(),
+                p.Details,
+                p.CreatedAt
+            })
             .ToListAsync();
 
-        return Ok(tasks.Select(p => new
-        {
-            p.Id,
-            Lat = p.CoordinatesLat,
-            Lng = p.CoordinatesLong,
-            Status = p.Status.ToString(),
-            p.Details,
-            p.CreatedAt
-        }));
+        return Ok(tasks);
     }
 }

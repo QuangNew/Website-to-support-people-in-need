@@ -51,7 +51,21 @@ public class PostRepository : IPostRepository
         await _context.Posts.Where(p => p.Id == id).ExecuteDeleteAsync();
     }
 
-    public async Task<(IEnumerable<Post> Posts, string? NextCursor)> GetPostsAsync(string? cursor, int limit = 10)
+    public Task<(IEnumerable<Post> Posts, string? NextCursor)> GetPostsAsync(string? cursor, int limit = 10)
+        => GetPostsCursorAsync(cursor, limit);
+
+    public Task<(IEnumerable<Post> Posts, string? NextCursor)> GetPostsByCategoryAsync(PostCategory category, string? cursor, int limit = 10)
+        => GetPostsCursorAsync(cursor, limit, category: category);
+
+    public Task<(IEnumerable<Post> Posts, string? NextCursor)> GetPostsByUserAsync(string userId, string? cursor, int limit = 10)
+        => GetPostsCursorAsync(cursor, limit, userId: userId);
+
+    /// <summary>
+    /// Shared cursor-pagination logic for all post list queries.
+    /// The three public methods above are thin wrappers that apply the optional filters.
+    /// </summary>
+    private async Task<(IEnumerable<Post> Posts, string? NextCursor)> GetPostsCursorAsync(
+        string? cursor, int limit, PostCategory? category = null, string? userId = null)
     {
         var query = _context.Posts
             .AsNoTracking()
@@ -60,71 +74,11 @@ public class PostRepository : IPostRepository
             .ThenByDescending(p => p.Id)
             .AsQueryable();
 
-        if (!string.IsNullOrEmpty(cursor) && int.TryParse(cursor, out var cursorId))
-        {
-            var cursorPost = await _context.Posts.AsNoTracking()
-                .Where(p => p.Id == cursorId)
-                .Select(p => new { p.Id, p.CreatedAt })
-                .FirstOrDefaultAsync();
+        if (category.HasValue)
+            query = query.Where(p => p.Category == category.Value);
 
-            if (cursorPost != null)
-                query = query.Where(p => p.CreatedAt < cursorPost.CreatedAt ||
-                                        (p.CreatedAt == cursorPost.CreatedAt && p.Id < cursorId));
-        }
-
-        var posts = await query.Take(limit + 1).ToListAsync();
-        string? nextCursor = null;
-        if (posts.Count > limit)
-        {
-            nextCursor = posts[limit].Id.ToString();
-            posts = posts.Take(limit).ToList();
-        }
-
-        return (posts, nextCursor);
-    }
-
-    public async Task<(IEnumerable<Post> Posts, string? NextCursor)> GetPostsByCategoryAsync(PostCategory category, string? cursor, int limit = 10)
-    {
-        var query = _context.Posts
-            .AsNoTracking()
-            .Include(p => p.Author)
-            .Where(p => p.Category == category)
-            .OrderByDescending(p => p.CreatedAt)
-            .ThenByDescending(p => p.Id)
-            .AsQueryable();
-
-        if (!string.IsNullOrEmpty(cursor) && int.TryParse(cursor, out var cursorId))
-        {
-            var cursorPost = await _context.Posts.AsNoTracking()
-                .Where(p => p.Id == cursorId)
-                .Select(p => new { p.Id, p.CreatedAt })
-                .FirstOrDefaultAsync();
-
-            if (cursorPost != null)
-                query = query.Where(p => p.CreatedAt < cursorPost.CreatedAt ||
-                                        (p.CreatedAt == cursorPost.CreatedAt && p.Id < cursorId));
-        }
-
-        var posts = await query.Take(limit + 1).ToListAsync();
-        string? nextCursor = null;
-        if (posts.Count > limit)
-        {
-            nextCursor = posts[limit].Id.ToString();
-            posts = posts.Take(limit).ToList();
-        }
-
-        return (posts, nextCursor);
-    }
-
-    public async Task<(IEnumerable<Post> Posts, string? NextCursor)> GetPostsByUserAsync(string userId, string? cursor, int limit = 10)
-    {
-        var query = _context.Posts
-            .AsNoTracking()
-            .Include(p => p.Author)
-            .Where(p => p.AuthorId == userId)
-            .OrderByDescending(p => p.CreatedAt)
-            .ThenByDescending(p => p.Id)
-            .AsQueryable();
+        if (!string.IsNullOrEmpty(userId))
+            query = query.Where(p => p.AuthorId == userId);
 
         if (!string.IsNullOrEmpty(cursor) && int.TryParse(cursor, out var cursorId))
         {
@@ -205,42 +159,54 @@ public class PostRepository : IPostRepository
         if (!postIds.Any())
             return (Enumerable.Empty<PostWithCounts>(), (string?)null);
 
-        // Single query to get all posts with author and pre-aggregated counts
-        var postsWithCounts = await _context.Posts
+        // Fetch posts with only the Author navigation — Comments and Reactions are
+        // aggregated below via GroupBy queries, so loading full entities is wasteful.
+        var postsWithAuthor = await _context.Posts
             .AsNoTracking()
             .Where(p => postIds.Contains(p.Id))
             .Include(p => p.Author)
-            .Include(p => p.Comments)
-            .Include(p => p.Reactions)
-            .AsSplitQuery()
             .ToListAsync();
 
-        // Build lookup dictionaries for O(1) access
-        var reactionCounts = await _context.Reactions
+        // Aggregate reaction counts and comment counts in parallel — each is a single
+        // round-trip that returns only numeric aggregates, not full entity rows.
+        var reactionCountsTask = _context.Reactions
             .AsNoTracking()
             .Where(r => postIds.Contains(r.PostId))
             .GroupBy(r => new { r.PostId, r.Type })
             .Select(g => new { g.Key.PostId, g.Key.Type, Count = g.Count() })
             .ToListAsync();
 
-        var userReactions = userId != null
-            ? await _context.Reactions
+        var commentCountsTask = _context.Comments
+            .AsNoTracking()
+            .Where(c => postIds.Contains(c.PostId))
+            .GroupBy(c => c.PostId)
+            .Select(g => new { PostId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.PostId, x => x.Count);
+
+        var userReactionsTask = userId != null
+            ? _context.Reactions
                 .AsNoTracking()
                 .Where(r => postIds.Contains(r.PostId) && r.UserId == userId)
                 .ToDictionaryAsync(r => r.PostId, r => r.Type)
-            : new Dictionary<int, ReactionType>();
+            : Task.FromResult(new Dictionary<int, ReactionType>());
 
-        // Build result with pre-computed counts
-        var result = postsWithCounts.Select(p =>
+        await Task.WhenAll(reactionCountsTask, commentCountsTask, userReactionsTask);
+
+        var reactionCounts = reactionCountsTask.Result;
+        var commentCounts  = commentCountsTask.Result;
+        var userReactions  = userReactionsTask.Result;
+
+        // Build result with pre-computed counts — no in-memory entity iteration
+        var result = postsWithAuthor.Select(p =>
         {
             var countsForPost = reactionCounts.Where(r => r.PostId == p.Id).ToList();
             return new PostWithCounts
             {
                 Post = p,
-                LikeCount = countsForPost.FirstOrDefault(r => r.Type == ReactionType.Like)?.Count ?? 0,
-                LoveCount = countsForPost.FirstOrDefault(r => r.Type == ReactionType.Love)?.Count ?? 0,
-                PrayCount = countsForPost.FirstOrDefault(r => r.Type == ReactionType.Pray)?.Count ?? 0,
-                CommentCount = p.Comments?.Count ?? 0,
+                LikeCount    = countsForPost.FirstOrDefault(r => r.Type == ReactionType.Like)?.Count ?? 0,
+                LoveCount    = countsForPost.FirstOrDefault(r => r.Type == ReactionType.Love)?.Count ?? 0,
+                PrayCount    = countsForPost.FirstOrDefault(r => r.Type == ReactionType.Pray)?.Count ?? 0,
+                CommentCount = commentCounts.TryGetValue(p.Id, out var cc) ? cc : 0,
                 UserReaction = userReactions.TryGetValue(p.Id, out var ur) ? ur : (ReactionType?)null
             };
         })

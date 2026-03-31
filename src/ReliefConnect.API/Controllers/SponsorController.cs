@@ -32,7 +32,6 @@ public class SponsorController : ControllerBase
         [FromQuery] double? radiusKm)
     {
         var query = _db.Pings
-            .Include(p => p.User)
             .Where(p => p.Type == MapItemType.SOS)
             .AsNoTracking();
 
@@ -51,19 +50,16 @@ public class SponsorController : ControllerBase
                 p.CoordinatesLong >= lngMin && p.CoordinatesLong <= lngMax);
         }
 
-        var posts = await _db.Posts
-            .Include(p => p.Author)
-            .AsNoTracking()
-            .Where(p => !string.IsNullOrEmpty(category) ? p.Category.ToString() == category : true)
+        // Build posts query — parse category to enum for index-friendly comparison
+        var postsQuery = _db.Posts.AsNoTracking().AsQueryable();
+        if (!string.IsNullOrEmpty(category) && Enum.TryParse<PostCategory>(category, true, out var cat))
+            postsQuery = postsQuery.Where(p => p.Category == cat);
+
+        // Run both queries in parallel — use projection to avoid loading full User/Author entities
+        var pingsTask = query
             .OrderByDescending(p => p.CreatedAt)
             .Take(20)
-            .ToListAsync();
-
-        var pings = await query.OrderByDescending(p => p.CreatedAt).Take(20).ToListAsync();
-
-        return Ok(new
-        {
-            sosCases = pings.Select(p => new
+            .Select(p => new
             {
                 p.Id,
                 p.CoordinatesLat,
@@ -71,16 +67,29 @@ public class SponsorController : ControllerBase
                 Status = p.Status.ToString(),
                 p.Details,
                 p.CreatedAt,
-                UserName = p.User?.FullName
-            }),
-            socialCases = posts.Select(p => new
+                UserName = p.User != null ? p.User.FullName : null
+            })
+            .ToListAsync();
+
+        var postsTask = postsQuery
+            .OrderByDescending(p => p.CreatedAt)
+            .Take(20)
+            .Select(p => new
             {
                 p.Id,
                 p.Content,
                 Category = p.Category.ToString(),
                 p.CreatedAt,
-                AuthorName = p.Author?.FullName
+                AuthorName = p.Author != null ? p.Author.FullName : null
             })
+            .ToListAsync();
+
+        await Task.WhenAll(pingsTask, postsTask);
+
+        return Ok(new
+        {
+            sosCases = pingsTask.Result,
+            socialCases = postsTask.Result
         });
     }
 

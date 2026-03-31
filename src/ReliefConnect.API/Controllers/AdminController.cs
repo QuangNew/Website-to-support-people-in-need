@@ -43,6 +43,8 @@ public class AdminController : ControllerBase
         _cache = cache;
     }
 
+    private sealed class CountRow { public string Type { get; set; } = ""; public int Count { get; set; } }
+
     // ═══════════════════════════════════════════
     //  USERS — List, search, filter
     // ═══════════════════════════════════════════
@@ -136,9 +138,18 @@ public class AdminController : ControllerBase
         if (user == null)
             return NotFound(new ApiErrorResponse { StatusCode = 404, Message = "Người dùng không tồn tại." });
 
-        var postCount    = await _db.Posts.CountAsync(p => p.AuthorId == userId);
-        var commentCount = await _db.Comments.CountAsync(c => c.UserId == userId);
-        var pingCount    = await _db.Pings.CountAsync(p => p.UserId == userId);
+        var countRows = await _db.Database
+            .SqlQuery<CountRow>($"""
+                SELECT 'post'::text AS "Type", COUNT(*)::int AS "Count" FROM "Posts" WHERE "AuthorId" = {userId}
+                UNION ALL
+                SELECT 'comment', COUNT(*)::int FROM "Comments" WHERE "UserId" = {userId}
+                UNION ALL
+                SELECT 'ping', COUNT(*)::int FROM "Pings" WHERE "UserId" = {userId}
+                """)
+            .ToListAsync();
+        var postCount    = countRows.FirstOrDefault(r => r.Type == "post")?.Count ?? 0;
+        var commentCount = countRows.FirstOrDefault(r => r.Type == "comment")?.Count ?? 0;
+        var pingCount    = countRows.FirstOrDefault(r => r.Type == "ping")?.Count ?? 0;
 
         var dto = new AdminUserDetailDto
         {
@@ -395,6 +406,7 @@ public class AdminController : ControllerBase
         var adminId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         var adminName = User.FindFirstValue(ClaimTypes.Name);
         var results = new List<BatchResultItem>();
+        var childLogs = new List<SystemLog>();
 
         // Create parent/summary log entry first via raw SQL to get generated ID back
         int parentLogId;
@@ -416,22 +428,28 @@ public class AdminController : ControllerBase
             parentLogId = 0;
         }
 
+        // Batch-load all users referenced by approvals and rejections in one query
+        var approvalUserIds  = dto.RoleApprovals.Select(op => op.UserId).ToList();
+        var rejectionUserIds = dto.RoleRejections.ToList();
+        var allUserIds       = approvalUserIds.Concat(rejectionUserIds).Distinct().ToList();
+        var users            = await _userManager.Users.Where(u => allUserIds.Contains(u.Id)).ToListAsync();
+        var userMap          = users.ToDictionary(u => u.Id);
+
         // 1. Role approvals
         foreach (var op in dto.RoleApprovals)
         {
             try
             {
-                var user = await _userManager.FindByIdAsync(op.UserId);
-                if (user == null)
+                if (!userMap.TryGetValue(op.UserId, out var user))
                 {
                     results.Add(new BatchResultItem { OpType = "approveRole", Key = op.UserId, Success = false, Error = "User not found" });
-                    await WriteChildLog("approveRole", op.UserId, false, "User not found", batchId, parentLogId);
+                    CollectChildLog(childLogs, "approveRole", op.UserId, false, "User not found", batchId, parentLogId, adminId, adminName);
                     continue;
                 }
                 if (!Enum.TryParse<RoleEnum>(op.Role, true, out var newRole))
                 {
                     results.Add(new BatchResultItem { OpType = "approveRole", Key = op.UserId, Success = false, Error = $"Invalid role: {op.Role}" });
-                    await WriteChildLog("approveRole", op.UserId, false, $"Invalid role: {op.Role}", batchId, parentLogId);
+                    CollectChildLog(childLogs, "approveRole", op.UserId, false, $"Invalid role: {op.Role}", batchId, parentLogId, adminId, adminName);
                     continue;
                 }
                 var oldRole = user.Role;
@@ -441,14 +459,14 @@ public class AdminController : ControllerBase
                 user.VerificationReason = null;
                 await _userManager.UpdateAsync(user);
                 results.Add(new BatchResultItem { OpType = "approveRole", Key = op.UserId, Success = true });
-                await WriteChildLog("approveRole", op.UserId, true, $"{user.UserName}: {oldRole}→{newRole}", batchId, parentLogId);
+                CollectChildLog(childLogs, "approveRole", op.UserId, true, $"{user.UserName}: {oldRole}→{newRole}", batchId, parentLogId, adminId, adminName);
                 _logger.LogInformation("[Batch] ApproveRole: {Username} {Old}→{New}", user.UserName, oldRole, newRole);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "[Batch] ApproveRole failed for {UserId}", op.UserId);
                 results.Add(new BatchResultItem { OpType = "approveRole", Key = op.UserId, Success = false, Error = ex.Message });
-                await WriteChildLog("approveRole", op.UserId, false, ex.Message, batchId, parentLogId);
+                CollectChildLog(childLogs, "approveRole", op.UserId, false, ex.Message, batchId, parentLogId, adminId, adminName);
             }
         }
 
@@ -457,24 +475,23 @@ public class AdminController : ControllerBase
         {
             try
             {
-                var user = await _userManager.FindByIdAsync(userId);
-                if (user == null)
+                if (!userMap.TryGetValue(userId, out var user))
                 {
                     results.Add(new BatchResultItem { OpType = "rejectVerification", Key = userId, Success = false, Error = "User not found" });
-                    await WriteChildLog("rejectVerification", userId, false, "User not found", batchId, parentLogId);
+                    CollectChildLog(childLogs, "rejectVerification", userId, false, "User not found", batchId, parentLogId, adminId, adminName);
                     continue;
                 }
                 user.VerificationStatus = VerificationStatus.Rejected;
                 await _userManager.UpdateAsync(user);
                 results.Add(new BatchResultItem { OpType = "rejectVerification", Key = userId, Success = true });
-                await WriteChildLog("rejectVerification", userId, true, $"Rejected: {user.UserName}", batchId, parentLogId);
+                CollectChildLog(childLogs, "rejectVerification", userId, true, $"Rejected: {user.UserName}", batchId, parentLogId, adminId, adminName);
                 _logger.LogInformation("[Batch] RejectVerification: {Username}", user.UserName);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "[Batch] RejectVerification failed for {UserId}", userId);
                 results.Add(new BatchResultItem { OpType = "rejectVerification", Key = userId, Success = false, Error = ex.Message });
-                await WriteChildLog("rejectVerification", userId, false, ex.Message, batchId, parentLogId);
+                CollectChildLog(childLogs, "rejectVerification", userId, false, ex.Message, batchId, parentLogId, adminId, adminName);
             }
         }
 
@@ -487,21 +504,24 @@ public class AdminController : ControllerBase
                 if (rowsAffected == 0)
                 {
                     results.Add(new BatchResultItem { OpType = "deletePost", Key = postId.ToString(), Success = false, Error = "Post not found" });
-                    await WriteChildLog("deletePost", postId.ToString(), false, "Post not found", batchId, parentLogId);
+                    CollectChildLog(childLogs, "deletePost", postId.ToString(), false, "Post not found", batchId, parentLogId, adminId, adminName);
                 }
                 else
                 {
                     results.Add(new BatchResultItem { OpType = "deletePost", Key = postId.ToString(), Success = true });
-                    await WriteChildLog("deletePost", postId.ToString(), true, $"Deleted post #{postId}", batchId, parentLogId);
+                    CollectChildLog(childLogs, "deletePost", postId.ToString(), true, $"Deleted post #{postId}", batchId, parentLogId, adminId, adminName);
                 }
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "[Batch] DeletePost failed for {PostId}", postId);
                 results.Add(new BatchResultItem { OpType = "deletePost", Key = postId.ToString(), Success = false, Error = ex.Message });
-                await WriteChildLog("deletePost", postId.ToString(), false, ex.Message, batchId, parentLogId);
+                CollectChildLog(childLogs, "deletePost", postId.ToString(), false, ex.Message, batchId, parentLogId, adminId, adminName);
             }
         }
+
+        // Flush all child logs in a single SaveChangesAsync
+        await FlushChildLogs(childLogs);
 
         // Update parent log with final summary
         var applied = results.Count(r => r.Success);
@@ -531,6 +551,39 @@ public class AdminController : ControllerBase
     // ═══════════════════════════════════════════
     //  PRIVATE HELPERS
     // ═══════════════════════════════════════════
+
+    private void CollectChildLog(
+        ICollection<SystemLog> logs,
+        string opType, string key, bool success, string? detail,
+        Guid batchId, int parentLogId,
+        string? adminId, string? adminName)
+    {
+        var details = $"[{opType}] key={key} success={success}" + (detail != null ? $" | {detail}" : "");
+        logs.Add(new SystemLog
+        {
+            Action      = opType,
+            Details     = details,
+            UserId      = adminId,
+            UserName    = adminName,
+            CreatedAt   = DateTime.UtcNow,
+            BatchId     = batchId,
+            ParentLogId = parentLogId > 0 ? (int?)parentLogId : null
+        });
+    }
+
+    private async Task FlushChildLogs(ICollection<SystemLog> logs)
+    {
+        if (logs.Count == 0) return;
+        try
+        {
+            _db.SystemLogs.AddRange(logs);
+            await _db.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Batch] Failed to flush {Count} child log(s)", logs.Count);
+        }
+    }
 
     private async Task WriteChildLog(string opType, string key, bool success, string? detail, Guid batchId, int parentLogId)
     {

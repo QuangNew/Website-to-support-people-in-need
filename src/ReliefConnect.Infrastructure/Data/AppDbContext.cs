@@ -127,6 +127,10 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
 
             entity.HasIndex(p => p.CreatedAt).IsDescending();
             entity.HasIndex(p => p.AuthorId);
+            // Index for category filtering (used by 3+ endpoints)
+            entity.HasIndex(p => p.Category);
+            // Composite index for cursor pagination (CreatedAt DESC, Id DESC)
+            entity.HasIndex(p => new { p.CreatedAt, p.Id }).IsDescending();
 
             entity.HasOne(p => p.Author)
                   .WithMany(u => u.Posts)
@@ -218,6 +222,8 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             entity.Property(n => n.MessageText).HasMaxLength(500).IsRequired();
 
             entity.HasIndex(n => new { n.UserId, n.IsRead });
+            // Index for chronological pagination (newest first)
+            entity.HasIndex(n => n.CreatedAt).IsDescending();
 
             entity.HasOne(n => n.User)
                   .WithMany(u => u.Notifications)

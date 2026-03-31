@@ -39,6 +39,7 @@ public class SupplyController : ControllerBase
         var supplies = await _db.SupplyItems
             .AsNoTracking()
             .OrderByDescending(s => s.CreatedAt)
+            .Take(500)
             .Select(s => MapToDto(s))
             .ToListAsync();
 

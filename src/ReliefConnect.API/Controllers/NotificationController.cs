@@ -2,7 +2,6 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.EntityFrameworkCore;
 using ReliefConnect.Core.DTOs;
 using ReliefConnect.Core.Entities;
@@ -94,10 +93,9 @@ public class NotificationController : ControllerBase
     // ─────────────────────────────────────
     /// <summary>
     /// Get the number of unread notifications for the current user.
-    /// Response is cached per-user for 30 seconds.
+    /// Uses a lightweight indexed COUNT — no caching to ensure per-user correctness.
     /// </summary>
     [HttpGet("unread-count")]
-    [OutputCache(PolicyName = "MapData30s")]
     public async Task<ActionResult> GetUnreadCount()
     {
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
