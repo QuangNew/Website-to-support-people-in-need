@@ -62,7 +62,7 @@ export default function VerificationPanel() {
 
   const verification = VERIFICATION_CONFIG[user.verificationStatus] || VERIFICATION_CONFIG.None;
   const VerifIcon = verification.icon;
-  const canVerify = user.verificationStatus === 'None' || user.verificationStatus === 'Rejected';
+  const canVerify = true;
 
   const submitVerification = async () => {
     if (!selectedRole) return;

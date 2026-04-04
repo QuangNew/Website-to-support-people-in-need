@@ -60,7 +60,7 @@ export default function NotificationBell() {
     setLoading(true);
     try {
       const res = await notificationApi.getNotifications({ page: 1, pageSize: 20 });
-      const items = res.data as Notification[];
+      const items = (res.data as any).items as Notification[];
       setNotifications(Array.isArray(items) ? items : []);
     } catch {
       setNotifications([]);
@@ -178,7 +178,7 @@ export default function NotificationBell() {
 
   const dropdownStyle: React.CSSProperties = {
     position: 'absolute',
-    left: 44,
+    right: 0,
     top: 0,
     width: 320,
     maxHeight: 440,

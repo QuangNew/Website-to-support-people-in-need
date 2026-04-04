@@ -502,6 +502,7 @@ public class AuthController : ControllerBase
         user.VerificationStatus = VerificationStatus.Pending;
         user.RequestedRole = dto.RequestedRole;
         user.VerificationReason = dto.Reason;
+        user.RequestedRoleExpiry = DateTime.UtcNow.AddYears(1).AddMonths(6);
         await _userManager.UpdateAsync(user);
 
         _logger.LogInformation("Verification requested: {Username} → {Role}", user.UserName, dto.RequestedRole);
