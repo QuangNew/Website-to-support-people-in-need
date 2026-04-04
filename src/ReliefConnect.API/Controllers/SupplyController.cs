@@ -40,7 +40,15 @@ public class SupplyController : ControllerBase
             .AsNoTracking()
             .OrderByDescending(s => s.CreatedAt)
             .Take(500)
-            .Select(s => MapToDto(s))
+            .Select(s => new SupplyResponseDto
+            {
+                Id = s.Id,
+                Name = s.Name,
+                Quantity = s.Quantity,
+                Lat = s.CoordinatesLat,
+                Lng = s.CoordinatesLong,
+                CreatedAt = s.CreatedAt,
+            })
             .ToListAsync();
 
         return Ok(supplies);
@@ -116,12 +124,10 @@ public class SupplyController : ControllerBase
     [Authorize(Policy = "RequireAdmin")]
     public async Task<IActionResult> DeleteSupply(int id)
     {
-        var supply = await _db.SupplyItems.FindAsync(id);
-        if (supply == null)
+        var rows = await _db.SupplyItems.Where(s => s.Id == id).ExecuteDeleteAsync();
+        if (rows == 0)
             return NotFound();
 
-        _db.SupplyItems.Remove(supply);
-        await _db.SaveChangesAsync();
         _logger.LogInformation("Supply item deleted: Id={SupplyId}", id);
 
         return NoContent();

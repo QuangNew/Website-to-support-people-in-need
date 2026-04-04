@@ -526,3 +526,4 @@ playwright.config.ts
 # todo.md
 .gitnexus
 .claude
+.cocoindex_code

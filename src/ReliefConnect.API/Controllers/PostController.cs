@@ -31,7 +31,6 @@ public class PostController : ControllerBase
 
     // GET /api/social/posts?cursor=&limit=10&category=
     [HttpGet("posts")]
-    [OutputCache(PolicyName = "Posts2min")]
     public async Task<IActionResult> GetPosts([FromQuery] string? cursor, [FromQuery] int limit = 10, [FromQuery] string? category = null)
     {
         if (limit < 1) limit = 1;

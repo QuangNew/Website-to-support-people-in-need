@@ -240,7 +240,9 @@ public class AdminSystemController : ControllerBase
                 Title     = a.Title,
                 Content   = a.Content,
                 AdminId   = a.AdminId,
-                AdminName = a.Admin != null ? (a.Admin.FullName ?? a.Admin.UserName ?? "Admin") : "Admin",
+                AdminName = a.AdminId != null
+                    ? _db.Users.Where(u => u.Id == a.AdminId).Select(u => u.FullName ?? u.UserName ?? "Admin").FirstOrDefault() ?? "Admin"
+                    : "Admin",
                 CreatedAt = a.CreatedAt,
                 ExpiresAt = a.ExpiresAt,
                 IsExpired = a.ExpiresAt != null && a.ExpiresAt < now

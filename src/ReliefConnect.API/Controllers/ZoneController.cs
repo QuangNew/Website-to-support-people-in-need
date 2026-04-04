@@ -51,18 +51,23 @@ public class ZoneController : ControllerBase
     [HttpGet("{id:int}")]
     public async Task<ActionResult<ZoneResponseDto>> GetZone(int id)
     {
-        var zone = await _context.Zones.FindAsync(id);
+        var zone = await _context.Zones
+            .AsNoTracking()
+            .Where(z => z.Id == id)
+            .Select(z => new ZoneResponseDto
+            {
+                Id = z.Id,
+                Name = z.Name,
+                BoundaryGeoJson = z.BoundaryGeoJson,
+                RiskLevel = z.RiskLevel,
+                CreatedAt = z.CreatedAt,
+            })
+            .FirstOrDefaultAsync();
+
         if (zone == null)
             return NotFound(new ApiErrorResponse { StatusCode = 404, Message = "Không tìm thấy vùng ưu tiên." });
 
-        return Ok(new ZoneResponseDto
-        {
-            Id = zone.Id,
-            Name = zone.Name,
-            BoundaryGeoJson = zone.BoundaryGeoJson,
-            RiskLevel = zone.RiskLevel,
-            CreatedAt = zone.CreatedAt,
-        });
+        return Ok(zone);
     }
 
     // POST /api/zone
@@ -128,12 +133,10 @@ public class ZoneController : ControllerBase
     [Authorize(Policy = "RequireAdmin")]
     public async Task<IActionResult> DeleteZone(int id)
     {
-        var zone = await _context.Zones.FindAsync(id);
-        if (zone == null)
+        var rows = await _context.Zones.Where(z => z.Id == id).ExecuteDeleteAsync();
+        if (rows == 0)
             return NotFound();
 
-        _context.Zones.Remove(zone);
-        await _context.SaveChangesAsync();
         _logger.LogInformation("Zone deleted: {ZoneId}", id);
 
         return NoContent();

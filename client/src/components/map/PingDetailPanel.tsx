@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import {
   X,
   AlertTriangle,
@@ -17,6 +17,7 @@ import { useAuthStore } from '../../stores/authStore';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { mapApi } from '../../services/api';
 import toast from 'react-hot-toast';
+import ConfirmModal from '../ui/ConfirmModal';
 
 const TYPE_CONFIG: Record<PingType, { label: string; icon: typeof AlertTriangle; colorClass: string }> = {
   need_help: { label: 'filter.needHelp', icon: AlertTriangle, colorClass: 'text-danger' },
@@ -29,6 +30,7 @@ export default function PingDetailPanel() {
   const { selectedPingId, pings, selectPing, fetchRoute, clearRoute, route, isRouting, routeError, removePing } = useMapStore();
   const { user } = useAuthStore();
   const { t } = useLanguage();
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const ping = useMemo(
     () => pings.find((p) => p.id === selectedPingId),
@@ -42,9 +44,13 @@ export default function PingDetailPanel() {
   const timeAgo = getRelativeTime(ping.createdAt, t);
   const isAdmin = user?.role === 'Admin';
 
-  const handleDeletePing = async () => {
+  const handleDeletePing = () => {
     if (!isAdmin) return;
-    if (!window.confirm(t('admin.confirmDeletePing') || 'Are you sure you want to delete this ping?')) return;
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmDeletePing = async () => {
+    setShowDeleteConfirm(false);
     try {
       await mapApi.deletePing(Number(ping.id));
       removePing(ping.id);
@@ -202,6 +208,18 @@ export default function PingDetailPanel() {
           </button>
         )}
       </div>
+
+      <ConfirmModal
+        isOpen={showDeleteConfirm}
+        onClose={() => setShowDeleteConfirm(false)}
+        onConfirm={confirmDeletePing}
+        title={t('admin.confirmDeletePing') || 'Delete this ping?'}
+        message="This action cannot be undone."
+        confirmText={t('common.delete') || 'Delete'}
+        cancelText={t('common.cancel') || 'Cancel'}
+        variant="danger"
+        loading={false}
+      />
     </div>
   );
 }
