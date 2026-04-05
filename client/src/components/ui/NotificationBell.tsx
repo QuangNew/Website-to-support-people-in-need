@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Bell, Check, CheckCheck, Trash2 } from 'lucide-react';
-import { notificationApi } from '../../services/api';
+import { Bell, Check, CheckCheck, Trash2, Megaphone } from 'lucide-react';
+import { notificationApi, announcementApi } from '../../services/api';
 import { useAuthStore } from '../../stores/authStore';
+import { useLanguage } from '../../contexts/LanguageContext';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -12,81 +13,121 @@ interface Notification {
   createdAt: string;
 }
 
+interface Announcement {
+  id: number;
+  title: string;
+  content: string;
+  adminName: string;
+  createdAt: string;
+  expiresAt: string | null;
+}
+
+interface UnifiedItem {
+  kind: 'notification' | 'announcement';
+  id: string;            // prefixed to avoid collision: "n-1", "a-1"
+  text: string;
+  subtext?: string;
+  isRead: boolean;
+  createdAt: string;
+  rawId: number;
+}
+
 interface UnreadCountResponse {
   count: number;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function timeAgo(dateStr: string): string {
+function timeAgo(dateStr: string, t: (key: string) => string): string {
   const seconds = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
-  if (seconds < 60) return 'Vừa xong';
+  if (seconds < 60) return t('ping.time.justNow');
   const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes} phút trước`;
+  if (minutes < 60) return `${minutes} ${t('ping.time.minutesAgo')}`;
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} giờ trước`;
+  if (hours < 24) return `${hours} ${t('ping.time.hoursAgo')}`;
   const days = Math.floor(hours / 24);
-  return `${days} ngày trước`;
+  return `${days} ${t('ping.time.daysAgo')}`;
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function NotificationBell() {
   const { isAuthenticated } = useAuthStore();
+  const { t } = useLanguage();
 
   const [open, setOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [items, setItems] = useState<UnifiedItem[]>([]);
   const [loading, setLoading] = useState(false);
 
   const wrapperRef = useRef<HTMLDivElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // ── Fetch unread count ──────────────────────────────────────────────────────
   const fetchUnreadCount = useCallback(async () => {
     if (!isAuthenticated) return;
     try {
       const res = await notificationApi.getUnreadCount();
       const data = res.data as UnreadCountResponse;
       setUnreadCount(data.count ?? 0);
-    } catch {
-      // silently ignore polling errors
-    }
+    } catch { /* silently ignore */ }
   }, [isAuthenticated]);
 
-  // ── Fetch notification list (when dropdown opens) ──────────────────────────
-  const fetchNotifications = useCallback(async () => {
+  const fetchAll = useCallback(async () => {
     if (!isAuthenticated) return;
     setLoading(true);
     try {
-      const res = await notificationApi.getNotifications({ page: 1, pageSize: 20 });
-      const items = (res.data as any).items as Notification[];
-      setNotifications(Array.isArray(items) ? items : []);
+      const [notiRes, annRes] = await Promise.all([
+        notificationApi.getNotifications({ page: 1, pageSize: 30 }),
+        announcementApi.getActive(20),
+      ]);
+
+      const notis: Notification[] = ((notiRes.data as any).items as Notification[]) ?? [];
+      const anns: Announcement[] = (annRes.data as Announcement[]) ?? [];
+
+      const unified: UnifiedItem[] = [
+        ...notis.map((n): UnifiedItem => ({
+          kind: 'notification',
+          id: `n-${n.id}`,
+          rawId: n.id,
+          text: n.messageText,
+          isRead: n.isRead,
+          createdAt: n.createdAt,
+        })),
+        ...anns.map((a): UnifiedItem => ({
+          kind: 'announcement',
+          id: `a-${a.id}`,
+          rawId: a.id,
+          text: a.title,
+          subtext: a.content.length > 100 ? a.content.slice(0, 100) + '\u2026' : a.content,
+          isRead: true,   // announcements have no read state
+          createdAt: a.createdAt,
+        })),
+      ];
+
+      // Sort newest first
+      unified.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      setItems(unified);
     } catch {
-      setNotifications([]);
+      setItems([]);
     } finally {
       setLoading(false);
     }
   }, [isAuthenticated]);
 
-  // ── Poll every 30 s when authenticated ─────────────────────────────────────
+  // Poll every 30s
   useEffect(() => {
     if (!isAuthenticated) return;
-
     fetchUnreadCount();
     pollRef.current = setInterval(fetchUnreadCount, 30_000);
-
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [isAuthenticated, fetchUnreadCount]);
 
-  // ── Load notifications when dropdown opens ─────────────────────────────────
+  // Load data when dropdown opens
   useEffect(() => {
-    if (open) fetchNotifications();
-  }, [open, fetchNotifications]);
+    if (open) fetchAll();
+  }, [open, fetchAll]);
 
-  // ── Close on outside click ──────────────────────────────────────────────────
+  // Close on outside click
   useEffect(() => {
     if (!open) return;
     const handleClick = (e: MouseEvent) => {
@@ -98,154 +139,42 @@ export default function NotificationBell() {
     return () => document.removeEventListener('mousedown', handleClick);
   }, [open]);
 
-  // ── Mark single read ────────────────────────────────────────────────────────
   const handleMarkRead = async (id: number) => {
     try {
       await notificationApi.markRead(id);
-      setNotifications((prev) =>
-        prev.map((n) => (n.id === id ? { ...n, isRead: true } : n))
-      );
-      setUnreadCount((c) => Math.max(0, c - 1));
-    } catch {
-      // ignore
-    }
+      setItems(prev => prev.map(it => it.id === `n-${id}` ? { ...it, isRead: true } : it));
+      setUnreadCount(c => Math.max(0, c - 1));
+    } catch { /* ignore */ }
   };
 
-  // ── Mark all read ───────────────────────────────────────────────────────────
   const handleMarkAllRead = async () => {
     try {
       await notificationApi.markAllRead();
-      setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+      setItems(prev => prev.map(it => it.kind === 'notification' ? { ...it, isRead: true } : it));
       setUnreadCount(0);
-    } catch {
-      // ignore
-    }
+    } catch { /* ignore */ }
   };
 
-  // ── Delete notification ─────────────────────────────────────────────────────
-  const handleDelete = async (e: React.MouseEvent, id: number, wasUnread: boolean) => {
+  const handleDelete = async (e: React.MouseEvent, item: UnifiedItem) => {
     e.stopPropagation();
+    if (item.kind !== 'notification') return;
     try {
-      await notificationApi.deleteNotification(id);
-      setNotifications((prev) => prev.filter((n) => n.id !== id));
-      if (wasUnread) setUnreadCount((c) => Math.max(0, c - 1));
-    } catch {
-      // ignore
-    }
+      await notificationApi.deleteNotification(item.rawId);
+      setItems(prev => prev.filter(it => it.id !== item.id));
+      if (!item.isRead) setUnreadCount(c => Math.max(0, c - 1));
+    } catch { /* ignore */ }
   };
 
   if (!isAuthenticated) return null;
 
-  // ─── Styles ──────────────────────────────────────────────────────────────
-
-  const wrapperStyle: React.CSSProperties = {
-    position: 'relative',
-    display: 'flex',
-    justifyContent: 'center',
-  };
-
-  const bellButtonStyle: React.CSSProperties = {
-    position: 'relative',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: 36,
-    height: 36,
-    borderRadius: 'var(--radius-md)',
-    border: 'none',
-    background: 'transparent',
-    color: 'var(--text-secondary)',
-    cursor: 'pointer',
-    transition: 'background 0.15s, color 0.15s',
-  };
-
-  const badgeStyle: React.CSSProperties = {
-    position: 'absolute',
-    top: 2,
-    right: 2,
-    minWidth: 16,
-    height: 16,
-    borderRadius: 9999,
-    background: 'var(--danger-500)',
-    color: '#fff',
-    fontSize: 10,
-    fontWeight: 700,
-    lineHeight: '16px',
-    textAlign: 'center',
-    padding: '0 3px',
-    pointerEvents: 'none',
-  };
-
-  const dropdownStyle: React.CSSProperties = {
-    position: 'absolute',
-    right: 0,
-    top: 0,
-    width: 320,
-    maxHeight: 440,
-    overflowY: 'auto',
-    zIndex: 1000,
-    borderRadius: 'var(--radius-lg)',
-    border: '1px solid color-mix(in srgb, var(--text-muted) 20%, transparent)',
-    background: 'var(--bg-primary)',
-    boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
-    animation: 'notif-fade-in 0.15s ease',
-  };
-
-  const dropdownHeaderStyle: React.CSSProperties = {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 'var(--sp-3) var(--sp-4)',
-    borderBottom: '1px solid color-mix(in srgb, var(--text-muted) 15%, transparent)',
-    position: 'sticky',
-    top: 0,
-    background: 'var(--bg-primary)',
-    zIndex: 1,
-  };
-
-  const headerTitleStyle: React.CSSProperties = {
-    fontSize: 'var(--text-sm)',
-    fontWeight: 600,
-    color: 'var(--text-primary)',
-    display: 'flex',
-    alignItems: 'center',
-    gap: 'var(--sp-2)',
-  };
-
-  const markAllBtnStyle: React.CSSProperties = {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 'var(--sp-1)',
-    fontSize: 'var(--text-xs)',
-    color: 'var(--primary-500)',
-    background: 'transparent',
-    border: 'none',
-    cursor: 'pointer',
-    padding: '2px 6px',
-    borderRadius: 'var(--radius-sm)',
-  };
-
-  const emptyStyle: React.CSSProperties = {
-    padding: 'var(--sp-8) var(--sp-4)',
-    textAlign: 'center',
-    color: 'var(--text-muted)',
-    fontSize: 'var(--text-sm)',
-  };
-
-  const spinnerStyle: React.CSSProperties = {
-    padding: 'var(--sp-6)',
-    display: 'flex',
-    justifyContent: 'center',
-    alignItems: 'center',
-  };
+  const hasUnread = items.some(it => it.kind === 'notification' && !it.isRead);
 
   return (
     <>
-      {/* Keyframe injection — injected once into the document */}
       <style>{`
         @keyframes notif-fade-in {
-          from { opacity: 0; transform: translateX(-6px); }
-          to   { opacity: 1; transform: translateX(0); }
+          from { opacity: 0; transform: translateY(6px) scale(0.97); }
+          to   { opacity: 1; transform: translateY(0) scale(1); }
         }
         .notif-item:hover { background: var(--bg-secondary) !important; }
         .notif-item:hover .notif-delete { opacity: 1 !important; }
@@ -253,210 +182,185 @@ export default function NotificationBell() {
         .mark-all-btn:hover { background: color-mix(in srgb, var(--primary-500) 12%, transparent) !important; }
       `}</style>
 
-      <div ref={wrapperRef} style={wrapperStyle}>
-        {/* ── Bell button ── */}
+      <div ref={wrapperRef} style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
         <button
           className="notif-bell-btn"
-          style={bellButtonStyle}
-          onClick={() => setOpen((v) => !v)}
-          title="Thông báo"
-          aria-label="Thông báo"
+          style={{
+            position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            width: 32, height: 32, borderRadius: 'var(--radius-md)', border: 'none',
+            background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer',
+            transition: 'background 0.15s, color 0.15s', flexShrink: 0,
+          }}
+          onClick={() => setOpen(v => !v)}
+          title={t('notification.bellTitle')}
+          aria-label={t('notification.bellTitle')}
         >
-          <Bell size={20} strokeWidth={2} />
+          <Bell size={18} strokeWidth={2} />
           {unreadCount > 0 && (
-            <span style={badgeStyle}>
+            <span style={{
+              position: 'absolute', top: 1, right: 1, minWidth: 14, height: 14,
+              borderRadius: 9999, background: 'var(--danger-500)', color: '#fff',
+              fontSize: 9, fontWeight: 700, lineHeight: '14px', textAlign: 'center',
+              padding: '0 3px', pointerEvents: 'none',
+            }}>
               {unreadCount > 99 ? '99+' : unreadCount}
             </span>
           )}
         </button>
 
-        {/* ── Dropdown ── */}
         {open && (
-          <div style={dropdownStyle} role="menu" aria-label="Danh sách thông báo">
+          <div style={{
+            position: 'absolute', right: 'calc(-1 * var(--sp-2, 8px))', top: '100%', marginTop: 8,
+            width: 360, maxHeight: 480, zIndex: 1000,
+            borderRadius: 14,
+            border: '1px solid color-mix(in srgb, var(--text-muted) 15%, transparent)',
+            background: 'var(--bg-primary)',
+            boxShadow: '0 12px 48px rgba(0,0,0,0.22), 0 2px 8px rgba(0,0,0,0.08)',
+            animation: 'notif-fade-in 0.18s cubic-bezier(.2,.6,.35,1)',
+            display: 'flex', flexDirection: 'column',
+            overflow: 'hidden',
+          }} role="menu" aria-label={t('notification.bellTitle')}>
+
             {/* Header */}
-            <div style={dropdownHeaderStyle}>
-              <span style={headerTitleStyle}>
-                <Bell size={14} />
-                Thông báo
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '12px 16px', borderBottom: '1px solid color-mix(in srgb, var(--text-muted) 12%, transparent)',
+              position: 'sticky', top: 0, background: 'var(--bg-primary)', zIndex: 1,
+            }}>
+              <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text-primary)' }}>
+                {t('notification.title')}
                 {unreadCount > 0 && (
                   <span style={{
-                    background: 'var(--danger-500)',
-                    color: '#fff',
-                    borderRadius: 9999,
-                    fontSize: 10,
-                    fontWeight: 700,
-                    padding: '1px 6px',
-                  }}>
-                    {unreadCount}
-                  </span>
+                    marginLeft: 6, background: 'var(--danger-500)', color: '#fff', borderRadius: 9999,
+                    fontSize: 9, fontWeight: 700, padding: '0 5px', lineHeight: '14px',
+                  }}>{unreadCount}</span>
                 )}
               </span>
-
-              {notifications.some((n) => !n.isRead) && (
+              {hasUnread && (
                 <button
                   className="mark-all-btn"
-                  style={markAllBtnStyle}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 'var(--sp-1)',
+                    fontSize: 'var(--text-xs)', color: 'var(--primary-500)', background: 'transparent',
+                    border: 'none', cursor: 'pointer', padding: '2px 8px', borderRadius: 'var(--radius-sm)',
+                  }}
                   onClick={handleMarkAllRead}
-                  title="Đánh dấu tất cả đã đọc"
+                  title={t('notification.markAllReadTitle')}
                 >
-                  <CheckCheck size={13} />
-                  Đọc tất cả
+                  <CheckCheck size={12} /> {t('notification.markAllRead')}
                 </button>
               )}
             </div>
 
             {/* Body */}
-            {loading ? (
-              <div style={spinnerStyle}>
-                <span style={{
-                  width: 20,
-                  height: 20,
-                  border: '2px solid var(--text-muted)',
-                  borderTopColor: 'var(--primary-500)',
-                  borderRadius: '50%',
-                  display: 'inline-block',
-                  animation: 'spin 0.7s linear infinite',
-                }} />
-                <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-              </div>
-            ) : notifications.length === 0 ? (
-              <div style={emptyStyle}>
-                <Bell size={28} style={{ opacity: 0.25, marginBottom: 8, display: 'block', margin: '0 auto 8px' }} />
-                Không có thông báo nào
-              </div>
-            ) : (
-              <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-                {notifications.map((n) => (
-                  <NotificationItem
-                    key={n.id}
-                    notification={n}
-                    onMarkRead={handleMarkRead}
-                    onDelete={handleDelete}
-                  />
-                ))}
-              </ul>
-            )}
+            <div style={{ overflowY: 'auto', flex: 1 }}>
+              {loading ? (
+                <div style={{ padding: 'var(--sp-6)', display: 'flex', justifyContent: 'center' }}>
+                  <span style={{
+                    width: 20, height: 20, border: '2px solid var(--text-muted)',
+                    borderTopColor: 'var(--primary-500)', borderRadius: '50%',
+                    display: 'inline-block', animation: 'spin 0.7s linear infinite',
+                  }} />
+                  <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+                </div>
+              ) : items.length === 0 ? (
+                <div style={{ padding: 'var(--sp-8) var(--sp-4)', textAlign: 'center', color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
+                  <Bell size={28} style={{ opacity: 0.25, display: 'block', margin: '0 auto 8px' }} />
+                  {t('notification.empty')}
+                </div>
+              ) : (
+                <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+                  {items.map(item => (
+                    <li
+                      key={item.id}
+                      className="notif-item"
+                      style={{
+                        display: 'flex', alignItems: 'flex-start', gap: 'var(--sp-3)',
+                        padding: 'var(--sp-3) var(--sp-4)',
+                        cursor: item.kind === 'notification' && !item.isRead ? 'pointer' : 'default',
+                        background: item.kind === 'notification' && !item.isRead
+                          ? 'color-mix(in srgb, var(--primary-500) 6%, transparent)'
+                          : 'transparent',
+                        borderBottom: '1px solid color-mix(in srgb, var(--text-muted) 10%, transparent)',
+                        transition: 'background 0.12s', position: 'relative',
+                      }}
+                      onClick={() => item.kind === 'notification' && !item.isRead && handleMarkRead(item.rawId)}
+                      role="menuitem"
+                    >
+                      {/* Indicator */}
+                      <span style={{
+                        flexShrink: 0, marginTop: 5, width: 8, height: 8, borderRadius: '50%',
+                        ...(item.kind === 'announcement'
+                          ? { background: 'var(--warning-500)', display: 'flex', alignItems: 'center', justifyContent: 'center' }
+                          : item.isRead
+                            ? { border: '1.5px solid var(--text-muted)', background: 'transparent' }
+                            : { background: 'var(--primary-500)' }
+                        ),
+                      }} aria-hidden="true" />
+
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        {item.kind === 'announcement' && (
+                          <span style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 3,
+                            fontSize: '0.6rem', fontWeight: 600, color: 'var(--warning-600)',
+                            textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 2,
+                          }}>
+                            <Megaphone size={9} /> {t('notification.system')}
+                          </span>
+                        )}
+                        <p style={{
+                          fontSize: 'var(--text-sm)', color: 'var(--text-primary)', lineHeight: 1.45,
+                          marginBottom: 2, fontWeight: item.isRead ? 400 : 500, wordBreak: 'break-word',
+                          margin: 0,
+                        }}>{item.text}</p>
+                        {item.subtext && (
+                          <p style={{
+                            fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', lineHeight: 1.4,
+                            margin: '2px 0 0',
+                          }}>{item.subtext}</p>
+                        )}
+                        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>{timeAgo(item.createdAt, t)}</span>
+                      </div>
+
+                      {/* Actions — only for user notifications */}
+                      {item.kind === 'notification' && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0 }}>
+                          {!item.isRead && (
+                            <button
+                              style={{
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                width: 24, height: 24, borderRadius: 'var(--radius-sm)',
+                                border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--text-muted)',
+                              }}
+                              onClick={(e) => { e.stopPropagation(); handleMarkRead(item.rawId); }}
+                              title={t('notification.markRead')}
+                            >
+                              <Check size={13} />
+                            </button>
+                          )}
+                          <button
+                            className="notif-delete"
+                            style={{
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              width: 24, height: 24, borderRadius: 'var(--radius-sm)',
+                              border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--text-muted)',
+                              opacity: 0, transition: 'opacity 0.15s',
+                            }}
+                            onClick={(e) => handleDelete(e, item)}
+                            title={t('notification.deleteTitle')}
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           </div>
         )}
       </div>
     </>
-  );
-}
-
-// ─── Notification Item sub-component ─────────────────────────────────────────
-
-interface NotificationItemProps {
-  notification: Notification;
-  onMarkRead: (id: number) => void;
-  onDelete: (e: React.MouseEvent, id: number, wasUnread: boolean) => void;
-}
-
-function NotificationItem({ notification, onMarkRead, onDelete }: NotificationItemProps) {
-  const { id, messageText, isRead, createdAt } = notification;
-
-  const itemStyle: React.CSSProperties = {
-    display: 'flex',
-    alignItems: 'flex-start',
-    gap: 'var(--sp-3)',
-    padding: 'var(--sp-3) var(--sp-4)',
-    cursor: isRead ? 'default' : 'pointer',
-    background: isRead
-      ? 'transparent'
-      : 'color-mix(in srgb, var(--primary-500) 6%, transparent)',
-    borderBottom: '1px solid color-mix(in srgb, var(--text-muted) 10%, transparent)',
-    transition: 'background 0.12s',
-    position: 'relative',
-  };
-
-  const dotStyle: React.CSSProperties = {
-    flexShrink: 0,
-    marginTop: 5,
-    width: 8,
-    height: 8,
-    borderRadius: '50%',
-    background: isRead ? 'transparent' : 'var(--primary-500)',
-    border: isRead ? '1.5px solid var(--text-muted)' : 'none',
-    transition: 'background 0.15s',
-  };
-
-  const textStyle: React.CSSProperties = {
-    flex: 1,
-    minWidth: 0,
-  };
-
-  const messageStyle: React.CSSProperties = {
-    fontSize: 'var(--text-sm)',
-    color: 'var(--text-primary)',
-    lineHeight: 1.45,
-    marginBottom: 2,
-    fontWeight: isRead ? 400 : 500,
-    wordBreak: 'break-word',
-  };
-
-  const timeStyle: React.CSSProperties = {
-    fontSize: 'var(--text-xs)',
-    color: 'var(--text-muted)',
-  };
-
-  const actionsStyle: React.CSSProperties = {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 4,
-    flexShrink: 0,
-  };
-
-  const iconBtnStyle: React.CSSProperties = {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: 24,
-    height: 24,
-    borderRadius: 'var(--radius-sm)',
-    border: 'none',
-    background: 'transparent',
-    cursor: 'pointer',
-    color: 'var(--text-muted)',
-    transition: 'background 0.12s, color 0.12s',
-  };
-
-  return (
-    <li
-      className="notif-item"
-      style={itemStyle}
-      onClick={() => !isRead && onMarkRead(id)}
-      role="menuitem"
-    >
-      {/* Unread dot */}
-      <span style={dotStyle} aria-hidden="true" />
-
-      {/* Message + time */}
-      <div style={textStyle}>
-        <p style={messageStyle}>{messageText}</p>
-        <span style={timeStyle}>{timeAgo(createdAt)}</span>
-      </div>
-
-      {/* Action buttons */}
-      <div style={actionsStyle}>
-        {!isRead && (
-          <button
-            style={iconBtnStyle}
-            onClick={(e) => { e.stopPropagation(); onMarkRead(id); }}
-            title="Đánh dấu đã đọc"
-            aria-label="Đánh dấu đã đọc"
-          >
-            <Check size={13} />
-          </button>
-        )}
-        <button
-          className="notif-delete"
-          style={{ ...iconBtnStyle, opacity: 0, transition: 'opacity 0.15s, background 0.12s' }}
-          onClick={(e) => onDelete(e, id, !isRead)}
-          title="Xoá thông báo"
-          aria-label="Xoá thông báo"
-        >
-          <Trash2 size={13} />
-        </button>
-      </div>
-    </li>
   );
 }

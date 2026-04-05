@@ -112,6 +112,18 @@ public class MapController : ControllerBase
         if (!Enum.TryParse<MapItemType>(dto.Type, true, out var mapType))
             return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Loại ping không hợp lệ. Chấp nhận: SOS, Supply, Shelter." });
 
+        // Supply and Shelter pings are admin-only
+        if (mapType is MapItemType.Supply or MapItemType.Shelter && !User.IsInRole("Admin"))
+        {
+            var user = await _userManager.FindByIdAsync(userId);
+            if (user == null || user.Role != RoleEnum.Admin)
+                return Forbid();
+        }
+
+        // Validate coordinates within Vietnam territory (bounding box + island zones)
+        if (!IsInsideVietnamTerritory(dto.Lat, dto.Lng))
+            return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Vị trí nằm ngoài lãnh thổ Việt Nam." });
+
         var ping = new Ping
         {
             CoordinatesLat = dto.Lat,
@@ -262,4 +274,39 @@ public class MapController : ControllerBase
         UserName = ping.User?.FullName ?? ping.User?.UserName,
         IsBlinking = ping.PingFlag?.IsBlinking ?? false,
     };
+
+    // ─── Vietnam territory validation ───
+    private static bool IsInsideVietnamTerritory(double lat, double lng)
+    {
+        // Quick bounding-box rejection
+        if (lat < 5.78 || lat > 23.39 || lng < 102.15 || lng > 117.72)
+            return false;
+
+        // Mainland bounding box (rough)
+        if (lat >= 8.0 && lat <= 23.39 && lng >= 102.15 && lng <= 110.0)
+            return true; // Western mainland
+
+        // Check island zones
+        // Paracel Islands (Hoang Sa)
+        if (lat >= 15.48 && lat <= 17.37 && lng >= 110.78 && lng <= 113.12)
+            return true;
+        // Spratly Islands (Truong Sa)
+        if (lat >= 5.78 && lat <= 12.20 && lng >= 109.28 && lng <= 117.72)
+            return true;
+        // Con Dao Islands
+        if (lat >= 8.33 && lat <= 9.07 && lng >= 106.28 && lng <= 106.97)
+            return true;
+        // Phu Quoc Island
+        if (lat >= 9.68 && lat <= 10.72 && lng >= 103.48 && lng <= 104.42)
+            return true;
+
+        // Eastern coast mainland (simplified: up to ~110°E at the widest)
+        if (lat >= 8.0 && lat <= 23.39 && lng >= 102.15 && lng <= 110.0)
+            return true;
+        // Central/South coast extends slightly east
+        if (lat >= 10.0 && lat <= 21.5 && lng >= 106.0 && lng <= 109.6)
+            return true;
+
+        return false;
+    }
 }

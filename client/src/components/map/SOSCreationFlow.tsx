@@ -4,6 +4,7 @@ import { useMapStore } from '../../stores/mapStore';
 import { useAuthStore } from '../../stores/authStore';
 import { mapApi } from '../../services/api';
 import { useLanguage } from '../../contexts/LanguageContext';
+import { isInsideVietnam } from '../../utils/vietnamTerritory';
 
 type Step = 'idle' | 'form' | 'submitting' | 'success';
 
@@ -29,8 +30,9 @@ function haptic(ms = 50) {
 
 export default function SOSCreationFlow() {
   const { t } = useLanguage();
-  const { center, fetchPings, setFlyTo, setSosDraftLocation } = useMapStore();
+  const { fetchPings, setFlyTo, setSosDraftLocation } = useMapStore();
   const { isAuthenticated } = useAuthStore();
+  const userRole = useAuthStore((s) => s.user?.role);
   const setAuthModal = useMapStore((s) => s.setAuthModal);
 
   const [step, setStep] = useState<Step>('idle');
@@ -54,44 +56,67 @@ export default function SOSCreationFlow() {
     setSosDraftLocation(null);
   }, [setSosDraftLocation]);
 
-  // Sync location with map center when user pans the map (real-time update)
+  // GPS-only: SOS pings are placed at the user's actual GPS location, not map center.
+  // This prevents accidentally placing an SOS in the wrong location.
   useEffect(() => {
-    if (step === 'form' && center) {
-      setLocation({ lat: center.lat, lng: center.lng });
-      setSosDraftLocation({ lat: center.lat, lng: center.lng });
+    // Only update draft marker visual from GPS location, NOT from map center
+    if (step === 'form' && location) {
+      setSosDraftLocation({ lat: location.lat, lng: location.lng });
     }
-  }, [step, center, setSosDraftLocation]);
+  }, [step, location, setSosDraftLocation]);
 
-  // Click SOS button → check auth, detect GPS, open form
+  // Click SOS button → check auth, detect GPS (required — no map center fallback)
   const handleSOSClick = useCallback(() => {
     if (!isAuthenticated) {
       setAuthModal('login');
       return;
     }
 
-    // Try GPS first, fallback to map center
+    // GPS is required for SOS — we need the user's real location
+    // Strategy: get a fast low-accuracy fix first (~1s), then refine with high accuracy
     if (navigator.geolocation) {
+      const applyLocation = (pos: GeolocationPosition) => {
+        const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        setLocation(loc);
+        setFlyTo({ ...loc, zoom: 15 });
+        setSosDraftLocation(loc);
+        setStep('form');
+        haptic(80);
+      };
+
+      // Fast low-accuracy fix — shows form quickly
       navigator.geolocation.getCurrentPosition(
         (pos) => {
-          const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-          setLocation(loc);
-          setFlyTo({ ...loc, zoom: 15 });
-          setSosDraftLocation(loc);
+          applyLocation(pos);
+          // Then silently refine with high accuracy in background
+          navigator.geolocation.getCurrentPosition(
+            (refinedPos) => {
+              const loc = { lat: refinedPos.coords.latitude, lng: refinedPos.coords.longitude };
+              setLocation(loc);
+              setSosDraftLocation(loc);
+            },
+            () => { /* ignore — we already have a location */ },
+            { enableHighAccuracy: true, timeout: 8000 }
+          );
         },
         () => {
-          setLocation({ lat: center.lat, lng: center.lng });
-          setSosDraftLocation({ lat: center.lat, lng: center.lng });
+          // Low-accuracy failed — try high accuracy as fallback
+          navigator.geolocation.getCurrentPosition(
+            applyLocation,
+            () => {
+              setError(t('sos.gpsError') || 'Không thể xác định vị trí GPS. Vui lòng bật GPS và thử lại.');
+              setStep('form');
+            },
+            { enableHighAccuracy: true, timeout: 8000 }
+          );
         },
-        { enableHighAccuracy: true, timeout: 8000 }
+        { enableHighAccuracy: false, timeout: 3000 }
       );
     } else {
-      setLocation({ lat: center.lat, lng: center.lng });
-      setSosDraftLocation({ lat: center.lat, lng: center.lng });
+      setError(t('sos.gpsError') || 'Trình duyệt không hỗ trợ GPS.');
+      setStep('form');
     }
-
-    setStep('form');
-    haptic(80);
-  }, [isAuthenticated, setAuthModal, center, setFlyTo]);
+  }, [isAuthenticated, setAuthModal, setFlyTo, setSosDraftLocation, t]);
 
   // Toggle a tag
   const toggleTag = useCallback((tag: SOSTag) => {
@@ -102,26 +127,47 @@ export default function SOSCreationFlow() {
     );
   }, []);
 
-  // Re-detect GPS
+  // Re-detect GPS — fast low-accuracy first, then refine
   const redetectGPS = useCallback(() => {
     if (!navigator.geolocation) return;
+    const apply = (pos: GeolocationPosition) => {
+      const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      setLocation(loc);
+      setFlyTo({ ...loc, zoom: 15 });
+      setSosDraftLocation(loc);
+    };
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        setLocation(loc);
-        setFlyTo({ ...loc, zoom: 15 });
-        setSosDraftLocation(loc);
+        apply(pos);
+        navigator.geolocation.getCurrentPosition(
+          (refined) => {
+            const loc = { lat: refined.coords.latitude, lng: refined.coords.longitude };
+            setLocation(loc);
+            setSosDraftLocation(loc);
+          },
+          () => {},
+          { enableHighAccuracy: true, timeout: 8000 }
+        );
       },
       () => {
-        setError(t('sos.gpsError'));
+        navigator.geolocation.getCurrentPosition(apply,
+          () => setError(t('sos.gpsError')),
+          { enableHighAccuracy: true, timeout: 8000 }
+        );
       },
-      { enableHighAccuracy: true, timeout: 8000 }
+      { enableHighAccuracy: false, timeout: 3000 }
     );
   }, [setFlyTo, setSosDraftLocation, t]);
 
   // Submit
   const handleSubmit = useCallback(async () => {
     if (!location) return;
+
+    // Validate: location must be within Vietnam territory
+    if (!isInsideVietnam(location.lat, location.lng)) {
+      setError(t('sos.outsideVietnam') || 'Vị trí nằm ngoài lãnh thổ Việt Nam. Vui lòng chọn vị trí trong lãnh thổ.');
+      return;
+    }
 
     // Validate: if medical tag selected, textarea must not be empty
     if (selectedTags.includes('medical') && !details.trim()) {
@@ -222,11 +268,13 @@ export default function SOSCreationFlow() {
         <div className="sos-tags-grid">
           {([
             { key: 'evacuate' as SOSTag, label: t('sos.tagEvacuate') || '🚨 Sơ tán' },
-            { key: 'food' as SOSTag, label: t('sos.tagFood') || '🍚 Thức ăn' },
+            { key: 'food' as SOSTag, label: t('sos.tagFood') || '🍚 Thức ăn', adminOnly: true },
             { key: 'medical' as SOSTag, label: t('sos.tagMedical') || '💊 Y tế' },
-            { key: 'shelter' as SOSTag, label: t('sos.tagShelter') || '🏠 Nơi trú' },
+            { key: 'shelter' as SOSTag, label: t('sos.tagShelter') || '🏠 Nơi trú', adminOnly: true },
             { key: 'other' as SOSTag, label: t('sos.tagOther') || '📋 Khác' },
-          ]).map(({ key, label }) => {
+          ] as { key: SOSTag; label: string; adminOnly?: boolean }[])
+          .filter(({ adminOnly }) => !adminOnly || userRole === 'Admin')
+          .map(({ key, label }) => {
             const isActive = selectedTags.includes(key);
             const colors = TAG_COLORS[key];
             return (

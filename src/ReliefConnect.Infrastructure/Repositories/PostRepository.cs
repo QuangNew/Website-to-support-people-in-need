@@ -167,34 +167,29 @@ public class PostRepository : IPostRepository
             .Include(p => p.Author)
             .ToListAsync();
 
-        // Aggregate reaction counts and comment counts in parallel — each is a single
-        // round-trip that returns only numeric aggregates, not full entity rows.
-        var reactionCountsTask = _context.Reactions
+        // Aggregate reaction counts, comment counts, and user reactions sequentially.
+        // EF Core DbContext is NOT thread-safe — parallel queries cause
+        // "A second operation was started on this context" errors.
+        var reactionCounts = await _context.Reactions
             .AsNoTracking()
             .Where(r => postIds.Contains(r.PostId))
             .GroupBy(r => new { r.PostId, r.Type })
             .Select(g => new { g.Key.PostId, g.Key.Type, Count = g.Count() })
             .ToListAsync();
 
-        var commentCountsTask = _context.Comments
+        var commentCounts = await _context.Comments
             .AsNoTracking()
             .Where(c => postIds.Contains(c.PostId))
             .GroupBy(c => c.PostId)
             .Select(g => new { PostId = g.Key, Count = g.Count() })
             .ToDictionaryAsync(x => x.PostId, x => x.Count);
 
-        var userReactionsTask = userId != null
-            ? _context.Reactions
+        var userReactions = userId != null
+            ? await _context.Reactions
                 .AsNoTracking()
                 .Where(r => postIds.Contains(r.PostId) && r.UserId == userId)
                 .ToDictionaryAsync(r => r.PostId, r => r.Type)
-            : Task.FromResult(new Dictionary<int, ReactionType>());
-
-        await Task.WhenAll(reactionCountsTask, commentCountsTask, userReactionsTask);
-
-        var reactionCounts = reactionCountsTask.Result;
-        var commentCounts  = commentCountsTask.Result;
-        var userReactions  = userReactionsTask.Result;
+            : new Dictionary<int, ReactionType>();
 
         // Build result with pre-computed counts — no in-memory entity iteration
         var result = postsWithAuthor.Select(p =>

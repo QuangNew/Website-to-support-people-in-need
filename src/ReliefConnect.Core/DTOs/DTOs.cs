@@ -68,6 +68,9 @@ public class VerifyRoleDto
     public string RequestedRole { get; set; } = string.Empty;
 
     public string? Reason { get; set; }
+
+    /// <summary>Optional list of uploaded image URLs (max 5) for identity verification.</summary>
+    public List<string>? ImageUrls { get; set; }
 }
 
 public class GoogleLoginDto
@@ -95,6 +98,15 @@ public class ResetPasswordDto
 
     [Required, StringLength(6, MinimumLength = 6)]
     public string Token { get; set; } = string.Empty;
+
+    [Required, StringLength(255, MinimumLength = 8)]
+    public string NewPassword { get; set; } = string.Empty;
+}
+
+public class ChangePasswordDto
+{
+    [Required]
+    public string CurrentPassword { get; set; } = string.Empty;
 
     [Required, StringLength(255, MinimumLength = 8)]
     public string NewPassword { get; set; } = string.Empty;
@@ -532,4 +544,50 @@ public class ApiErrorResponse
     public int StatusCode { get; set; }
     public string Message { get; set; } = string.Empty;
     public IEnumerable<string>? Errors { get; set; }
+}
+
+// ═══════════════════════════════════════════
+//  API KEY POOL DTOs
+// ═══════════════════════════════════════════
+
+public class CreateApiKeyDto
+{
+    [Required]
+    public string Provider { get; set; } = string.Empty;
+
+    [Required, StringLength(100)]
+    public string Label { get; set; } = string.Empty;
+
+    [Required]
+    public string KeyValue { get; set; } = string.Empty;
+
+    [Required, StringLength(100)]
+    public string Model { get; set; } = string.Empty;
+}
+
+public class UpdateApiKeyDto
+{
+    [StringLength(100)]
+    public string? Label { get; set; }
+
+    public string? KeyValue { get; set; }
+
+    [StringLength(100)]
+    public string? Model { get; set; }
+
+    public bool? IsActive { get; set; }
+}
+
+public class ApiKeyResponseDto
+{
+    public int Id { get; set; }
+    public string Provider { get; set; } = string.Empty;
+    public string Label { get; set; } = string.Empty;
+    /// <summary>Masked key for display (only first 8 + last 4 chars shown).</summary>
+    public string MaskedKey { get; set; } = string.Empty;
+    public string Model { get; set; } = string.Empty;
+    public bool IsActive { get; set; }
+    public int UsageCount { get; set; }
+    public DateTime? LastUsedAt { get; set; }
+    public DateTime CreatedAt { get; set; }
 }

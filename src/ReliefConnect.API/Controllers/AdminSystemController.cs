@@ -231,21 +231,25 @@ public class AdminSystemController : ControllerBase
         var total = await _db.SystemAnnouncements.CountAsync();
         var announcements = await _db.SystemAnnouncements
             .AsNoTracking()
-            .OrderByDescending(a => a.CreatedAt)
+            .Join(
+                _db.Users.AsNoTracking(),
+                a => a.AdminId,
+                u => u.Id,
+                (a, u) => new { Announcement = a, AdminName = u.FullName ?? u.UserName ?? "Admin" }
+            )
+            .OrderByDescending(x => x.Announcement.CreatedAt)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(a => new AnnouncementDto
+            .Select(x => new AnnouncementDto
             {
-                Id        = a.Id,
-                Title     = a.Title,
-                Content   = a.Content,
-                AdminId   = a.AdminId,
-                AdminName = a.AdminId != null
-                    ? _db.Users.Where(u => u.Id == a.AdminId).Select(u => u.FullName ?? u.UserName ?? "Admin").FirstOrDefault() ?? "Admin"
-                    : "Admin",
-                CreatedAt = a.CreatedAt,
-                ExpiresAt = a.ExpiresAt,
-                IsExpired = a.ExpiresAt != null && a.ExpiresAt < now
+                Id        = x.Announcement.Id,
+                Title     = x.Announcement.Title,
+                Content   = x.Announcement.Content,
+                AdminId   = x.Announcement.AdminId,
+                AdminName = x.AdminName,
+                CreatedAt = x.Announcement.CreatedAt,
+                ExpiresAt = x.Announcement.ExpiresAt,
+                IsExpired = x.Announcement.ExpiresAt != null && x.Announcement.ExpiresAt < now
             })
             .ToListAsync();
 

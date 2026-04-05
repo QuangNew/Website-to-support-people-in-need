@@ -44,6 +44,10 @@ public class PingFlagMonitorService : BackgroundService
 
     private async Task CheckUnconfirmedPings(CancellationToken ct)
     {
+        // Check cancellation before starting — don't pass ct to Npgsql operations
+        // because cancelling mid-query corrupts the connector (ObjectDisposedException)
+        if (ct.IsCancellationRequested) return;
+
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
@@ -55,8 +59,11 @@ public class PingFlagMonitorService : BackgroundService
             .Where(p => p.Type == MapItemType.SOS
                      && p.Status == SOSStatus.Pending
                      && p.CreatedAt <= threshold)
-            .ToListAsync(ct);
+            .ToListAsync(CancellationToken.None);
 
+        if (ct.IsCancellationRequested) return;
+
+        var toAdd = new List<PingFlag>();
         var updated = 0;
         foreach (var ping in pingsToFlag)
         {
@@ -64,15 +71,15 @@ public class PingFlagMonitorService : BackgroundService
 
             if (ping.PingFlag == null)
             {
-                // Create PingFlag if it doesn't exist
-                ping.PingFlag = new PingFlag
+                // Create PingFlag if it doesn't exist — batch add to avoid
+                // duplicate INSERT when entities share a tracking context
+                toAdd.Add(new PingFlag
                 {
                     PingId = ping.Id,
                     IsBlinking = true,
                     UnconfirmedTimeMinutes = minutesUnconfirmed,
                     LastCheckedAt = DateTime.UtcNow
-                };
-                db.PingFlags.Add(ping.PingFlag);
+                });
                 updated++;
             }
             else if (!ping.PingFlag.IsBlinking)
@@ -91,10 +98,24 @@ public class PingFlagMonitorService : BackgroundService
             }
         }
 
-        if (updated > 0)
+        if (updated > 0 || toAdd.Count > 0)
         {
-            await db.SaveChangesAsync(ct);
-            _logger.LogInformation("PingFlagMonitor: Set {Count} pings to blinking", updated);
+            if (ct.IsCancellationRequested) return;
+
+            if (toAdd.Count > 0)
+                db.PingFlags.AddRange(toAdd);
+
+            try
+            {
+                // Use CancellationToken.None — cancelling mid-save disposes the Npgsql connection
+                // and throws ObjectDisposedException on ManualResetEventSlim
+                await db.SaveChangesAsync(CancellationToken.None);
+                _logger.LogInformation("PingFlagMonitor: Set {Count} pings to blinking", updated + toAdd.Count);
+            }
+            catch (DbUpdateException ex) when (ex.InnerException?.Message?.Contains("duplicate key") == true)
+            {
+                _logger.LogWarning("PingFlagMonitor: duplicate PingFlag detected, skipping batch");
+            }
         }
     }
 }

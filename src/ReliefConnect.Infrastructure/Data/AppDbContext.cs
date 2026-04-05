@@ -27,6 +27,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<Report> Reports => Set<Report>();
     public DbSet<HelpOffer> HelpOffers => Set<HelpOffer>();
     public DbSet<SystemAnnouncement> SystemAnnouncements => Set<SystemAnnouncement>();
+    public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -331,6 +332,15 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
                   .OnDelete(DeleteBehavior.SetNull);
 
             entity.HasIndex(p => p.AssignedVolunteerId);
+        });
+
+        // ═══════ API KEY ═══════
+        builder.Entity<ApiKey>(entity =>
+        {
+            entity.HasKey(k => k.Id);
+            entity.Property(k => k.Provider).HasConversion<string>().HasMaxLength(20);
+            entity.Property(k => k.Label).HasMaxLength(100);
+            entity.Property(k => k.Model).HasMaxLength(100);
         });
 
         // ═══════ APPLICATION USER (Suspension index) ═══════

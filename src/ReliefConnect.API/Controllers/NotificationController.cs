@@ -14,7 +14,7 @@ namespace ReliefConnect.API.Controllers;
 /// All endpoints are scoped strictly to the calling user; no cross-user access is possible.
 /// </summary>
 [ApiController]
-[Route("api/[controller]")]
+[Route("api/notifications")]
 [Authorize]
 public class NotificationController : ControllerBase
 {

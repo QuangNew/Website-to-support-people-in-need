@@ -5,11 +5,12 @@ import {
   LogOut, Eye,
   ArrowLeft, Search, CheckCircle2, XCircle, AlertTriangle,
   Heart, BookOpen, Stethoscope, Home, Activity, ShieldCheck, Plus, Edit2,
-  MapPin, Package,
+  MapPin, Package, X, Key,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
 import { adminApi } from '../services/api';
+import { VIETNAM_PROVINCES } from '../utils/vietnamProvinces';
 import { mapApi, supplyApi } from '../services/api';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuthStore } from '../stores/authStore';
@@ -60,7 +61,7 @@ function downloadBlob(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
-type Tab = 'stats' | 'verifications' | 'users' | 'posts' | 'reports' | 'logs' | 'announcements' | 'zones' | 'supply';
+type Tab = 'stats' | 'verifications' | 'users' | 'posts' | 'reports' | 'logs' | 'announcements' | 'zones' | 'supply' | 'apikeys';
 
 // ═══════════════════════════════════════════
 //  ADMIN PAGE
@@ -88,6 +89,7 @@ export default function AdminPage() {
     { key: 'announcements', label: 'Announcements', icon: Megaphone },
     { key: 'zones', label: 'Zones', icon: MapPin },
     { key: 'supply', label: 'Supply', icon: Package },
+    { key: 'apikeys', label: 'API Keys', icon: Key },
   ];
 
   return (
@@ -135,6 +137,7 @@ export default function AdminPage() {
           {activeTab === 'announcements' && <AnnouncementsPanel />}
           {activeTab === 'zones' && <ZonesPanel />}
           {activeTab === 'supply' && <SupplyPanel />}
+          {activeTab === 'apikeys' && <ApiKeysPanel />}
         </div>
       </main>
     </div>
@@ -920,6 +923,7 @@ function LogsPanel() {
   const [loadingChildren, setLoadingChildren] = useState<Set<number>>(new Set());
   const [exportingUsers, setExportingUsers] = useState(false);
   const [exportingLogs, setExportingLogs] = useState(false);
+  const [detailLog, setDetailLog] = useState<SystemLog | null>(null);
   const pageSize = 30;
 
   const load = useCallback(() => {
@@ -1063,7 +1067,8 @@ function LogsPanel() {
           <tbody>
             {logs.map((l) => (
               <>
-                <tr key={l.id}>
+                <tr key={l.id} style={l.hasChildren ? { cursor: 'pointer' } : undefined}
+                  onClick={() => { if (l.hasChildren) toggleExpand(l.id); else setDetailLog(l); }}>
                   <td>
                     {l.hasChildren && (
                       <button
@@ -1089,7 +1094,9 @@ function LogsPanel() {
                 {expandedIds.has(l.id) && childrenMap[l.id]?.map((child) => (
                   <tr
                     key={`child-${child.id}`}
-                    style={{ background: 'var(--bg-subtle, rgba(0,0,0,0.04))' }}
+                    style={{ background: 'var(--bg-subtle, rgba(0,0,0,0.04))', cursor: 'pointer' }}
+                    onClick={() => setDetailLog(child)}
+                    title="Click to view details"
                   >
                     <td></td>
                     <td>
@@ -1108,7 +1115,9 @@ function LogsPanel() {
                       </span>
                     </td>
                     <td className="admin-td-content" style={{ color: 'var(--text-secondary)' }}>
-                      {child.details || '-'}
+                      {child.details
+                        ? child.details.length > 80 ? child.details.slice(0, 80) + '…' : child.details
+                        : '-'}
                     </td>
                     <td style={{ color: 'var(--text-muted)' }}>{child.userName || '-'}</td>
                     <td className="admin-td-date" style={{ color: 'var(--text-muted)' }}>
@@ -1130,6 +1139,57 @@ function LogsPanel() {
           <button className="btn btn-ghost btn-sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>← Prev</button>
           <span className="admin-page-info">{page} / {totalPages}</span>
           <button className="btn btn-ghost btn-sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>Next →</button>
+        </div>
+      )}
+
+      {/* Log detail overlay */}
+      {detailLog && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, zIndex: 1000,
+            background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+          onClick={() => setDetailLog(null)}
+        >
+          <div
+            className="glass-card animate-fade-in"
+            style={{
+              padding: 'var(--sp-6)', maxWidth: 560, width: '90%', maxHeight: '80vh', overflow: 'auto',
+              borderRadius: 'var(--radius-lg)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--sp-4)' }}>
+              <h4 style={{ margin: 0 }}>Log #{detailLog.id}</h4>
+              <button className="btn btn-ghost btn-sm" onClick={() => setDetailLog(null)}>
+                <X size={16} />
+              </button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
+              <div>
+                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginBottom: 2 }}>Action</div>
+                <span className="admin-badge admin-badge--action">{detailLog.action}</span>
+              </div>
+              <div>
+                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginBottom: 2 }}>User</div>
+                <div style={{ fontWeight: 500 }}>{detailLog.userName || '-'}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginBottom: 2 }}>Date</div>
+                <div>{new Date(detailLog.createdAt).toLocaleString()}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginBottom: 2 }}>Details</div>
+                <div style={{
+                  background: 'var(--bg-subtle, rgba(0,0,0,0.04))', padding: 'var(--sp-3)',
+                  borderRadius: 'var(--radius-md)', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                  fontFamily: 'monospace', fontSize: 'var(--text-sm)', lineHeight: 1.6,
+                }}>
+                  {detailLog.details || 'No details available.'}
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -1389,6 +1449,7 @@ function ZonesPanel() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState<ZoneFormState>(emptyZoneForm);
   const [saving, setSaving] = useState(false);
+  const [selectedProvince, setSelectedProvince] = useState('');
 
   const load = useCallback(() => {
     setLoading(true);
@@ -1403,13 +1464,28 @@ function ZonesPanel() {
   const openCreate = () => {
     setEditingId(null);
     setForm(emptyZoneForm);
+    setSelectedProvince('');
     setShowForm(true);
   };
 
   const openEdit = (z: ZoneRow) => {
     setEditingId(z.id);
     setForm({ name: z.name, boundaryGeoJson: z.boundaryGeoJson, riskLevel: z.riskLevel });
+    setSelectedProvince('');
     setShowForm(true);
+  };
+
+  const handleProvinceSelect = (provinceName: string) => {
+    setSelectedProvince(provinceName);
+    if (!provinceName) return;
+    const province = VIETNAM_PROVINCES.find((p) => p.name === provinceName);
+    if (province) {
+      setForm((f) => ({
+        ...f,
+        name: province.nameVi,
+        boundaryGeoJson: province.boundaryGeoJson,
+      }));
+    }
   };
 
   const handleSave = async () => {
@@ -1479,6 +1555,27 @@ function ZonesPanel() {
             {editingId !== null ? 'Edit Zone' : 'New Zone'}
           </h4>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
+            {editingId === null && (
+              <div>
+                <label style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', display: 'block', marginBottom: 'var(--sp-1)' }}>
+                  Select Province / City:
+                </label>
+                <select
+                  className="admin-select"
+                  value={selectedProvince}
+                  onChange={(e) => handleProvinceSelect(e.target.value)}
+                  style={{ width: '100%' }}
+                >
+                  <option value="">— Choose a province/city —</option>
+                  {VIETNAM_PROVINCES.map((p) => (
+                    <option key={p.name} value={p.name}>{p.nameVi}</option>
+                  ))}
+                </select>
+                <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', margin: 'var(--sp-1) 0 0' }}>
+                  Or enter custom name and GeoJSON below.
+                </p>
+              </div>
+            )}
             <input
               type="text"
               className="admin-select"
@@ -1761,6 +1858,263 @@ function SupplyPanel() {
             ))}
             {supplies.length === 0 && (
               <tr><td colSpan={6} style={{ textAlign: 'center', padding: 'var(--sp-8)', color: 'var(--text-muted)' }}>No supply items yet</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════
+//  API KEYS PANEL
+// ═══════════════════════════════════════════
+
+interface ApiKeyRow {
+  id: number;
+  provider: string;
+  label: string;
+  maskedKey: string;
+  model: string;
+  isActive: boolean;
+  usageCount: number;
+  lastUsedAt: string | null;
+  createdAt: string;
+}
+
+const PROVIDERS = ['Gemini', 'Claude', 'GPT'] as const;
+
+const emptyKeyForm = { provider: 'Gemini' as string, label: '', keyValue: '', model: '' };
+
+function ApiKeysPanel() {
+  const { t } = useLanguage();
+  const [keys, setKeys] = useState<ApiKeyRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [form, setForm] = useState(emptyKeyForm);
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    adminApi.getApiKeys()
+      .then((res) => setKeys(res.data as ApiKeyRow[]))
+      .catch(() => toast.error(t('common.error')))
+      .finally(() => setLoading(false));
+  }, [t]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const openCreate = () => {
+    setEditingId(null);
+    setForm(emptyKeyForm);
+    setShowForm(true);
+  };
+
+  const openEdit = (k: ApiKeyRow) => {
+    setEditingId(k.id);
+    setForm({ provider: k.provider, label: k.label, keyValue: '', model: k.model });
+    setShowForm(true);
+  };
+
+  const handleSave = async () => {
+    if (!form.label.trim() || !form.model.trim()) {
+      toast.error('Label and Model are required');
+      return;
+    }
+    if (editingId === null && !form.keyValue.trim()) {
+      toast.error('API key value is required');
+      return;
+    }
+    setSaving(true);
+    try {
+      if (editingId !== null) {
+        const payload: Record<string, unknown> = { label: form.label, model: form.model };
+        if (form.keyValue.trim()) payload.keyValue = form.keyValue;
+        await adminApi.updateApiKey(editingId, payload as Parameters<typeof adminApi.updateApiKey>[1]);
+        toast.success('API key updated');
+      } else {
+        await adminApi.createApiKey(form);
+        toast.success('API key created');
+      }
+      setShowForm(false);
+      setForm(emptyKeyForm);
+      setEditingId(null);
+      load();
+    } catch {
+      toast.error(t('common.error'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleToggle = async (k: ApiKeyRow) => {
+    try {
+      await adminApi.updateApiKey(k.id, { isActive: !k.isActive });
+      toast.success(k.isActive ? 'Key deactivated' : 'Key activated');
+      load();
+    } catch {
+      toast.error(t('common.error'));
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!confirm('Delete this API key permanently?')) return;
+    try {
+      await adminApi.deleteApiKey(id);
+      toast.success('API key deleted');
+      load();
+    } catch {
+      toast.error(t('common.error'));
+    }
+  };
+
+  const providerColor = (p: string) => {
+    switch (p) {
+      case 'Gemini': return '#4285F4';
+      case 'Claude': return '#D97706';
+      case 'GPT': return '#10A37F';
+      default: return 'var(--text-secondary)';
+    }
+  };
+
+  if (loading) return <div className="admin-loading"><span className="spinner" /> Loading…</div>;
+
+  return (
+    <div className="animate-fade-in-up">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--sp-4)' }}>
+        <div>
+          <h2 style={{ margin: 0 }}>API Key Pool</h2>
+          <p style={{ margin: 0, fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+            Manage API keys for AI providers. Active keys are used in round-robin.
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: 'var(--sp-2)' }}>
+          <button className="btn btn-ghost btn-sm" onClick={load}><RefreshCw size={14} /> Refresh</button>
+          <button className="btn btn-primary btn-sm" onClick={openCreate}><Plus size={14} /> Add Key</button>
+        </div>
+      </div>
+
+      {showForm && (
+        <div className="glass-card" style={{ marginBottom: 'var(--sp-4)', padding: 'var(--sp-4)' }}>
+          <h3 style={{ margin: '0 0 var(--sp-3) 0' }}>{editingId !== null ? 'Edit API Key' : 'Add API Key'}</h3>
+          <div style={{ display: 'flex', gap: 'var(--sp-3)', flexWrap: 'wrap' }}>
+            <div style={{ flex: 1, minWidth: 120 }}>
+              <label style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>Provider</label>
+              <select
+                className="admin-select"
+                value={form.provider}
+                onChange={(e) => setForm((f) => ({ ...f, provider: e.target.value }))}
+                disabled={editingId !== null}
+                style={{ width: '100%' }}
+              >
+                {PROVIDERS.map((p) => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </div>
+            <div style={{ flex: 1, minWidth: 150 }}>
+              <label style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>Label</label>
+              <input
+                className="admin-select"
+                value={form.label}
+                onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))}
+                placeholder="e.g. Main Gemini Key"
+                style={{ width: '100%' }}
+              />
+            </div>
+            <div style={{ flex: 2, minWidth: 200 }}>
+              <label style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+                API Key {editingId !== null && '(leave blank to keep current)'}
+              </label>
+              <input
+                className="admin-select"
+                type="password"
+                value={form.keyValue}
+                onChange={(e) => setForm((f) => ({ ...f, keyValue: e.target.value }))}
+                placeholder={editingId !== null ? '••••••••' : 'Paste API key here'}
+                style={{ width: '100%' }}
+              />
+            </div>
+            <div style={{ flex: 1, minWidth: 150 }}>
+              <label style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>Model</label>
+              <input
+                className="admin-select"
+                value={form.model}
+                onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))}
+                placeholder="e.g. gemini-2.5-flash"
+                style={{ width: '100%' }}
+              />
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 'var(--sp-2)', justifyContent: 'flex-end', marginTop: 'var(--sp-3)' }}>
+            <button className="btn btn-ghost btn-sm" onClick={() => { setShowForm(false); setForm(emptyKeyForm); setEditingId(null); }} disabled={saving}>
+              Cancel
+            </button>
+            <button className="btn btn-primary btn-sm" onClick={handleSave} disabled={saving}>
+              {saving ? <span className="spinner" style={{ width: 14, height: 14 }} /> : null}
+              {saving ? 'Saving…' : editingId !== null ? 'Update' : 'Create'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="admin-table-wrap">
+        <table className="admin-table">
+          <thead>
+            <tr>
+              <th>Provider</th>
+              <th>Label</th>
+              <th>Masked Key</th>
+              <th>Model</th>
+              <th>Status</th>
+              <th>Usage</th>
+              <th>Last Used</th>
+              <th>{t('admin.action')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {keys.map((k) => (
+              <tr key={k.id} style={{ opacity: k.isActive ? 1 : 0.55 }}>
+                <td>
+                  <span style={{
+                    display: 'inline-block',
+                    padding: '2px 8px',
+                    borderRadius: 12,
+                    fontSize: 'var(--text-xs)',
+                    fontWeight: 600,
+                    color: '#fff',
+                    background: providerColor(k.provider),
+                  }}>
+                    {k.provider}
+                  </span>
+                </td>
+                <td style={{ fontWeight: 600 }}>{k.label}</td>
+                <td style={{ fontFamily: 'monospace', fontSize: 'var(--text-sm)' }}>{k.maskedKey}</td>
+                <td style={{ fontSize: 'var(--text-sm)' }}>{k.model}</td>
+                <td>
+                  <button
+                    className={`btn btn-sm ${k.isActive ? 'btn-ghost' : 'btn-ghost'}`}
+                    style={{ color: k.isActive ? 'var(--success)' : 'var(--text-muted)' }}
+                    onClick={() => handleToggle(k)}
+                    title={k.isActive ? 'Click to deactivate' : 'Click to activate'}
+                  >
+                    {k.isActive ? <CheckCircle2 size={14} /> : <XCircle size={14} />}
+                    {k.isActive ? ' Active' : ' Inactive'}
+                  </button>
+                </td>
+                <td style={{ textAlign: 'center' }}>{k.usageCount.toLocaleString()}</td>
+                <td className="admin-td-date">
+                  {k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleString() : '—'}
+                </td>
+                <td>
+                  <div className="admin-action-btns">
+                    <button className="btn btn-ghost btn-sm" title="Edit" onClick={() => openEdit(k)}><Edit2 size={14} /></button>
+                    <button className="btn btn-ghost btn-sm btn-danger-text" title="Delete" onClick={() => handleDelete(k.id)}><Trash2 size={14} /></button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {keys.length === 0 && (
+              <tr><td colSpan={8} style={{ textAlign: 'center', padding: 'var(--sp-8)', color: 'var(--text-muted)' }}>No API keys configured. Add one to get started.</td></tr>
             )}
           </tbody>
         </table>

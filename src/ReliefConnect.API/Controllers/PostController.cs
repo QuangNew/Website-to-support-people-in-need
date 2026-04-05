@@ -140,47 +140,59 @@ public class PostController : ControllerBase
         var userId = GetUserId();
         if (userId == null) return Unauthorized();
 
-        var post = await _db.Posts.FindAsync(postId);
-        if (post == null) return NotFound();
+        // Lightweight existence check — no full entity load
+        var postExists = await _db.Posts.AnyAsync(p => p.Id == postId);
+        if (!postExists) return NotFound();
 
         if (!Enum.TryParse<ReactionType>(dto.Type, true, out var reactionType))
             return BadRequest(new { message = "Loại reaction không hợp lệ. Chọn: Like, Love, Pray" });
 
-        var existing = await _db.Reactions
-            .FirstOrDefaultAsync(r => r.PostId == postId && r.UserId == userId);
-
         bool wasToggledOff = false;
-        ReactionType? previousType = null;
 
-        if (existing != null)
+        // Retry once on duplicate-key race condition (double-click)
+        for (int attempt = 0; attempt < 2; attempt++)
         {
-            previousType = existing.Type;
-            if (existing.Type == reactionType)
+            var existing = await _db.Reactions
+                .FirstOrDefaultAsync(r => r.PostId == postId && r.UserId == userId);
+
+            if (existing != null)
             {
-                // Toggle off — remove reaction
-                _db.Reactions.Remove(existing);
-                wasToggledOff = true;
+                if (existing.Type == reactionType)
+                {
+                    _db.Reactions.Remove(existing);
+                    wasToggledOff = true;
+                }
+                else
+                {
+                    existing.Type = reactionType;
+                }
             }
             else
             {
-                // Change reaction type
-                existing.Type = reactionType;
+                _db.Reactions.Add(new Reaction
+                {
+                    PostId = postId,
+                    UserId = userId,
+                    Type = reactionType,
+                    CreatedAt = DateTime.UtcNow
+                });
+            }
+
+            try
+            {
+                await _db.SaveChangesAsync();
+                break; // success
+            }
+            catch (DbUpdateException ex) when (ex.InnerException is Npgsql.PostgresException pg && pg.SqlState == "23505")
+            {
+                if (attempt == 1) throw; // second attempt failed, give up
+                // Detach tracked entries so the retry starts clean
+                foreach (var entry in _db.ChangeTracker.Entries().ToList())
+                    entry.State = Microsoft.EntityFrameworkCore.EntityState.Detached;
             }
         }
-        else
-        {
-            _db.Reactions.Add(new Reaction
-            {
-                PostId = postId,
-                UserId = userId,
-                Type = reactionType,
-                CreatedAt = DateTime.UtcNow
-            });
-        }
 
-        await _db.SaveChangesAsync();
-
-        // Single query to get all counts and user reaction
+        // Single aggregation query for all counts
         var reactionData = await _db.Reactions
             .AsNoTracking()
             .Where(r => r.PostId == postId)
@@ -188,7 +200,6 @@ public class PostController : ControllerBase
             .Select(g => new { Type = g.Key, Count = g.Count() })
             .ToListAsync();
 
-        // User reaction: null if toggled off, otherwise the current reaction type
         var userReaction = wasToggledOff ? (ReactionType?)null : reactionType;
 
         return Ok(new
@@ -252,8 +263,8 @@ public class PostController : ControllerBase
         var userId = GetUserId();
         if (userId == null) return Unauthorized();
 
-        var post = await _db.Posts.FindAsync(postId);
-        if (post == null) return NotFound();
+        var postExists = await _db.Posts.AnyAsync(p => p.Id == postId);
+        if (!postExists) return NotFound();
 
         var comment = new Comment
         {
@@ -266,15 +277,21 @@ public class PostController : ControllerBase
         _db.Comments.Add(comment);
         await _db.SaveChangesAsync();
 
-        var user = await _db.Users.FindAsync(userId);
+        // Lightweight projection — no full entity load
+        var userInfo = await _db.Users
+            .AsNoTracking()
+            .Where(u => u.Id == userId)
+            .Select(u => new { Name = u.FullName ?? u.UserName ?? "Ẩn danh", u.AvatarUrl })
+            .FirstOrDefaultAsync();
+
         return CreatedAtAction(nameof(GetComments), new { postId }, new CommentResponseDto
         {
             Id = comment.Id,
             Content = comment.Content,
             CreatedAt = comment.CreatedAt,
             UserId = userId,
-            UserName = user?.FullName ?? user?.UserName ?? "Ẩn danh",
-            UserAvatar = user?.AvatarUrl
+            UserName = userInfo?.Name ?? "Ẩn danh",
+            UserAvatar = userInfo?.AvatarUrl
         });
     }
 
@@ -304,19 +321,27 @@ public class PostController : ControllerBase
         var userId = GetUserId();
         if (userId == null) return Unauthorized();
 
-        var post = await _db.Posts.FindAsync(id);
-        if (post == null) return NotFound();
+        // Single lightweight query — check existence + ownership
+        var postInfo = await _db.Posts
+            .AsNoTracking()
+            .Where(p => p.Id == id)
+            .Select(p => new { p.AuthorId })
+            .FirstOrDefaultAsync();
 
-        // Only author or admin can delete
-        if (post.AuthorId != userId)
+        if (postInfo == null) return NotFound();
+
+        if (postInfo.AuthorId != userId)
         {
-            var user = await _db.Users.FindAsync(userId);
-            if (user?.Role != RoleEnum.Admin)
+            var userRole = await _db.Users
+                .AsNoTracking()
+                .Where(u => u.Id == userId)
+                .Select(u => u.Role)
+                .FirstOrDefaultAsync();
+            if (userRole != RoleEnum.Admin)
                 return Forbid();
         }
 
-        _db.Posts.Remove(post);
-        await _db.SaveChangesAsync();
+        await _db.Posts.Where(p => p.Id == id).ExecuteDeleteAsync();
         return NoContent();
     }
 

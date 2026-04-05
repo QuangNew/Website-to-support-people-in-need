@@ -234,6 +234,35 @@ public class AuthController : ControllerBase
     }
 
     // ═══════════════════════════════════════════
+    //  CHANGE PASSWORD (authenticated)
+    // ═══════════════════════════════════════════
+
+    [HttpPost("change-password")]
+    [Authorize]
+    public async Task<ActionResult> ChangePassword([FromBody] ChangePasswordDto dto)
+    {
+        var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized();
+
+        var user = await _userManager.FindByIdAsync(userId);
+        if (user == null)
+            return Unauthorized();
+
+        var result = await _userManager.ChangePasswordAsync(user, dto.CurrentPassword, dto.NewPassword);
+        if (!result.Succeeded)
+            return BadRequest(new ApiErrorResponse
+            {
+                StatusCode = 400,
+                Message = "Đổi mật khẩu thất bại.",
+                Errors = result.Errors.Select(e => e.Description)
+            });
+
+        _logger.LogInformation("Password changed for user: {UserId}", userId);
+        return Ok(new { message = "Đổi mật khẩu thành công!" });
+    }
+
+    // ═══════════════════════════════════════════
     //  LOGIN
     // ═══════════════════════════════════════════
 
@@ -502,6 +531,9 @@ public class AuthController : ControllerBase
         user.VerificationStatus = VerificationStatus.Pending;
         user.RequestedRole = dto.RequestedRole;
         user.VerificationReason = dto.Reason;
+        user.VerificationImageUrls = dto.ImageUrls != null && dto.ImageUrls.Count > 0
+            ? string.Join(",", dto.ImageUrls.Take(5))
+            : null;
         user.RequestedRoleExpiry = DateTime.UtcNow.AddYears(1).AddMonths(6);
         await _userManager.UpdateAsync(user);
 

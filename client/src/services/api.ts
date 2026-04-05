@@ -64,14 +64,17 @@ export const authApi = {
   updateProfile: (data: { fullName?: string; avatarUrl?: string }) =>
     api.put('/auth/profile', data),
 
-  submitVerification: (data: { requestedRole: string; reason?: string }) =>
+  submitVerification: (data: { requestedRole: string; reason?: string; imageUrls?: string[] }) =>
     api.post('/auth/verify-role', data),
 
   forgotPassword: (data: { email: string }) =>
     api.post('/auth/forgot-password', data),
 
-  resetPassword: (data: { token: string; newPassword: string }) =>
+  resetPassword: (data: { email: string; token: string; newPassword: string }) =>
     api.post('/auth/reset-password', data),
+
+  changePassword: (data: { currentPassword: string; newPassword: string }) =>
+    api.post('/auth/change-password', data),
 };
 
 // ═══════════════════════════════════════════
@@ -281,6 +284,19 @@ export const adminApi = {
 
   forceResolveSOS: (pingId: number) =>
     api.post(`/admin/system/sos/${pingId}/force-resolve`),
+
+  // ── API Key Pool (ApiKeyController: /api/admin/api-keys) ──
+  getApiKeys: () =>
+    api.get('/admin/api-keys'),
+
+  createApiKey: (data: { provider: string; label: string; keyValue: string; model: string }) =>
+    api.post('/admin/api-keys', data),
+
+  updateApiKey: (id: number, data: { label?: string; keyValue?: string; model?: string; isActive?: boolean }) =>
+    api.put(`/admin/api-keys/${id}`, data),
+
+  deleteApiKey: (id: number) =>
+    api.delete(`/admin/api-keys/${id}`),
 };
 
 // ═══════════════════════════════════════════
@@ -301,6 +317,14 @@ export const notificationApi = {
 
   deleteNotification: (id: number) =>
     api.delete(`/notifications/${id}`),
+};
+
+// ═══════════════════════════════════════════
+//  ANNOUNCEMENT API (public, authenticated)
+// ═══════════════════════════════════════════
+export const announcementApi = {
+  getActive: (limit?: number) =>
+    api.get('/announcements/active', { params: { limit } }),
 };
 
 export default api;

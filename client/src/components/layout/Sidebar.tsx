@@ -19,7 +19,7 @@ import { useMapStore, type PanelType } from '../../stores/mapStore';
 import { useAuthStore } from '../../stores/authStore';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useLanguage } from '../../contexts/LanguageContext';
-import NotificationBell from '../ui/NotificationBell';
+
 
 interface NavItem {
   id: PanelType | 'theme' | 'locale' | 'login' | 'logout' | 'admin' | 'guide';
@@ -123,12 +123,7 @@ export default function Sidebar() {
       {/* Spacer pushes bottom items down */}
       <div className="sidebar-spacer" />
 
-      {/* ═══ Notification Bell ═══ */}
-      {isAuthenticated && (
-        <div style={{ padding: '0 var(--sp-2)', marginBottom: 'var(--sp-1)' }}>
-          <NotificationBell />
-        </div>
-      )}
+
 
       {/* ═══ Bottom: Theme, Language, Login/Logout ═══ */}
       <div className="sidebar-bottom">

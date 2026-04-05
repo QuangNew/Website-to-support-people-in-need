@@ -7,6 +7,8 @@ import 'leaflet.markercluster/dist/MarkerCluster.css';
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
 import { useMapStore, type PingData, type PingType, type SupplyData } from '../../stores/mapStore';
 import { useTheme } from '../../contexts/ThemeContext';
+import { useLanguage } from '../../contexts/LanguageContext';
+import { ISLAND_ZONES } from '../../utils/vietnamTerritory';
 
 // ─── Vietnam bounds (rectangle covering mainland + islands, 1.2× padding) ───
 // Vietnam extent including Paracel & Spratly islands: ~6.5°N–23.4°N, ~102.1°E–117.8°E
@@ -83,6 +85,7 @@ export default function MapView() {
     supplyItems, showSupplyPoints, fetchSupplyItems,
   } = useMapStore();
   const { isDark } = useTheme();
+  const { t } = useLanguage();
 
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -95,6 +98,8 @@ export default function MapView() {
   const sosDraftMarkerRef = useRef<L.Marker | null>(null);
   const supplyLayerRef = useRef<L.LayerGroup | null>(null);
   const supplyMarkersRef = useRef<Map<number, L.Marker>>(new Map());
+  const islandMarkersRef = useRef<L.Marker[]>([]);
+  const territoryLineRef = useRef<L.Polygon | null>(null);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [errorMsg, setErrorMsg] = useState('');
 
@@ -311,14 +316,16 @@ export default function MapView() {
     for (const zone of zones) {
       if (zone.boundary.length < 3) continue;
       const color = ZONE_COLORS[zone.riskLevel] || ZONE_COLORS[3];
+      const isHighRisk = zone.riskLevel >= 4;
       const latLngs: L.LatLngExpression[] = zone.boundary.map((b) => [b.lat, b.lng]);
 
       const polygon = L.polygon(latLngs, {
-        color,
-        weight: 2,
-        opacity: 0.8,
+        color: isHighRisk ? '#ef4444' : color,
+        weight: isHighRisk ? 3 : 2,
+        opacity: isHighRisk ? 1 : 0.8,
         fillColor: color,
-        fillOpacity: isDark ? 0.2 : 0.15,
+        fillOpacity: isDark ? (isHighRisk ? 0.25 : 0.2) : (isHighRisk ? 0.2 : 0.15),
+        dashArray: isHighRisk ? undefined : '6, 4',
       });
 
       polygon.bindPopup(
@@ -449,6 +456,66 @@ export default function MapView() {
     routeMarkersRef.current.push(destMarker);
   }, [route, status, isDark]);
 
+  // ─── Vietnam territory boundary line (removed by design) ───
+  useEffect(() => {
+    if (territoryLineRef.current) { territoryLineRef.current.remove(); territoryLineRef.current = null; }
+  }, [status, isDark]);
+
+  // ─── Hoang Sa & Truong Sa island markers ───
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || status !== 'ready') return;
+
+    // Only show Paracel & Spratly (first 2 entries)
+    const islands = ISLAND_ZONES.filter((z) => z.name === 'Paracel Islands' || z.name === 'Spratly Islands');
+
+    // Create markers if not yet created
+    if (islandMarkersRef.current.length === 0) {
+      for (const island of islands) {
+        const icon = L.divIcon({
+          className: '',
+          iconSize: [32, 32],
+          iconAnchor: [16, 16],
+          html: `<div style="width:32px;height:32px;border-radius:50%;background:#dc2626;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,0.4);cursor:pointer;border:2px solid rgba(255,255,255,0.9)"><svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='#facc15' stroke='#facc15' stroke-width='0'><polygon points='12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26'/></svg></div>`,
+        });
+
+        const marker = L.marker([island.center.lat, island.center.lng], { icon, interactive: true })
+          .bindPopup(
+            `<div style="font-family:Inter,sans-serif;padding:4px 2px;min-width:140px">
+              <strong>${island.nameVi}</strong><br/>
+              <span style="font-size:0.85em;color:#6b7280">${island.name}</span><br/>
+              <span style="font-size:0.8em;color:#3b82f6">Lãnh thổ Việt Nam 🇻🇳</span>
+            </div>`,
+            { closeButton: false }
+          );
+
+        marker.on('click', () => {
+          map.flyTo([island.center.lat, island.center.lng], 8, { duration: 1.2 });
+        });
+
+        marker.addTo(map);
+        islandMarkersRef.current.push(marker);
+      }
+    }
+
+    // Show/hide based on zoom level
+    const updateVisibility = () => {
+      const currentZoom = map.getZoom();
+      for (const m of islandMarkersRef.current) {
+        if (currentZoom >= 8) {
+          m.setOpacity(0);
+          m.closePopup();
+        } else {
+          m.setOpacity(1);
+        }
+      }
+    };
+
+    updateVisibility();
+    map.on('zoomend', updateVisibility);
+    return () => { map.off('zoomend', updateVisibility); };
+  }, [status]);
+
   // ─── Cleanup on unmount ───
   useEffect(() => {
     return () => {
@@ -470,6 +537,9 @@ export default function MapView() {
       }
       for (const marker of supplyMarkersRef.current.values()) marker.remove();
       supplyMarkersRef.current.clear();
+      for (const marker of islandMarkersRef.current) marker.remove();
+      islandMarkersRef.current = [];
+      if (territoryLineRef.current) { territoryLineRef.current.remove(); territoryLineRef.current = null; }
     };
   }, []);
 
@@ -478,9 +548,9 @@ export default function MapView() {
     return (
       <div className="map-fallback">
         <AlertCircle size={48} strokeWidth={1.5} style={{ color: 'var(--color-danger)' }} />
-        <h3>Không thể tải bản đồ</h3>
+        <h3>{t('map.loadError')}</h3>
         <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', maxWidth: 360 }}>
-          Đã xảy ra lỗi khi khởi tạo bản đồ OpenStreetMap. Kiểm tra kết nối mạng và thử lại.
+          {t('map.loadErrorDesc')}
         </p>
         <p style={{ fontSize: 'var(--text-xs)', opacity: 0.5 }}>{errorMsg}</p>
         <button
@@ -488,7 +558,7 @@ export default function MapView() {
           onClick={() => window.location.reload()}
           style={{ marginTop: 'var(--sp-2)', display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}
         >
-          <RefreshCw size={14} /> Thử lại
+          <RefreshCw size={14} /> {t('map.retry')}
         </button>
       </div>
     );
@@ -500,7 +570,7 @@ export default function MapView() {
       {status === 'loading' && (
         <div className="map-fallback" style={{ position: 'absolute', inset: 0, zIndex: 1 }}>
           <div className="spinner spinner-lg" />
-          <p>Đang tải bản đồ...</p>
+          <p>{t('map.loading')}</p>
         </div>
       )}
     </>

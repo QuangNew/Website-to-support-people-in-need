@@ -38,6 +38,9 @@ public class ApplicationUser : IdentityUser
     /// <summary>Reason provided with the latest verification submission.</summary>
     public string? VerificationReason { get; set; }
 
+    /// <summary>Comma-separated image URLs submitted with verification request.</summary>
+    public string? VerificationImageUrls { get; set; }
+
     /// <summary>When the user's current role verification expires. Null = never.</summary>
     public DateTime? RequestedRoleExpiry { get; set; }
 

@@ -17,7 +17,6 @@ import { useAuthStore } from '../../stores/authStore';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { mapApi } from '../../services/api';
 import toast from 'react-hot-toast';
-import ConfirmModal from '../ui/ConfirmModal';
 
 const TYPE_CONFIG: Record<PingType, { label: string; icon: typeof AlertTriangle; colorClass: string }> = {
   need_help: { label: 'filter.needHelp', icon: AlertTriangle, colorClass: 'text-danger' },
@@ -31,6 +30,7 @@ export default function PingDetailPanel() {
   const { user } = useAuthStore();
   const { t } = useLanguage();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const ping = useMemo(
     () => pings.find((p) => p.id === selectedPingId),
@@ -50,7 +50,7 @@ export default function PingDetailPanel() {
   };
 
   const confirmDeletePing = async () => {
-    setShowDeleteConfirm(false);
+    setDeleting(true);
     try {
       await mapApi.deletePing(Number(ping.id));
       removePing(ping.id);
@@ -62,6 +62,9 @@ export default function PingDetailPanel() {
       toast.success(t('ping.deleted') || 'Ping deleted');
     } catch {
       toast.error(t('ping.deleteFailed') || 'Failed to delete ping');
+    } finally {
+      setDeleting(false);
+      setShowDeleteConfirm(false);
     }
   };
 
@@ -209,17 +212,49 @@ export default function PingDetailPanel() {
         )}
       </div>
 
-      <ConfirmModal
-        isOpen={showDeleteConfirm}
-        onClose={() => setShowDeleteConfirm(false)}
-        onConfirm={confirmDeletePing}
-        title={t('admin.confirmDeletePing') || 'Delete this ping?'}
-        message="This action cannot be undone."
-        confirmText={t('common.delete') || 'Delete'}
-        cancelText={t('common.cancel') || 'Cancel'}
-        variant="danger"
-        loading={false}
-      />
+      {/* Inline delete confirmation */}
+      {showDeleteConfirm && (
+        <div style={{
+          marginTop: 'var(--sp-3)',
+          padding: 'var(--sp-3) var(--sp-4)',
+          borderRadius: 'var(--radius-md)',
+          background: 'color-mix(in srgb, var(--danger-500) 8%, var(--bg-primary))',
+          border: '1px solid color-mix(in srgb, var(--danger-500) 30%, transparent)',
+        }}>
+          <p style={{
+            fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--danger-600)',
+            margin: '0 0 4px',
+          }}>
+            <AlertTriangle size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} />
+            {t('admin.confirmDeletePing') || 'Xóa ping này?'}
+          </p>
+          <p style={{
+            fontSize: 'var(--text-xs)', color: 'var(--text-muted)', margin: '0 0 8px', lineHeight: 1.4,
+          }}>
+            {ping.description?.slice(0, 80)}{ping.description && ping.description.length > 80 ? '…' : ''}
+            <br />
+            <span style={{ opacity: 0.7 }}>{ping.address}</span>
+          </p>
+          <div style={{ display: 'flex', gap: 'var(--sp-2)', justifyContent: 'flex-end' }}>
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => setShowDeleteConfirm(false)}
+              disabled={deleting}
+            >
+              {t('common.cancel') || 'Hủy'}
+            </button>
+            <button
+              className="btn btn-danger btn-sm"
+              onClick={confirmDeletePing}
+              disabled={deleting}
+              style={{ display: 'flex', alignItems: 'center', gap: 4 }}
+            >
+              {deleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+              {t('common.delete') || 'Xóa'}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

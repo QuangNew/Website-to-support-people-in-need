@@ -1,39 +1,101 @@
-import { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Sparkles, LogIn, AlertTriangle } from 'lucide-react';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { Send, Bot, User, Sparkles, LogIn, AlertTriangle, RotateCcw } from 'lucide-react';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useAuthStore } from '../../stores/authStore';
 import { useMapStore } from '../../stores/mapStore';
 import { chatbotApi } from '../../services/api';
 
+const CHAT_STORAGE_KEY = 'chatpanel_messages';
+const CHAT_CONV_KEY = 'chatpanel_conversation_id';
+const MAX_CACHED_MESSAGES = 100;
+
 interface ChatMessage {
   id: number;
   role: 'user' | 'assistant';
   content: string;
-  timestamp: Date;
+  timestamp: string;
   hasSafetyWarning?: boolean;
 }
 
 export default function ChatPanel() {
-  const { t } = useLanguage();
+  const { t, locale } = useLanguage();
   const { isAuthenticated } = useAuthStore();
   const { setAuthModal } = useMapStore();
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: 1,
-      role: 'assistant',
-      content: t('chat.welcome'),
-      timestamp: new Date(),
-    },
-  ]);
+
+  const getWelcomeMessage = (): ChatMessage => ({
+    id: 1,
+    role: 'assistant',
+    content: t('chat.welcome'),
+    timestamp: new Date().toISOString(),
+  });
+
+  // Load cached messages from localStorage
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    try {
+      const stored = localStorage.getItem(CHAT_STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch { /* ignore */ }
+    return [getWelcomeMessage()];
+  });
+
+  // Load cached conversationId
+  const [conversationId, setConversationId] = useState<number | null>(() => {
+    try {
+      const stored = localStorage.getItem(CHAT_CONV_KEY);
+      return stored ? parseInt(stored, 10) : null;
+    } catch { return null; }
+  });
+
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
-  const [conversationId, setConversationId] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isTyping]);
+
+  // Debounced save to localStorage
+  const saveMessages = useCallback((msgs: ChatMessage[]) => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      try {
+        const toSave = msgs.slice(-MAX_CACHED_MESSAGES);
+        localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(toSave));
+      } catch { /* ignore */ }
+    }, 500);
+  }, []);
+
+  // Persist messages whenever they change
+  useEffect(() => {
+    saveMessages(messages);
+    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
+  }, [messages, saveMessages]);
+
+  // Persist conversationId
+  useEffect(() => {
+    if (conversationId !== null) {
+      localStorage.setItem(CHAT_CONV_KEY, String(conversationId));
+    }
+  }, [conversationId]);
+
+  // New chat handler
+  const handleNewChat = () => {
+    const confirmMessage = locale === 'vi'
+      ? 'Bạn có muốn bắt đầu cuộc trò chuyện mới? Tin nhắn cũ sẽ bị xóa.'
+      : 'Start a new conversation? Old messages will be cleared.';
+
+    if (window.confirm(confirmMessage)) {
+      localStorage.removeItem(CHAT_STORAGE_KEY);
+      localStorage.removeItem(CHAT_CONV_KEY);
+      setMessages([getWelcomeMessage()]);
+      setConversationId(null);
+    }
+  };
 
   // Create conversation on first authenticated message
   const ensureConversation = async (): Promise<number | null> => {
@@ -53,7 +115,6 @@ export default function ChatPanel() {
     const text = input.trim();
     if (!text) return;
 
-    // Require authentication for chatbot
     if (!isAuthenticated) {
       setAuthModal('login');
       return;
@@ -63,7 +124,7 @@ export default function ChatPanel() {
       id: Date.now(),
       role: 'user',
       content: text,
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
     };
 
     setMessages((prev) => [...prev, userMsg]);
@@ -71,11 +132,27 @@ export default function ChatPanel() {
     setIsTyping(true);
 
     try {
-      const convId = await ensureConversation();
+      let convId = await ensureConversation();
       if (!convId) {
         throw new Error(t('chat.errorCreateConversation'));
       }
-      const res = await chatbotApi.sendMessage(convId, { content: text });
+
+      let res;
+      try {
+        res = await chatbotApi.sendMessage(convId, { content: text });
+      } catch (sendErr: any) {
+        // If conversation not found (stale cache), create a new one and retry
+        if (sendErr?.response?.status === 404) {
+          setConversationId(null);
+          localStorage.removeItem(CHAT_CONV_KEY);
+          convId = await ensureConversation();
+          if (!convId) throw new Error(t('chat.errorCreateConversation'));
+          res = await chatbotApi.sendMessage(convId, { content: text });
+        } else {
+          throw sendErr;
+        }
+      }
+
       const botContent = res.data.content || res.data.Content;
       const hasSafetyWarning = res.data.hasSafetyWarning || res.data.HasSafetyWarning || false;
 
@@ -83,7 +160,7 @@ export default function ChatPanel() {
         id: Date.now() + 1,
         role: 'assistant',
         content: botContent,
-        timestamp: new Date(),
+        timestamp: new Date().toISOString(),
         hasSafetyWarning,
       };
       setMessages((prev) => [...prev, aiMsg]);
@@ -95,7 +172,7 @@ export default function ChatPanel() {
         id: Date.now() + 1,
         role: 'assistant',
         content: `⚠️ ${errMsg}`,
-        timestamp: new Date(),
+        timestamp: new Date().toISOString(),
       };
       setMessages((prev) => [...prev, errorReply]);
     } finally {
@@ -123,6 +200,14 @@ export default function ChatPanel() {
             <span className="chat-status">Online</span>
           </div>
         </div>
+        <button
+          className="btn btn-ghost btn-icon"
+          onClick={handleNewChat}
+          title={locale === 'vi' ? 'Cuộc trò chuyện mới' : 'New Chat'}
+          style={{ marginLeft: 'auto' }}
+        >
+          <RotateCcw size={16} />
+        </button>
       </div>
 
       {/* Messages */}
@@ -157,7 +242,7 @@ export default function ChatPanel() {
               <div className="chat-message-bubble">
                 <p>{msg.content}</p>
                 <time className="chat-message-time">
-                  {msg.timestamp.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
+                  {new Date(msg.timestamp).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
                 </time>
               </div>
             </div>

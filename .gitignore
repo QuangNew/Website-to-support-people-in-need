@@ -527,3 +527,4 @@ playwright.config.ts
 .gitnexus
 .claude
 .cocoindex_code
+client/env

@@ -154,8 +154,24 @@ export default function SocialPanel() {
 
   const handleReaction = async (postId: number, type: string) => {
     if (!isAuthenticated) { setAuthModal('login'); return; }
+
+    // Optimistic update — apply immediately for instant feedback
+    setPosts(prev => prev.map(p => {
+      if (p.id !== postId) return p;
+      const wasActive = p.userReaction === type;
+      const prevType = p.userReaction;
+      return {
+        ...p,
+        userReaction: wasActive ? undefined : type,
+        likeCount:  p.likeCount  + (type === 'Like'  ? (wasActive ? -1 : 1) : (prevType === 'Like'  ? -1 : 0)),
+        loveCount:  p.loveCount  + (type === 'Love'  ? (wasActive ? -1 : 1) : (prevType === 'Love'  ? -1 : 0)),
+        prayCount:  p.prayCount  + (type === 'Pray'  ? (wasActive ? -1 : 1) : (prevType === 'Pray'  ? -1 : 0)),
+      };
+    }));
+
     try {
       const res = await socialApi.addReaction(postId, { type });
+      // Sync with actual server counts
       setPosts(prev => prev.map(p => p.id === postId ? {
         ...p,
         likeCount: res.data.likeCount,
@@ -163,7 +179,10 @@ export default function SocialPanel() {
         prayCount: res.data.prayCount,
         userReaction: res.data.userReaction ?? undefined,
       } : p));
-    } catch { /* ignore */ }
+    } catch {
+      // Revert optimistic update on failure — refetch
+      fetchPosts();
+    }
   };
 
   const toggleComments = async (postId: number) => {

@@ -1,17 +1,23 @@
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using ReliefConnect.Core.Entities;
+using ReliefConnect.Core.Enums;
 using ReliefConnect.Core.Interfaces;
+using ReliefConnect.Infrastructure.Data;
 
 namespace ReliefConnect.Infrastructure.Services;
 
 public class GeminiService : IGeminiService
 {
     private readonly HttpClient _http;
-    private readonly string _apiKey;
-    private readonly string _model;
+    private readonly string _fallbackApiKey;
+    private readonly string _fallbackModel;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<GeminiService> _logger;
 
     private const string SYSTEM_PROMPT =
@@ -22,14 +28,66 @@ public class GeminiService : IGeminiService
         Không trả lời các nội dung nhạy cảm, chính trị, vi phạm pháp luật.
         """;
 
-    public GeminiService(IConfiguration config, ILogger<GeminiService> logger)
+    public GeminiService(IConfiguration config, IServiceScopeFactory scopeFactory, ILogger<GeminiService> logger)
     {
         _http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
-        _apiKey = config["Gemini:ApiKey"] ?? throw new InvalidOperationException("Gemini:ApiKey not configured");
-        _model = config["Gemini:Model"] ?? "gemini-2.5-flash";
+        _fallbackApiKey = config["Gemini:ApiKey"] ?? "";
+        _fallbackModel = config["Gemini:Model"] ?? "gemini-2.5-flash";
+        _scopeFactory = scopeFactory;
         _logger = logger;
 
-        _logger.LogInformation("GeminiService initialized with model: {Model}", _model);
+        _logger.LogInformation("GeminiService initialized with fallback model: {Model}", _fallbackModel);
+    }
+
+    /// <summary>
+    /// Get the best available API key from the pool (least-used active Gemini key).
+    /// Falls back to config key if pool is empty.
+    /// </summary>
+    private async Task<(string ApiKey, string Model, int? PoolKeyId)> GetApiKeyAsync()
+    {
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            var poolKey = await db.ApiKeys
+                .Where(k => k.Provider == AiProvider.Gemini && k.IsActive)
+                .OrderBy(k => k.UsageCount)
+                .FirstOrDefaultAsync();
+
+            if (poolKey != null)
+            {
+                return (poolKey.KeyValue, poolKey.Model, poolKey.Id);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to fetch API key from pool, using fallback");
+        }
+
+        if (string.IsNullOrEmpty(_fallbackApiKey))
+            throw new InvalidOperationException("No API key available (pool empty and Gemini:ApiKey not configured)");
+
+        return (_fallbackApiKey, _fallbackModel, null);
+    }
+
+    /// <summary>Track usage of a pool key after successful API call.</summary>
+    private async Task TrackUsageAsync(int keyId)
+    {
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await db.ApiKeys
+                .Where(k => k.Id == keyId)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(k => k.UsageCount, k => k.UsageCount + 1)
+                    .SetProperty(k => k.LastUsedAt, DateTime.UtcNow));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to track API key usage for key {KeyId}", keyId);
+        }
     }
 
     private static readonly string[] EmergencyKeywords =
@@ -46,7 +104,10 @@ public class GeminiService : IGeminiService
         var hasEmergencyKeyword = EmergencyKeywords.Any(keyword =>
             userMessage.Contains(keyword, StringComparison.OrdinalIgnoreCase));
 
-        var url = $"https://generativelanguage.googleapis.com/v1beta/models/{_model}:generateContent";
+        // Get API key from pool (with fallback to config)
+        var (apiKey, model, poolKeyId) = await GetApiKeyAsync();
+
+        var url = $"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent";
 
         var contents = new List<object>();
 
@@ -93,10 +154,10 @@ public class GeminiService : IGeminiService
 
         try
         {
-            _logger.LogInformation("Calling Gemini API: model={Model}, msgLen={Length}", _model, userMessage.Length);
+            _logger.LogInformation("Calling Gemini API: model={Model}, msgLen={Length}, poolKey={PoolKeyId}", model, userMessage.Length, poolKeyId);
 
             var request = new HttpRequestMessage(HttpMethod.Post, url);
-            request.Headers.Add("x-goog-api-key", _apiKey);
+            request.Headers.Add("x-goog-api-key", apiKey);
             request.Content = JsonContent.Create(requestBody);
 
             var response = await _http.SendAsync(request);
@@ -148,6 +209,11 @@ public class GeminiService : IGeminiService
             }
 
             _logger.LogInformation("Gemini responded successfully, length={Length}", text.Length);
+
+            // Track pool key usage
+            if (poolKeyId.HasValue)
+                _ = TrackUsageAsync(poolKeyId.Value);
+
             return (text, hasSafetyWarning);
         }
         catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException || !ex.CancellationToken.IsCancellationRequested)
