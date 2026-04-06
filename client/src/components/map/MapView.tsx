@@ -405,33 +405,53 @@ export default function MapView() {
     if (!mapRef.current || status !== 'ready' || !route) return;
     const map = mapRef.current;
 
-    // Draw alternative route first (underneath, gray dashed)
-    if (route.alternative && route.alternative.length > 1) {
-      const altPolyline = L.polyline(route.alternative, {
-        color: isDark ? '#6b7280' : '#9ca3af',
-        weight: 5,
-        opacity: 0.5,
-        dashArray: '10, 8',
+    const altColors = [
+      isDark ? '#a78bfa' : '#7c3aed', // Alt 1: purple
+      isDark ? '#34d399' : '#059669', // Alt 2: green
+    ];
+
+    // Draw alternative routes first (underneath, dashed)
+    route.alternatives.forEach((alt, idx) => {
+      if (alt.coordinates.length <= 1) return;
+      const isSelected = route.selectedIndex === idx + 1;
+      const altPolyline = L.polyline(alt.coordinates, {
+        color: altColors[idx] || (isDark ? '#6b7280' : '#9ca3af'),
+        weight: isSelected ? 6 : 4,
+        opacity: isSelected ? 0.85 : 0.4,
+        dashArray: isSelected ? undefined : '10, 8',
         lineCap: 'round',
         lineJoin: 'round',
       }).addTo(map);
+      altPolyline.on('click', () => {
+        const { selectRouteIndex } = useMapStore.getState();
+        selectRouteIndex(idx + 1);
+      });
       routeLayersRef.current.push(altPolyline);
-    }
+    });
 
-    // Draw primary route (blue, solid)
+    // Draw primary route
     if (route.coordinates.length > 1) {
+      const isSelected = route.selectedIndex === 0;
       const primaryPolyline = L.polyline(route.coordinates, {
         color: isDark ? '#60a5fa' : '#2563eb',
-        weight: 5,
-        opacity: 0.85,
+        weight: isSelected ? 6 : 4,
+        opacity: isSelected ? 0.85 : 0.4,
+        dashArray: isSelected ? undefined : '10, 8',
         lineCap: 'round',
         lineJoin: 'round',
       }).addTo(map);
+      primaryPolyline.on('click', () => {
+        const { selectRouteIndex } = useMapStore.getState();
+        selectRouteIndex(0);
+      });
       routeLayersRef.current.push(primaryPolyline);
 
-      // Fit map to route bounds with padding
-      const bounds = primaryPolyline.getBounds();
-      map.fitBounds(bounds, { padding: [60, 60] });
+      // Fit map to selected route bounds
+      const selectedCoords = route.selectedIndex === 0
+        ? route.coordinates
+        : route.alternatives[route.selectedIndex - 1]?.coordinates || route.coordinates;
+      const fitPolyline = L.polyline(selectedCoords);
+      map.fitBounds(fitPolyline.getBounds(), { padding: [60, 60] });
     }
 
     // Origin marker (blue circle — user's location)

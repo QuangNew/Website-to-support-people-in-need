@@ -53,10 +53,32 @@ public class ChatbotController : ControllerBase
     /// Send a message to the chatbot and get an AI response.
     /// </summary>
     [HttpPost("conversations/{conversationId}/messages")]
+    [RequestSizeLimit(6_000_000)] // 6MB to accommodate base64-encoded images
     public async Task<ActionResult<MessageResponseDto>> SendMessage(int conversationId, [FromBody] SendMessageDto dto)
     {
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (userId == null) return Unauthorized();
+
+        // Validate image fields: both must be present or both absent
+        var hasBase64 = !string.IsNullOrEmpty(dto.ImageBase64);
+        var hasMime = !string.IsNullOrEmpty(dto.ImageMimeType);
+        if (hasBase64 != hasMime)
+            return BadRequest(new { message = "ImageBase64 and ImageMimeType must both be provided or both omitted." });
+
+        // Validate base64 is decodable and within binary size limit
+        if (hasBase64)
+        {
+            try
+            {
+                var imageBytes = Convert.FromBase64String(dto.ImageBase64!);
+                if (imageBytes.Length > 4 * 1024 * 1024)
+                    return BadRequest(new { message = "Image exceeds 4 MB limit." });
+            }
+            catch (FormatException)
+            {
+                return BadRequest(new { message = "Invalid base64 image data." });
+            }
+        }
 
         // Verify ownership with a lightweight query (no Include)
         var conversationExists = await _db.Set<Conversation>()
@@ -93,7 +115,8 @@ public class ChatbotController : ControllerBase
             .ToList();
 
         // Call Gemini (can take 5-30 seconds)
-        var (response, hasSafetyWarning) = await _gemini.SendMessageAsync(dto.Content, historyTuples);
+        var (response, hasSafetyWarning) = await _gemini.SendMessageAsync(
+            dto.Content, historyTuples, dto.ImageBase64, dto.ImageMimeType);
 
         // Save bot response in a separate DB round-trip (fresh connection from pool)
         var botMessage = new Message

@@ -86,6 +86,16 @@ Response.Cookies.Append("auth_token", token, new CookieOptions
 **Issue**: Dashboard requires admin but uses empty authorization filter array
 **Status**: Correctly configured with RequireAuthorization("RequireAdmin")
 
+#### 5. OSRM Routing Privacy
+**Location**: `client/src/stores/mapStore.ts` (fetchRoute)
+**Issue**: User coordinates sent in plaintext to public OSRM server (`router.project-osrm.org`). ISPs, proxies, and OSRM logs can see exact locations.
+**Recommendation**: Proxy routing requests through backend (`/api/map/route`) to keep coordinates private.
+
+#### 6. Chatbot Image Cache in localStorage
+**Location**: `client/src/components/panels/ChatPanel.tsx`
+**Issue**: Base64 image data cached in localStorage (plaintext, no encryption). Vulnerable to XSS data exfiltration.
+**Recommendation**: Use in-memory cache only, or IndexedDB with encryption.
+
 ### LOW PRIORITY
 
 #### 5. No Account Deletion/GDPR
@@ -113,6 +123,13 @@ Response.Cookies.Append("auth_token", token, new CookieOptions
 7. ✅ **Response Compression**: Enabled Brotli + Gzip compression for all responses
 8. ✅ **Gemini API Configuration**: Fixed invalid model name (gemini-3.0-flash → gemini-2.0-flash-exp)
 9. ✅ **Code Cleanup**: Removed unnecessary test files and documentation duplicates
+
+### Image & Chatbot Security Hardening (2026-04-06)
+10. ✅ **Chatbot Image MIME Whitelist**: Added `[RegularExpression]` on `SendMessageDto.ImageMimeType` — only `image/jpeg`, `image/png`, `image/webp` accepted
+11. ✅ **Image Consistency Check**: Controller validates that `ImageBase64` and `ImageMimeType` are both present or both absent before processing
+12. ✅ **Image Binary Size Validation**: Controller decodes base64 and rejects images exceeding 4 MB binary size
+13. ✅ **Client-Side Error Feedback**: ChatPanel now alerts users when image type/size is invalid instead of silently dropping
+14. ✅ **Image Display Fix**: `getImageUrl()` helper prevents hardcoded localhost URLs; derives server base from API base URL
 
 ---
 

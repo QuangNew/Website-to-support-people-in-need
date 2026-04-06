@@ -142,6 +142,13 @@ npx playwright show-report
 - Leaflet with marker clustering (`leaflet.markercluster`)
 - PostGIS for geospatial queries in PostgreSQL
 - Coordinates stored as `Point` geometry type
+- OSRM routing with up to 2 alternative routes (click-to-select)
+
+### Chatbot (Gemini AI)
+- Google Gemini 2.5 Flash via `generativelanguage.googleapis.com`
+- Multimodal: supports image upload (JPEG/PNG/WebP, max 4 MB)
+- 24-hour localStorage cache with expired-image placeholder UI
+- Image MIME type validated via RegularExpression on DTO + base64 decoded & size-checked in controller
 
 ## Performance Optimizations
 
@@ -201,7 +208,7 @@ npx playwright show-report
 - **E2E Tests**: Playwright suite with 22 tests covering auth, map, SOS, social, chatbot flows
 - **Test Status**: 12 UI tests passing (as of 2026-03-17)
 
-## Security Improvements (Updated 2026-03-17)
+## Security Improvements (Updated 2026-04-06)
 
 **Fixed Vulnerabilities:**
 1. ✅ **Token Blacklist** - Implemented logout endpoint that invalidates JWT tokens
@@ -210,12 +217,16 @@ npx playwright show-report
 4. ✅ **API Key Security** - Gemini API key moved from query string to header
 5. ✅ **XSS Prevention** - HtmlSanitizer for posts and comments
 6. ✅ **Timing Attack Prevention** - Using CryptographicOperations.FixedTimeEquals()
+7. ✅ **Image Upload Validation** - MIME type regex whitelist on DTO, base64 decode + 4MB binary size check in controller
+8. ✅ **Image Consistency Check** - ImageBase64 and ImageMimeType must both be present or both absent
 
-**Security Score:** 8.5/10 (improved from 7.5/10)
+**Security Score:** 8.5/10
 
 **Remaining Concerns:**
 - JWT in localStorage (vulnerable to XSS) - consider httpOnly cookies
 - No token rotation mechanism
+- OSRM routing sends coordinates to public server (consider backend proxy for privacy)
+- Chatbot image cache in localStorage (no encryption)
 - See `docs/SECURITY_AUDIT_REPORT.md` for full details
 
 ## Adding New Features
@@ -241,7 +252,7 @@ npx playwright show-report
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **Website-to-support-people-in-need** (1388 symbols, 3357 relationships, 26 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **Website-to-support-people-in-need** (1326 symbols, 3558 relationships, 32 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 

@@ -258,6 +258,15 @@ public class SendMessageDto
 {
     [Required, StringLength(4000)]
     public string Content { get; set; } = string.Empty;
+
+    /// <summary>Base64-encoded image data (max ~4MB after encoding). Supported: JPEG, PNG, WebP.</summary>
+    [StringLength(5_600_000)]
+    public string? ImageBase64 { get; set; }
+
+    /// <summary>MIME type of the image — must be image/jpeg, image/png, or image/webp.</summary>
+    [RegularExpression(@"^(image/jpeg|image/png|image/webp)$",
+        ErrorMessage = "Allowed MIME types: image/jpeg, image/png, image/webp.")]
+    public string? ImageMimeType { get; set; }
 }
 
 public class MessageResponseDto

@@ -14,7 +14,7 @@ import {
 import { useAuthStore } from '../../stores/authStore';
 import { useMapStore } from '../../stores/mapStore';
 import { useLanguage } from '../../contexts/LanguageContext';
-import { socialApi } from '../../services/api';
+import { socialApi, getImageUrl } from '../../services/api';
 
 interface PostDto {
   id: number;
@@ -308,7 +308,7 @@ export default function SocialPanel() {
 
             {/* Content */}
             <p className="social-post-content">{post.content}</p>
-            {post.imageUrl && <img src={post.imageUrl} alt="" className="social-post-image" style={{ maxWidth: '100%', borderRadius: '8px', marginTop: '0.5rem' }} />}
+            {post.imageUrl && <img src={getImageUrl(post.imageUrl)} alt="" className="social-post-image" style={{ maxWidth: '100%', borderRadius: '8px', marginTop: '0.5rem' }} />}
 
             {/* Reactions */}
             <div className="social-post-actions">

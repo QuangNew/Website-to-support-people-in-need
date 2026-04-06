@@ -9,5 +9,9 @@ public interface IGeminiService
     /// Send a message to Gemini and get a response.
     /// Returns (responseText, hasSafetyWarning).
     /// </summary>
-    Task<(string Response, bool HasSafetyWarning)> SendMessageAsync(string userMessage, IEnumerable<(string Role, string Content)>? conversationHistory = null);
+    Task<(string Response, bool HasSafetyWarning)> SendMessageAsync(
+        string userMessage,
+        IEnumerable<(string Role, string Content)>? conversationHistory = null,
+        string? imageBase64 = null,
+        string? imageMimeType = null);
 }

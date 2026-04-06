@@ -42,12 +42,12 @@ export interface RouteInfo {
 export interface RouteData {
     /** Primary route coordinates */
     coordinates: Array<[number, number]>;
-    /** Alternative route coordinates (if available) */
-    alternative: Array<[number, number]> | null;
+    /** Alternative routes coordinates (up to 2) */
+    alternatives: Array<{ coordinates: Array<[number, number]>; info: RouteInfo }>;
     /** Route summary */
     info: RouteInfo;
-    /** Alternative route summary */
-    alternativeInfo: RouteInfo | null;
+    /** Currently selected route index (0 = primary, 1 = alt1, 2 = alt2) */
+    selectedIndex: number;
     /** Origin point */
     origin: { lat: number; lng: number };
     /** Destination point */
@@ -102,6 +102,7 @@ interface MapState {
     fetchZones: () => Promise<void>;
     fetchRoute: (destLat: number, destLng: number) => Promise<void>;
     clearRoute: () => void;
+    selectRouteIndex: (index: number) => void;
     toggleSupplyPoints: () => void;
     fetchSupplyItems: () => Promise<void>;
 }
@@ -175,7 +176,7 @@ export const MOCK_PINGS: PingData[] = [
     },
 ];
 
-export const useMapStore = create<MapState>((set) => ({
+export const useMapStore = create<MapState>((set, get) => ({
     center: { lat: 15.8, lng: 106.6 },
     zoom: 6,
     activeFilters: ['need_help', 'offering', 'received', 'support_point'],
@@ -403,25 +404,27 @@ export const useMapStore = create<MapState>((set) => ({
                 durationMin: Math.round(primary.duration / 60),
             };
 
-            let alternativeCoords: Array<[number, number]> | null = null;
-            let alternativeInfo: RouteInfo | null = null;
-            if (data.routes.length > 1) {
-                const alt = data.routes[1];
-                alternativeCoords = alt.geometry.coordinates.map(
-                    (c: [number, number]) => [c[1], c[0]]
-                );
-                alternativeInfo = {
-                    distanceKm: Math.round((alt.distance / 1000) * 10) / 10,
-                    durationMin: Math.round(alt.duration / 60),
-                };
+            // Extract up to 2 alternative routes
+            const alternatives: Array<{ coordinates: Array<[number, number]>; info: RouteInfo }> = [];
+            for (let i = 1; i <= 2 && i < data.routes.length; i++) {
+                const alt = data.routes[i];
+                alternatives.push({
+                    coordinates: alt.geometry.coordinates.map(
+                        (c: [number, number]) => [c[1], c[0]]
+                    ),
+                    info: {
+                        distanceKm: Math.round((alt.distance / 1000) * 10) / 10,
+                        durationMin: Math.round(alt.duration / 60),
+                    },
+                });
             }
 
             set({
                 route: {
                     coordinates: primaryCoords,
-                    alternative: alternativeCoords,
+                    alternatives,
                     info: primaryInfo,
-                    alternativeInfo,
+                    selectedIndex: 0,
                     origin: { lat: originLat, lng: originLng },
                     destination: { lat: destLat, lng: destLng },
                 },
@@ -437,6 +440,14 @@ export const useMapStore = create<MapState>((set) => ({
     },
 
     clearRoute: () => set({ route: null, routeError: null }),
+
+    selectRouteIndex: (index: number) => {
+        const { route } = get();
+        if (!route) return;
+        const maxIndex = route.alternatives.length; // 0 = primary, 1..N = alternatives
+        if (index < 0 || index > maxIndex) return;
+        set({ route: { ...route, selectedIndex: index } });
+    },
 
     fetchSupplyItems: async () => {
         try {

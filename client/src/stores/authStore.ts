@@ -141,6 +141,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     logout: () => {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
+        localStorage.removeItem('chatpanel_messages');
+        localStorage.removeItem('chatpanel_conversation_id');
         localStorage.removeItem('chatbot_messages');
         set({ user: null, token: null, isAuthenticated: false });
     },

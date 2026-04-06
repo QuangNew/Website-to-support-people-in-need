@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { Heart, HandHeart, HandHelping, MessageCircle, Send, Image, Trash2, Filter } from 'lucide-react';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuthStore } from '../stores/authStore';
-import { socialApi } from '../services/api';
+import { socialApi, getImageUrl } from '../services/api';
 
 interface PostDto {
     id: number;
@@ -320,7 +320,7 @@ export default function SocialPage() {
                         </p>
 
                         {post.imageUrl && (
-                            <img src={post.imageUrl.startsWith('http') ? post.imageUrl : `http://localhost:5164${post.imageUrl}`} alt="" style={{ width: '100%', borderRadius: 'var(--radius-md)', marginBottom: 'var(--sp-4)', maxHeight: 400, objectFit: 'cover' }} />
+                            <img src={getImageUrl(post.imageUrl)} alt="" style={{ width: '100%', borderRadius: 'var(--radius-md)', marginBottom: 'var(--sp-4)', maxHeight: 400, objectFit: 'cover' }} />
                         )}
 
                         {/* Actions */}

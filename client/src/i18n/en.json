@@ -102,6 +102,7 @@
         "distance": "Distance",
         "duration": "Duration",
         "minutes": "min",
+        "mainRoute": "Main route",
         "altRoute": "Alt. route",
         "clearRoute": "Clear route",
         "deleted": "Ping deleted",

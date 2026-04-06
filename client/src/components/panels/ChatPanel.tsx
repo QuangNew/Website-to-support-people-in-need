@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, Bot, User, Sparkles, LogIn, AlertTriangle, RotateCcw } from 'lucide-react';
+import { Send, Bot, User, Sparkles, LogIn, AlertTriangle, RotateCcw, MessageSquare, ImagePlus, X, ImageOff } from 'lucide-react';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useAuthStore } from '../../stores/authStore';
 import { useMapStore } from '../../stores/mapStore';
@@ -8,6 +8,9 @@ import { chatbotApi } from '../../services/api';
 const CHAT_STORAGE_KEY = 'chatpanel_messages';
 const CHAT_CONV_KEY = 'chatpanel_conversation_id';
 const MAX_CACHED_MESSAGES = 100;
+const IMAGE_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours
+const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const MAX_IMAGE_SIZE = 4 * 1024 * 1024; // 4MB
 
 interface ChatMessage {
   id: number;
@@ -15,27 +18,44 @@ interface ChatMessage {
   content: string;
   timestamp: string;
   hasSafetyWarning?: boolean;
+  /** Base64 data URL for images (only user messages) */
+  imageDataUrl?: string;
+}
+
+/** Check if image cache has expired (>24h) */
+function isImageExpired(timestamp: string): boolean {
+  return Date.now() - new Date(timestamp).getTime() > IMAGE_EXPIRY_MS;
+}
+
+/** Strip expired image data from cached messages to free storage */
+function cleanExpiredImages(msgs: ChatMessage[]): ChatMessage[] {
+  return msgs.map(m => {
+    if (m.imageDataUrl && isImageExpired(m.timestamp)) {
+      return { ...m, imageDataUrl: undefined };
+    }
+    return m;
+  });
 }
 
 export default function ChatPanel() {
   const { t, locale } = useLanguage();
-  const { isAuthenticated } = useAuthStore();
+  const { isAuthenticated, user } = useAuthStore();
   const { setAuthModal } = useMapStore();
 
-  const getWelcomeMessage = (): ChatMessage => ({
+  const getWelcomeMessage = useCallback((): ChatMessage => ({
     id: 1,
     role: 'assistant',
     content: t('chat.welcome'),
     timestamp: new Date().toISOString(),
-  });
+  }), [t]);
 
-  // Load cached messages from localStorage
+  // Load cached messages from localStorage (clean expired images)
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
     try {
       const stored = localStorage.getItem(CHAT_STORAGE_KEY);
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) return cleanExpiredImages(parsed);
       }
     } catch { /* ignore */ }
     return [getWelcomeMessage()];
@@ -51,9 +71,27 @@ export default function ChatPanel() {
 
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [pendingImage, setPendingImage] = useState<{ dataUrl: string; base64: string; mimeType: string } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevUserIdRef = useRef<string | null>(user?.id ?? null);
+
+  // Clear chat when user changes (logout or switch account)
+  useEffect(() => {
+    const currentUserId = user?.id ?? null;
+    if (prevUserIdRef.current !== currentUserId) {
+      // User changed — clear everything
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      localStorage.removeItem(CHAT_STORAGE_KEY);
+      localStorage.removeItem(CHAT_CONV_KEY);
+      setMessages([getWelcomeMessage()]);
+      setConversationId(null);
+      setInput('');
+      prevUserIdRef.current = currentUserId;
+    }
+  }, [user?.id, getWelcomeMessage]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -85,16 +123,11 @@ export default function ChatPanel() {
 
   // New chat handler
   const handleNewChat = () => {
-    const confirmMessage = locale === 'vi'
-      ? 'Bạn có muốn bắt đầu cuộc trò chuyện mới? Tin nhắn cũ sẽ bị xóa.'
-      : 'Start a new conversation? Old messages will be cleared.';
-
-    if (window.confirm(confirmMessage)) {
-      localStorage.removeItem(CHAT_STORAGE_KEY);
-      localStorage.removeItem(CHAT_CONV_KEY);
-      setMessages([getWelcomeMessage()]);
-      setConversationId(null);
-    }
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    localStorage.removeItem(CHAT_STORAGE_KEY);
+    localStorage.removeItem(CHAT_CONV_KEY);
+    setMessages([getWelcomeMessage()]);
+    setConversationId(null);
   };
 
   // Create conversation on first authenticated message
@@ -111,24 +144,61 @@ export default function ChatPanel() {
     }
   };
 
+  // Handle image file selection
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+      alert(locale === 'vi' ? 'Chỉ hỗ trợ JPEG, PNG, WebP.' : 'Only JPEG, PNG, WebP supported.');
+      e.target.value = '';
+      return;
+    }
+    if (file.size > MAX_IMAGE_SIZE) {
+      alert(locale === 'vi' ? 'Ảnh quá lớn (tối đa 4 MB).' : 'Image too large (max 4 MB).');
+      e.target.value = '';
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      // Extract base64 from "data:image/jpeg;base64,/9j/4AAQ..."
+      const base64 = dataUrl.split(',')[1];
+      setPendingImage({ dataUrl, base64, mimeType: file.type });
+    };
+    reader.readAsDataURL(file);
+    // Reset input so same file can be re-selected
+    e.target.value = '';
+  };
+
   const handleSend = async () => {
     const text = input.trim();
-    if (!text) return;
+    const hasImage = !!pendingImage;
+    if (!text && !hasImage) return;
 
     if (!isAuthenticated) {
       setAuthModal('login');
       return;
     }
 
+    const imagePrompt = hasImage && !text
+      ? (locale === 'vi'
+        ? 'Hãy phân tích hình ảnh này và mô tả những gì bạn thấy. Nếu liên quan đến thiên tai hoặc tình huống khẩn cấp, hãy cung cấp hướng dẫn phù hợp.'
+        : 'Please analyze this image and describe what you see. If it relates to a disaster or emergency, provide appropriate guidance.')
+      : text;
+
     const userMsg: ChatMessage = {
       id: Date.now(),
       role: 'user',
-      content: text,
+      content: imagePrompt,
       timestamp: new Date().toISOString(),
+      imageDataUrl: pendingImage?.dataUrl,
     };
 
     setMessages((prev) => [...prev, userMsg]);
     setInput('');
+    const currentImage = pendingImage;
+    setPendingImage(null);
     setIsTyping(true);
 
     try {
@@ -138,8 +208,13 @@ export default function ChatPanel() {
       }
 
       let res;
+      const sendData: { content: string; imageBase64?: string; imageMimeType?: string } = { content: imagePrompt };
+      if (currentImage) {
+        sendData.imageBase64 = currentImage.base64;
+        sendData.imageMimeType = currentImage.mimeType;
+      }
       try {
-        res = await chatbotApi.sendMessage(convId, { content: text });
+        res = await chatbotApi.sendMessage(convId, sendData);
       } catch (sendErr: any) {
         // If conversation not found (stale cache), create a new one and retry
         if (sendErr?.response?.status === 404) {
@@ -147,7 +222,7 @@ export default function ChatPanel() {
           localStorage.removeItem(CHAT_CONV_KEY);
           convId = await ensureConversation();
           if (!convId) throw new Error(t('chat.errorCreateConversation'));
-          res = await chatbotApi.sendMessage(convId, { content: text });
+          res = await chatbotApi.sendMessage(convId, sendData);
         } else {
           throw sendErr;
         }
@@ -183,81 +258,105 @@ export default function ChatPanel() {
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
+      if (input.trim() || pendingImage) handleSend();
     }
+  };
+
+  const formatTime = (ts: string) => {
+    try {
+      return new Date(ts).toLocaleTimeString(locale === 'vi' ? 'vi-VN' : 'en-US', {
+        hour: '2-digit', minute: '2-digit',
+      });
+    } catch { return ''; }
   };
 
   return (
     <div className="panel-content chat-panel">
       {/* Header */}
-      <div className="panel-header">
-        <div className="chat-header-info">
-          <div className="chat-avatar">
+      <div className="chat-panel-header">
+        <div className="chat-panel-header-left">
+          <div className="chat-panel-logo">
             <Sparkles size={18} />
+            <span className="chat-panel-logo-pulse" />
           </div>
-          <div>
-            <h2 className="panel-title">{t('chat.title')}</h2>
-            <span className="chat-status">Online</span>
+          <div className="chat-panel-header-text">
+            <h2 className="chat-panel-title">{t('chat.title')}</h2>
+            <div className="chat-panel-status">
+              <span className="chat-panel-status-dot" />
+              Online
+            </div>
           </div>
         </div>
         <button
-          className="btn btn-ghost btn-icon"
+          className="chat-panel-new-btn"
           onClick={handleNewChat}
           title={locale === 'vi' ? 'Cuộc trò chuyện mới' : 'New Chat'}
-          style={{ marginLeft: 'auto' }}
         >
-          <RotateCcw size={16} />
+          <RotateCcw size={14} />
         </button>
       </div>
 
       {/* Messages */}
-      <div className="chat-messages">
+      <div className="chat-panel-messages">
+        {messages.length <= 1 && (
+          <div className="chat-panel-empty">
+            <div className="chat-panel-empty-icon">
+              <MessageSquare size={32} />
+            </div>
+            <p>{locale === 'vi'
+              ? 'Hỏi tôi bất kỳ điều gì về cứu trợ, thông tin thiên tai, hoặc cách sử dụng nền tảng.'
+              : 'Ask me anything about relief, disaster info, or how to use the platform.'}</p>
+          </div>
+        )}
+
         {messages.map((msg) => (
-          <div key={msg.id}>
+          <div key={msg.id} className="chat-panel-msg-wrapper">
             {msg.hasSafetyWarning && (
-              <div style={{
-                background: '#dc2626',
-                color: 'white',
-                padding: '12px',
-                borderRadius: '8px',
-                margin: '8px 12px',
-                fontSize: '14px'
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', marginBottom: '8px' }}>
-                  <AlertTriangle size={18} />
+              <div className="chat-panel-emergency">
+                <div className="chat-panel-emergency-header">
+                  <AlertTriangle size={16} />
                   {t('chat.emergencyWarning')}
                 </div>
-                <div style={{ fontSize: '13px', marginBottom: '4px' }}>{t('chat.emergencyNumbers')}</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '13px' }}>
-                  <a href="tel:113" style={{ color: 'white', textDecoration: 'underline' }}>{t('chat.police')}</a>
-                  <a href="tel:114" style={{ color: 'white', textDecoration: 'underline' }}>{t('chat.fire')}</a>
-                  <a href="tel:115" style={{ color: 'white', textDecoration: 'underline' }}>{t('chat.medical')}</a>
+                <div className="chat-panel-emergency-body">
+                  <span>{t('chat.emergencyNumbers')}</span>
+                  <div className="chat-panel-emergency-links">
+                    <a href="tel:113">{t('chat.police')}</a>
+                    <a href="tel:114">{t('chat.fire')}</a>
+                    <a href="tel:115">{t('chat.medical')}</a>
+                  </div>
                 </div>
               </div>
             )}
-            <div className={`chat-message chat-message-${msg.role}`}>
-              <div className="chat-message-avatar">
-                {msg.role === 'assistant' ? <Bot size={16} /> : <User size={16} />}
+            <div className={`chat-panel-msg chat-panel-msg--${msg.role}`}>
+              <div className={`chat-panel-msg-avatar chat-panel-msg-avatar--${msg.role}`}>
+                {msg.role === 'assistant' ? <Bot size={14} /> : <User size={14} />}
               </div>
-              <div className="chat-message-bubble">
-                <p>{msg.content}</p>
-                <time className="chat-message-time">
-                  {new Date(msg.timestamp).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
-                </time>
+              <div className={`chat-panel-msg-bubble chat-panel-msg-bubble--${msg.role}`}>
+                {msg.imageDataUrl && !isImageExpired(msg.timestamp) && (
+                  <img src={msg.imageDataUrl} alt="" className="chat-panel-msg-image" />
+                )}
+                {msg.imageDataUrl && isImageExpired(msg.timestamp) && (
+                  <div className="chat-panel-msg-image-expired">
+                    <ImageOff size={20} />
+                    <span>{locale === 'vi' ? 'Ảnh đã hết hạn' : 'Image expired'}</span>
+                  </div>
+                )}
+                <p className="chat-panel-msg-text">{msg.content}</p>
+                <time className="chat-panel-msg-time">{formatTime(msg.timestamp)}</time>
               </div>
             </div>
           </div>
         ))}
 
         {isTyping && (
-          <div className="chat-message chat-message-assistant">
-            <div className="chat-message-avatar">
-              <Bot size={16} />
+          <div className="chat-panel-msg chat-panel-msg--assistant">
+            <div className="chat-panel-msg-avatar chat-panel-msg-avatar--assistant">
+              <Bot size={14} />
             </div>
-            <div className="chat-message-bubble chat-typing">
-              <span className="typing-dot" />
-              <span className="typing-dot" />
-              <span className="typing-dot" />
+            <div className="chat-panel-msg-bubble chat-panel-msg-bubble--assistant chat-panel-typing">
+              <span className="chat-panel-typing-dot" />
+              <span className="chat-panel-typing-dot" />
+              <span className="chat-panel-typing-dot" />
             </div>
           </div>
         )}
@@ -266,31 +365,59 @@ export default function ChatPanel() {
       </div>
 
       {/* Input */}
-      <div className="chat-input-area">
+      <div className="chat-panel-input-area">
         {!isAuthenticated ? (
-          <button className="btn btn-primary btn-full" onClick={() => setAuthModal('login')} style={{ margin: '0 var(--sp-3) var(--sp-3)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
-            <LogIn size={16} />
+          <button className="chat-panel-login-btn" onClick={() => setAuthModal('login')}>
+            <LogIn size={15} />
             {t('chat.loginRequired')}
           </button>
         ) : (
-          <div className="chat-input-wrap">
-            <textarea
-              ref={inputRef}
-              className="chat-input"
-              placeholder={t('chat.inputPlaceholder')}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              rows={1}
-            />
-            <button
-              className="chat-send-btn"
-              onClick={handleSend}
-              disabled={!input.trim() || isTyping}
-            >
-              <Send size={16} />
-            </button>
-          </div>
+          <>
+            {/* Pending image preview */}
+            {pendingImage && (
+              <div className="chat-panel-image-preview">
+                <img src={pendingImage.dataUrl} alt="" />
+                <button className="chat-panel-image-preview-remove" onClick={() => setPendingImage(null)}>
+                  <X size={12} />
+                </button>
+              </div>
+            )}
+            <div className="chat-panel-input-wrap">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                style={{ display: 'none' }}
+                onChange={handleImageSelect}
+              />
+              <button
+                className="chat-panel-image-btn"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isTyping}
+                title={locale === 'vi' ? 'Gửi ảnh' : 'Send image'}
+              >
+                <ImagePlus size={16} />
+              </button>
+              <textarea
+                ref={inputRef}
+                className="chat-panel-input"
+                placeholder={pendingImage
+                  ? (locale === 'vi' ? 'Mô tả ảnh hoặc nhấn gửi...' : 'Describe the image or press send...')
+                  : t('chat.inputPlaceholder')}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                rows={1}
+              />
+              <button
+                className="chat-panel-send-btn"
+                onClick={handleSend}
+                disabled={(!input.trim() && !pendingImage) || isTyping}
+              >
+                <Send size={14} />
+              </button>
+            </div>
+          </>
         )}
       </div>
     </div>

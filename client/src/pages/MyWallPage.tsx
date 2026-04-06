@@ -18,7 +18,7 @@ import {
 import { useAuthStore } from '../stores/authStore';
 import { useMapStore } from '../stores/mapStore';
 import { useLanguage } from '../contexts/LanguageContext';
-import { socialApi, authApi } from '../services/api';
+import { socialApi, authApi, getImageUrl } from '../services/api';
 
 interface PostDto {
   id: number;
@@ -288,7 +288,7 @@ export default function MyWallPage() {
               <p style={{ color: 'var(--text-primary)', lineHeight: 1.7, marginBottom: 'var(--space-4)', fontSize: 'var(--text-md)' }}>
                 {post.content}
               </p>
-              {post.imageUrl && <img src={post.imageUrl} alt="" style={{ maxWidth: '100%', borderRadius: '8px', marginBottom: 'var(--space-3)' }} />}
+              {post.imageUrl && <img src={getImageUrl(post.imageUrl)} alt="" style={{ maxWidth: '100%', borderRadius: '8px', marginBottom: 'var(--space-3)' }} />}
 
               <div style={{ display: 'flex', gap: 'var(--space-3)', paddingTop: 'var(--space-3)', borderTop: '1px solid var(--border-subtle)' }}>
                 <button

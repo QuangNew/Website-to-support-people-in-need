@@ -102,6 +102,7 @@
     "distance": "Khoảng cách",
     "duration": "Thời gian",
     "minutes": "phút",
+    "mainRoute": "Tuyến chính",
     "altRoute": "Tuyến khác",
     "clearRoute": "Xóa tuyến đường",
     "deleted": "Đã xóa ping",

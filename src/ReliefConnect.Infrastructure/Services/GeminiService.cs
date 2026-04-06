@@ -98,8 +98,18 @@ public class GeminiService : IGeminiService
 
     public async Task<(string Response, bool HasSafetyWarning)> SendMessageAsync(
         string userMessage,
-        IEnumerable<(string Role, string Content)>? conversationHistory = null)
+        IEnumerable<(string Role, string Content)>? conversationHistory = null,
+        string? imageBase64 = null,
+        string? imageMimeType = null)
     {
+        // Validate image params
+        var hasImage = !string.IsNullOrEmpty(imageBase64) && !string.IsNullOrEmpty(imageMimeType);
+        var allowedImageTypes = new[] { "image/jpeg", "image/png", "image/webp" };
+        if (hasImage && !allowedImageTypes.Contains(imageMimeType))
+        {
+            return ("Unsupported image type. Please use JPEG, PNG, or WebP.", false);
+        }
+
         // Check for emergency keywords
         var hasEmergencyKeyword = EmergencyKeywords.Any(keyword =>
             userMessage.Contains(keyword, StringComparison.OrdinalIgnoreCase));
@@ -124,11 +134,25 @@ public class GeminiService : IGeminiService
             }
         }
 
-        // Add current message
+        // Add current message (with optional image)
+        var currentParts = new List<object>();
+        if (hasImage)
+        {
+            currentParts.Add(new
+            {
+                inline_data = new
+                {
+                    mime_type = imageMimeType!,
+                    data = imageBase64!
+                }
+            });
+        }
+        currentParts.Add(new { text = userMessage });
+
         contents.Add(new
         {
             role = "user",
-            parts = new[] { new { text = userMessage } }
+            parts = currentParts.ToArray()
         });
 
         var requestBody = new

@@ -26,7 +26,7 @@ const TYPE_CONFIG: Record<PingType, { label: string; icon: typeof AlertTriangle;
 };
 
 export default function PingDetailPanel() {
-  const { selectedPingId, pings, selectPing, fetchRoute, clearRoute, route, isRouting, routeError, removePing } = useMapStore();
+  const { selectedPingId, pings, selectPing, fetchRoute, clearRoute, selectRouteIndex, route, isRouting, routeError, removePing } = useMapStore();
   const { user } = useAuthStore();
   const { t } = useLanguage();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -152,31 +152,56 @@ export default function PingDetailPanel() {
       )}
 
       {/* Route info */}
-      {route && route.destination.lat === ping.lat && route.destination.lng === ping.lng && (
-        <div className="ping-route-info">
-          <div className="ping-route-info-row">
-            <span className="ping-route-label">{t('ping.distance')}</span>
-            <span className="ping-route-value">{route.info.distanceKm} km</span>
-          </div>
-          <div className="ping-route-info-row">
-            <span className="ping-route-label">{t('ping.duration')}</span>
-            <span className="ping-route-value">
-              {route.info.durationMin < 60
-                ? `${route.info.durationMin} ${t('ping.minutes')}`
-                : `${Math.floor(route.info.durationMin / 60)}h ${route.info.durationMin % 60}m`}
-            </span>
-          </div>
-          {route.alternativeInfo && (
-            <div className="ping-route-alt">
-              {t('ping.altRoute')}: {route.alternativeInfo.distanceKm} km, {route.alternativeInfo.durationMin} {t('ping.minutes')}
+      {route && route.destination.lat === ping.lat && route.destination.lng === ping.lng && (() => {
+        const formatDuration = (min: number) =>
+          min < 60 ? `${min} ${t('ping.minutes')}` : `${Math.floor(min / 60)}h ${min % 60}m`;
+
+        const allRoutes = [
+          { label: t('ping.mainRoute'), info: route.info, index: 0 },
+          ...route.alternatives.map((alt, i) => ({
+            label: `${t('ping.altRoute')} ${i + 1}`,
+            info: alt.info,
+            index: i + 1,
+          })),
+        ];
+
+        const selected = allRoutes[route.selectedIndex] || allRoutes[0];
+
+        return (
+          <div className="ping-route-info">
+            {/* Selected route summary */}
+            <div className="ping-route-info-row">
+              <span className="ping-route-label">{t('ping.distance')}</span>
+              <span className="ping-route-value">{selected.info.distanceKm} km</span>
             </div>
-          )}
-          <button className="btn btn-ghost btn-sm ping-route-clear" onClick={clearRoute}>
-            <X size={12} />
-            {t('ping.clearRoute')}
-          </button>
-        </div>
-      )}
+            <div className="ping-route-info-row">
+              <span className="ping-route-label">{t('ping.duration')}</span>
+              <span className="ping-route-value">{formatDuration(selected.info.durationMin)}</span>
+            </div>
+
+            {/* Route selector (only if multiple routes) */}
+            {allRoutes.length > 1 && (
+              <div className="ping-route-selector">
+                {allRoutes.map((r) => (
+                  <button
+                    key={r.index}
+                    className={`ping-route-option ${route.selectedIndex === r.index ? 'ping-route-option--active' : ''}`}
+                    onClick={() => selectRouteIndex(r.index)}
+                  >
+                    <span className="ping-route-option-label">{r.label}</span>
+                    <span className="ping-route-option-info">{r.info.distanceKm} km · {formatDuration(r.info.durationMin)}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <button className="btn btn-ghost btn-sm ping-route-clear" onClick={clearRoute}>
+              <X size={12} />
+              {t('ping.clearRoute')}
+            </button>
+          </div>
+        );
+      })()}
 
       {/* Route error */}
       {routeError && (

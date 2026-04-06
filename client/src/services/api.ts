@@ -2,6 +2,16 @@ import axios from 'axios';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5164/api';
 
+/** Base server URL (without /api) for resolving uploaded file paths like /uploads/... */
+const SERVER_BASE_URL = API_BASE_URL.replace(/\/api\/?$/, '');
+
+/** Resolve an image path to a full URL. Handles absolute URLs, relative /uploads/... paths, and data URIs. */
+export function getImageUrl(path: string | null | undefined): string {
+  if (!path) return '';
+  if (path.startsWith('data:') || path.startsWith('http://') || path.startsWith('https://')) return path;
+  return `${SERVER_BASE_URL}${path.startsWith('/') ? '' : '/'}${path}`;
+}
+
 const api = axios.create({
   baseURL: API_BASE_URL,
   headers: {
@@ -187,8 +197,8 @@ export const chatbotApi = {
   createConversation: () =>
     api.post('/chatbot/conversations'),
 
-  sendMessage: (conversationId: number, data: { content: string }) =>
-    api.post(`/chatbot/conversations/${conversationId}/messages`, data, { timeout: 60000 }),
+  sendMessage: (conversationId: number, data: { content: string; imageBase64?: string; imageMimeType?: string }) =>
+    api.post(`/chatbot/conversations/${conversationId}/messages`, data, { timeout: 60000, maxBodyLength: 6_000_000 }),
 
   getMessages: (conversationId: number) =>
     api.get(`/chatbot/conversations/${conversationId}/messages`),
