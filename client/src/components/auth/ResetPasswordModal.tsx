@@ -7,9 +7,9 @@ import { authApi } from '../../services/api';
 import { useLanguage } from '../../contexts/LanguageContext';
 
 export default function ResetPasswordModal() {
-  const { showAuthModal, setAuthModal } = useMapStore();
+  const { showAuthModal, setAuthModal, resetPasswordEmail, setResetPasswordEmail } = useMapStore();
   const { t } = useLanguage();
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(resetPasswordEmail || '');
   const [token, setToken] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -31,6 +31,7 @@ export default function ResetPasswordModal() {
     try {
       await authApi.resetPassword({ email, token, newPassword });
       toast.success(t('auth.resetSuccess'));
+      setResetPasswordEmail(null);
       setAuthModal('login');
       setEmail('');
       setToken('');

@@ -116,6 +116,28 @@ public class PingFlagMonitorService : BackgroundService
             {
                 _logger.LogWarning("PingFlagMonitor: duplicate PingFlag detected, skipping batch");
             }
+            catch (ObjectDisposedException)
+            {
+                // Npgsql pooled connection was recycled while idle — retry with a fresh scope
+                _logger.LogWarning("PingFlagMonitor: connection disposed, retrying with fresh scope");
+                try
+                {
+                    using var retryScope = _scopeFactory.CreateScope();
+                    var retryDb = retryScope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+                    foreach (var flag in toAdd)
+                    {
+                        var exists = await retryDb.PingFlags.AnyAsync(f => f.PingId == flag.PingId, CancellationToken.None);
+                        if (!exists) retryDb.PingFlags.Add(flag);
+                    }
+                    await retryDb.SaveChangesAsync(CancellationToken.None);
+                    _logger.LogInformation("PingFlagMonitor: Retry succeeded — {Count} pings updated", updated + toAdd.Count);
+                }
+                catch (Exception retryEx)
+                {
+                    _logger.LogError(retryEx, "PingFlagMonitor: Retry also failed");
+                }
+            }
         }
     }
 }

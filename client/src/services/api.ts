@@ -64,8 +64,11 @@ export const authApi = {
   updateProfile: (data: { fullName?: string; avatarUrl?: string }) =>
     api.put('/auth/profile', data),
 
-  submitVerification: (data: { requestedRole: string; reason?: string; imageUrls?: string[] }) =>
+  submitVerification: (data: { requestedRole: string; reason?: string; imageUrls?: string[]; phoneNumber: string; address?: string }) =>
     api.post('/auth/verify-role', data),
+
+  getContactInfo: (userId: string) =>
+    api.get(`/auth/users/${userId}/contact`),
 
   forgotPassword: (data: { email: string }) =>
     api.post('/auth/forgot-password', data),

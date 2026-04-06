@@ -58,6 +58,9 @@ public class ApplicationUser : IdentityUser
     /// <summary>JTI of user's most recent JWT token (for force-logout).</summary>
     public string? LastTokenJti { get; set; }
 
+    /// <summary>User's address (nullable, set during role verification).</summary>
+    public string? Address { get; set; }
+
     // Navigation properties
     public ICollection<Ping> Pings { get; set; } = new List<Ping>();
     public ICollection<Post> Posts { get; set; } = new List<Post>();

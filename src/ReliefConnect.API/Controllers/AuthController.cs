@@ -467,6 +467,8 @@ public class AuthController : ControllerBase
             VerificationStatus = user.VerificationStatus.ToString(),
             EmailVerified = user.EmailConfirmed,
             AvatarUrl = user.AvatarUrl,
+            PhoneNumber = user.PhoneNumber,
+            Address = user.Address,
             CreatedAt = user.CreatedAt
         });
     }
@@ -500,6 +502,8 @@ public class AuthController : ControllerBase
             VerificationStatus = user.VerificationStatus.ToString(),
             EmailVerified = user.EmailConfirmed,
             AvatarUrl = user.AvatarUrl,
+            PhoneNumber = user.PhoneNumber,
+            Address = user.Address,
             CreatedAt = user.CreatedAt
         });
     }
@@ -531,6 +535,8 @@ public class AuthController : ControllerBase
         user.VerificationStatus = VerificationStatus.Pending;
         user.RequestedRole = dto.RequestedRole;
         user.VerificationReason = dto.Reason;
+        user.PhoneNumber = dto.PhoneNumber;
+        if (dto.Address != null) user.Address = dto.Address;
         user.VerificationImageUrls = dto.ImageUrls != null && dto.ImageUrls.Count > 0
             ? string.Join(",", dto.ImageUrls.Take(5))
             : null;
@@ -540,6 +546,45 @@ public class AuthController : ControllerBase
         _logger.LogInformation("Verification requested: {Username} → {Role}", user.UserName, dto.RequestedRole);
 
         return Ok(new { message = "Yêu cầu xác minh đã được gửi. Admin sẽ duyệt sớm nhất." });
+    }
+
+    // ═══════════════════════════════════════════
+    //  CONTACT INFO (support button)
+    // ═══════════════════════════════════════════
+
+    /// <summary>
+    /// Get contact info of a PersonInNeed user. Only Sponsors, Volunteers, and Admins can access.
+    /// </summary>
+    [HttpGet("users/{userId}/contact")]
+    [Authorize]
+    public async Task<ActionResult<ContactInfoDto>> GetContactInfo(string userId)
+    {
+        var callerId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (callerId == null) return Unauthorized();
+
+        var caller = await _userManager.FindByIdAsync(callerId);
+        if (caller == null) return Unauthorized();
+
+        // Only Sponsor, Volunteer, or Admin can see contact info
+        if (caller.Role != RoleEnum.Sponsor && caller.Role != RoleEnum.Volunteer && caller.Role != RoleEnum.Admin)
+            return Forbid();
+
+        var target = await _userManager.FindByIdAsync(userId);
+        if (target == null)
+            return NotFound(new ApiErrorResponse { StatusCode = 404, Message = "Người dùng không tồn tại." });
+
+        // Non-admin can only see PersonInNeed contact info
+        if (caller.Role != RoleEnum.Admin && target.Role != RoleEnum.PersonInNeed)
+            return Forbid();
+
+        return Ok(new ContactInfoDto
+        {
+            UserId = target.Id,
+            FullName = target.FullName,
+            Email = target.Email!,
+            PhoneNumber = target.PhoneNumber,
+            AvatarUrl = target.AvatarUrl
+        });
     }
 
     // ═══════════════════════════════════════════

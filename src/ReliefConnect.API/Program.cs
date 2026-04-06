@@ -22,6 +22,10 @@ var builder = WebApplication.CreateBuilder(args);
 Log.Logger = new LoggerConfiguration()
     .ReadFrom.Configuration(builder.Configuration)
     .Enrich.FromLogContext()
+    .Destructure.ByTransforming<ReliefConnect.Core.DTOs.LoginDto>(d => new { d.Email, Password = "***" })
+    .Destructure.ByTransforming<ReliefConnect.Core.DTOs.RegisterDto>(d => new { d.Username, d.Email, d.FullName, Password = "***" })
+    .Destructure.ByTransforming<ReliefConnect.Core.DTOs.ResetPasswordDto>(d => new { d.Email, d.Token, NewPassword = "***" })
+    .Destructure.ByTransforming<ReliefConnect.Core.DTOs.ChangePasswordDto>(d => new { CurrentPassword = "***", NewPassword = "***" })
     .CreateLogger();
 
 builder.Host.UseSerilog();

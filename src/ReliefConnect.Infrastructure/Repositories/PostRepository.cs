@@ -120,14 +120,35 @@ public class PostRepository : IPostRepository
     /// Eliminates N+1 problem where MapToDto was counting reactions in-memory.
     /// </summary>
     public async Task<(IEnumerable<PostWithCounts> Posts, string? NextCursor)> GetPostsWithCountsAsync(
-        string? cursor, int limit = 10, PostCategory? category = null, string? userId = null)
+        string? cursor, int limit = 10, PostCategory? category = null, string? userId = null,
+        RoleEnum? roleFilter = null, string? sort = null)
     {
-        // Get post IDs first (with cursor pagination)
+        // Base query - default sort by newest
         var postQuery = _context.Posts
             .AsNoTracking()
-            .OrderByDescending(p => p.CreatedAt)
-            .ThenByDescending(p => p.Id)
             .AsQueryable();
+
+        // Sort by recently reacted or recently commented
+        if (sort == "recentReaction")
+        {
+            postQuery = postQuery
+                .Where(p => p.Reactions!.Any())
+                .OrderByDescending(p => p.Reactions!.Max(r => r.CreatedAt))
+                .ThenByDescending(p => p.Id);
+        }
+        else if (sort == "recentComment")
+        {
+            postQuery = postQuery
+                .Where(p => p.Comments!.Any())
+                .OrderByDescending(p => p.Comments!.Max(c => c.CreatedAt))
+                .ThenByDescending(p => p.Id);
+        }
+        else
+        {
+            postQuery = postQuery
+                .OrderByDescending(p => p.CreatedAt)
+                .ThenByDescending(p => p.Id);
+        }
 
         if (!string.IsNullOrEmpty(cursor) && int.TryParse(cursor, out var cursorId))
         {
@@ -146,6 +167,9 @@ public class PostRepository : IPostRepository
 
         if (!string.IsNullOrEmpty(userId))
             postQuery = postQuery.Where(p => p.AuthorId == userId);
+
+        if (roleFilter.HasValue)
+            postQuery = postQuery.Where(p => p.Author!.Role == roleFilter.Value);
 
         var postIds = await postQuery.Take(limit + 1).Select(p => p.Id).ToListAsync();
 

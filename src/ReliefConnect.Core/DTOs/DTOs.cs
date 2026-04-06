@@ -53,6 +53,8 @@ public class UserProfileDto
     public string VerificationStatus { get; set; } = string.Empty;
     public bool EmailVerified { get; set; }
     public string? AvatarUrl { get; set; }
+    public string? PhoneNumber { get; set; }
+    public string? Address { get; set; }
     public DateTime CreatedAt { get; set; }
 }
 
@@ -71,6 +73,13 @@ public class VerifyRoleDto
 
     /// <summary>Optional list of uploaded image URLs (max 5) for identity verification.</summary>
     public List<string>? ImageUrls { get; set; }
+
+    /// <summary>Phone number (required for role verification).</summary>
+    [Required, Phone]
+    public string PhoneNumber { get; set; } = string.Empty;
+
+    /// <summary>Address (optional).</summary>
+    public string? Address { get; set; }
 }
 
 public class GoogleLoginDto
@@ -204,6 +213,7 @@ public class PostResponseDto
     public string AuthorId { get; set; } = string.Empty;
     public string AuthorName { get; set; } = string.Empty;
     public string? AuthorAvatar { get; set; }
+    public string AuthorRole { get; set; } = string.Empty;
     public int LikeCount { get; set; }
     public int LoveCount { get; set; }
     public int PrayCount { get; set; }
@@ -281,6 +291,8 @@ public class AdminUserDto
     public string? VerificationReason { get; set; }
     public bool EmailVerified { get; set; }
     public string? AvatarUrl { get; set; }
+    public string? PhoneNumber { get; set; }
+    public string? Address { get; set; }
     public DateTime CreatedAt { get; set; }
     public bool IsSuspended { get; set; }
     public DateTime? SuspendedUntil { get; set; }
@@ -590,4 +602,20 @@ public class ApiKeyResponseDto
     public int UsageCount { get; set; }
     public DateTime? LastUsedAt { get; set; }
     public DateTime CreatedAt { get; set; }
+}
+
+// ═══════════════════════════════════════════
+//  CONTACT INFO DTO (support button)
+// ═══════════════════════════════════════════
+
+/// <summary>
+/// Basic contact info shown to Sponsors/Volunteers when they click "Support" on a PIN user.
+/// </summary>
+public class ContactInfoDto
+{
+    public string UserId { get; set; } = string.Empty;
+    public string FullName { get; set; } = string.Empty;
+    public string Email { get; set; } = string.Empty;
+    public string? PhoneNumber { get; set; }
+    public string? AvatarUrl { get; set; }
 }

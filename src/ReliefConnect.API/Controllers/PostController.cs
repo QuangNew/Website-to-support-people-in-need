@@ -29,9 +29,14 @@ public class PostController : ControllerBase
 
     private string? GetUserId() => User.FindFirstValue(ClaimTypes.NameIdentifier);
 
-    // GET /api/social/posts?cursor=&limit=10&category=
+    // GET /api/social/posts?cursor=&limit=10&category=&role=&sort=
     [HttpGet("posts")]
-    public async Task<IActionResult> GetPosts([FromQuery] string? cursor, [FromQuery] int limit = 10, [FromQuery] string? category = null)
+    public async Task<IActionResult> GetPosts(
+        [FromQuery] string? cursor,
+        [FromQuery] int limit = 10,
+        [FromQuery] string? category = null,
+        [FromQuery] string? role = null,
+        [FromQuery] string? sort = null)
     {
         if (limit < 1) limit = 1;
         if (limit > 50) limit = 50;
@@ -40,8 +45,12 @@ public class PostController : ControllerBase
             ? parsed
             : null;
 
+        RoleEnum? roleFilter = !string.IsNullOrEmpty(role) && Enum.TryParse<RoleEnum>(role, true, out var parsedRole)
+            ? parsedRole
+            : null;
+
         var userId = GetUserId();
-        var (posts, nextCursor) = await _postRepo.GetPostsWithCountsAsync(cursor, limit, category: cat);
+        var (posts, nextCursor) = await _postRepo.GetPostsWithCountsAsync(cursor, limit, category: cat, roleFilter: roleFilter, sort: sort);
         var items = posts.Select(p => MapWithCountsToDto(p, userId));
 
         return Ok(new PaginatedResponse<PostResponseDto>
@@ -360,6 +369,7 @@ public class PostController : ControllerBase
         AuthorId     = pwc.Post.AuthorId,
         AuthorName   = pwc.Post.Author?.FullName ?? pwc.Post.Author?.UserName ?? "Ẩn danh",
         AuthorAvatar = pwc.Post.Author?.AvatarUrl,
+        AuthorRole   = pwc.Post.Author?.Role.ToString() ?? "Guest",
         LikeCount    = pwc.LikeCount,
         LoveCount    = pwc.LoveCount,
         PrayCount    = pwc.PrayCount,
@@ -383,6 +393,7 @@ public class PostController : ControllerBase
             AuthorId = p.AuthorId,
             AuthorName = p.Author?.FullName ?? p.Author?.UserName ?? "Ẩn danh",
             AuthorAvatar = p.Author?.AvatarUrl,
+            AuthorRole = p.Author?.Role.ToString() ?? "Guest",
             LikeCount = p.Reactions?.Count(r => r.Type == ReactionType.Like) ?? 0,
             LoveCount = p.Reactions?.Count(r => r.Type == ReactionType.Love) ?? 0,
             PrayCount = p.Reactions?.Count(r => r.Type == ReactionType.Pray) ?? 0,

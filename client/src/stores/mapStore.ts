@@ -61,6 +61,7 @@ interface MapState {
     activePanel: PanelType;
     selectedPingId: string | null;
     showAuthModal: 'login' | 'register' | 'forgot-password' | 'reset-password' | null;
+    resetPasswordEmail: string | null;
     showWelcome: boolean;
     sidebarExpanded: boolean;
     pings: PingData[];
@@ -90,6 +91,7 @@ interface MapState {
     setActivePanel: (panel: PanelType) => void;
     selectPing: (id: string | null) => void;
     setAuthModal: (modal: 'login' | 'register' | 'forgot-password' | 'reset-password' | null) => void;
+    setResetPasswordEmail: (email: string | null) => void;
     setShowWelcome: (show: boolean) => void;
     setSidebarExpanded: (expanded: boolean) => void;
     setPings: (pings: PingData[]) => void;
@@ -180,6 +182,7 @@ export const useMapStore = create<MapState>((set) => ({
     activePanel: null,
     selectedPingId: null,
     showAuthModal: null,
+    resetPasswordEmail: null,
     showWelcome: !localStorage.getItem('rc-welcome-seen'),
     sidebarExpanded: false,
     pings: [],               // empty until backend responds
@@ -214,6 +217,7 @@ export const useMapStore = create<MapState>((set) => ({
     })),
     selectPing: (id) => set({ selectedPingId: id }),
     setAuthModal: (modal) => set({ showAuthModal: modal }),
+    setResetPasswordEmail: (email) => set({ resetPasswordEmail: email }),
     setShowWelcome: (show) => {
         if (!show) localStorage.setItem('rc-welcome-seen', 'true');
         set({ showWelcome: show });

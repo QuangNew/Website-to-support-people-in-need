@@ -132,7 +132,14 @@
         "medical": "Medical: 115"
     },
     "social": {
+        "title": "Community",
         "share": "Share",
+        "filter": "Filter",
+        "allRoles": "All roles",
+        "sortNewest": "Newest",
+        "sortReaction": "Recently reacted",
+        "sortComment": "Recently commented",
+        "createPost": "Post",
         "composePlaceholder": "Share relief news...",
         "justNow": "Just now",
         "minutesAgo": "minutes ago",

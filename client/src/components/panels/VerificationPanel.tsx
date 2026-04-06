@@ -12,6 +12,8 @@ import {
   ImagePlus,
   X,
   Loader2,
+  Phone,
+  MapPin,
 } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
 import { useMapStore } from '../../stores/mapStore';
@@ -39,6 +41,8 @@ export default function VerificationPanel() {
 
   const [selectedRole, setSelectedRole] = useState('');
   const [verifyReason, setVerifyReason] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [address, setAddress] = useState('');
   const [verifyLoading, setVerifyLoading] = useState(false);
   const [verifyMessage, setVerifyMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -133,6 +137,8 @@ export default function VerificationPanel() {
       await authApi.submitVerification({
         requestedRole: selectedRole,
         reason: verifyReason || undefined,
+        phoneNumber,
+        address: address || undefined,
         imageUrls,
       });
       setVerifyMessage({
@@ -142,6 +148,8 @@ export default function VerificationPanel() {
       setUser({ ...user, verificationStatus: 'Pending' });
       setSelectedRole('');
       setVerifyReason('');
+      setPhoneNumber('');
+      setAddress('');
       setImageFiles([]);
       setImagePreviews([]);
     } catch (err: unknown) {
@@ -223,6 +231,38 @@ export default function VerificationPanel() {
               })}
             </div>
 
+            {/* Phone number (required) */}
+            <div style={{ marginBottom: 'var(--sp-3)' }}>
+              <label style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '4px', marginBottom: 'var(--sp-1)' }}>
+                <Phone size={14} />
+                {isVi ? 'Số điện thoại *' : 'Phone number *'}
+              </label>
+              <input
+                type="tel"
+                className="form-input"
+                placeholder={isVi ? 'VD: 0901234567' : 'e.g. 0901234567'}
+                value={phoneNumber}
+                onChange={(e) => setPhoneNumber(e.target.value)}
+                style={{ width: '100%' }}
+              />
+            </div>
+
+            {/* Address (optional) */}
+            <div style={{ marginBottom: 'var(--sp-3)' }}>
+              <label style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '4px', marginBottom: 'var(--sp-1)' }}>
+                <MapPin size={14} />
+                {isVi ? 'Địa chỉ (tuỳ chọn)' : 'Address (optional)'}
+              </label>
+              <input
+                type="text"
+                className="form-input"
+                placeholder={isVi ? 'VD: 123 Nguyễn Huệ, Q.1, TP.HCM' : 'e.g. 123 Main St, City'}
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                style={{ width: '100%' }}
+              />
+            </div>
+
             <textarea
               className="verification-reason"
               placeholder={isVi ? 'Lý do xác minh (tuỳ chọn)...' : 'Reason for verification (optional)...'}
@@ -300,7 +340,7 @@ export default function VerificationPanel() {
             <button
               className="btn btn-primary btn-full"
               onClick={submitVerification}
-              disabled={!selectedRole || verifyLoading}
+              disabled={!selectedRole || !phoneNumber.trim() || verifyLoading}
             >
               {verifyLoading ? <Loader2 size={16} className="spin" /> : <Send size={16} />}
               {verifyLoading

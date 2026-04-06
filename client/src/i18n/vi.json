@@ -132,7 +132,14 @@
     "medical": "Y tế: 115"
   },
   "social": {
+    "title": "Cộng đồng",
     "share": "Chia sẻ",
+    "filter": "Lọc",
+    "allRoles": "Tất cả vai trò",
+    "sortNewest": "Mới nhất",
+    "sortReaction": "Tương tác gần đây",
+    "sortComment": "Bình luận gần đây",
+    "createPost": "Đăng bài",
     "composePlaceholder": "Chia sẻ tin tức cứu trợ...",
     "justNow": "Vừa xong",
     "minutesAgo": "phút trước",
