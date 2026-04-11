@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import {
   Mail,
   Shield,
@@ -7,6 +7,7 @@ import {
   User,
   Save,
   X,
+  Camera,
 } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
 import { useLanguage } from '../../contexts/LanguageContext';
@@ -28,6 +29,7 @@ export default function ProfilePanel() {
   const [editName, setEditName] = useState('');
   const [editLoading, setEditLoading] = useState(false);
   const [editError, setEditError] = useState('');
+  const avatarInputRef = useRef<HTMLInputElement>(null);
 
   if (!user) return null;
 
@@ -62,6 +64,26 @@ export default function ProfilePanel() {
     }
   };
 
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const allowed = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!allowed.includes(file.type)) return;
+    if (file.size > 1024 * 1024) return; // 1MB limit for avatars
+
+    try {
+      const url = await authApi.uploadAvatar(file);
+      if (url) {
+        const res = await authApi.updateProfile({ avatarUrl: url });
+        setUser(res.data);
+      }
+    } catch {
+      // ignore
+    } finally {
+      if (avatarInputRef.current) avatarInputRef.current.value = '';
+    }
+  };
+
   return (
     <div className="panel-content profile-panel">
       <div className="panel-header">
@@ -71,12 +93,22 @@ export default function ProfilePanel() {
       {/* Profile card */}
       <div className="profile-card glass-card">
         <div className="profile-avatar-section">
-          <div className="avatar avatar-lg">
+          <div className="avatar avatar-lg profile-avatar-clickable" onClick={() => avatarInputRef.current?.click()}>
             {user.avatarUrl ? (
               <img src={user.avatarUrl} alt={user.fullName} />
             ) : (
               <User size={32} />
             )}
+            <div className="profile-avatar-overlay">
+              <Camera size={16} color="white" />
+            </div>
+            <input
+              ref={avatarInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              style={{ display: 'none' }}
+              onChange={handleAvatarChange}
+            />
           </div>
           <div className="profile-name-section">
             {isEditing ? (

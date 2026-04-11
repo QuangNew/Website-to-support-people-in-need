@@ -628,3 +628,33 @@ public class ContactInfoDto
     public string? PhoneNumber { get; set; }
     public string? AvatarUrl { get; set; }
 }
+
+// ═══════════════════════════════════════════
+//  RESTORE DTOs
+// ═══════════════════════════════════════════
+
+public class DeletedPostDto
+{
+    public int Id { get; set; }
+    public string Content { get; set; } = string.Empty;
+    public string Category { get; set; } = string.Empty;
+    public string AuthorId { get; set; } = string.Empty;
+    public string AuthorName { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; }
+    public DateTime? DeletedAt { get; set; }
+    public string? DeletedByAdminName { get; set; }
+    public int DaysRemaining { get; set; }
+}
+
+public class HiddenCommentDto
+{
+    public int Id { get; set; }
+    public string Content { get; set; } = string.Empty;
+    public int PostId { get; set; }
+    public string UserId { get; set; } = string.Empty;
+    public string UserName { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; }
+    public DateTime? HiddenAt { get; set; }
+    public string? HiddenByAdminName { get; set; }
+    public int DaysRemaining { get; set; }
+}

@@ -51,7 +51,7 @@ public class AdminModerationController : ControllerBase
         if (!string.IsNullOrWhiteSpace(category) && !Enum.TryParse<PostCategory>(category, true, out _))
             return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Invalid category." });
 
-        var query = _db.Posts.AsNoTracking().AsQueryable();
+        var query = _db.Posts.AsNoTracking().Where(p => !p.IsDeleted).AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(category) && Enum.TryParse<PostCategory>(category, true, out var cat))
             query = query.Where(p => p.Category == cat);
@@ -110,57 +110,215 @@ public class AdminModerationController : ControllerBase
     }
 
     // ═══════════════════════════════════════════
-    //  POSTS — Delete
+    //  POSTS — Delete (soft-delete, restorable 7 days)
     // ═══════════════════════════════════════════
 
     /// <summary>
-    /// Delete a post (content moderation).
+    /// Soft-delete a post (content moderation). Restorable within 7 days.
     /// </summary>
     [HttpDelete("posts/{postId}")]
     public async Task<ActionResult> DeletePost(int postId)
     {
-        var postInfo = await _db.Posts
-            .AsNoTracking()
-            .Where(p => p.Id == postId)
-            .Select(p => new { AuthorName = p.Author != null ? p.Author.UserName : "unknown" })
+        var post = await _db.Posts
+            .Where(p => p.Id == postId && !p.IsDeleted)
+            .Include(p => p.Author)
             .FirstOrDefaultAsync();
 
-        if (postInfo == null)
+        if (post == null)
             return NotFound(new ApiErrorResponse { StatusCode = 404, Message = "Bài viết không tồn tại." });
 
-        await _db.Posts.Where(p => p.Id == postId).ExecuteDeleteAsync();
+        var adminId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        var authorName = post.Author?.UserName ?? "unknown";
 
-        await this.LogAdminAction(_db, "PostDeleted", $"Deleted post #{postId} by {postInfo.AuthorName}");
-        _logger.LogInformation("Admin deleted post #{PostId} by {Author}", postId, postInfo.AuthorName);
+        post.IsDeleted = true;
+        post.DeletedAt = DateTime.UtcNow;
+        post.DeletedByAdminId = adminId;
+        await _db.SaveChangesAsync();
 
-        return Ok(new { message = "Đã xóa bài viết." });
+        await this.LogAdminAction(_db, "PostDeleted", $"Soft-deleted post #{postId} by {authorName} (restorable 7 days)");
+        _logger.LogInformation("Admin soft-deleted post #{PostId} by {Author}", postId, authorName);
+
+        return Ok(new { message = "Đã xóa bài viết. Có thể khôi phục trong 7 ngày." });
     }
 
     // ═══════════════════════════════════════════
-    //  COMMENTS — Delete
+    //  POSTS — Restore
     // ═══════════════════════════════════════════
 
     /// <summary>
-    /// Delete a specific comment from a post.
+    /// Restore a soft-deleted post (within 7-day window).
+    /// </summary>
+    [HttpPost("posts/{postId}/restore")]
+    public async Task<ActionResult> RestorePost(int postId)
+    {
+        var post = await _db.Posts
+            .Where(p => p.Id == postId && p.IsDeleted)
+            .FirstOrDefaultAsync();
+
+        if (post == null)
+            return NotFound(new ApiErrorResponse { StatusCode = 404, Message = "Bài viết đã xóa không tồn tại." });
+
+        if (post.DeletedAt.HasValue && post.DeletedAt.Value < DateTime.UtcNow.AddDays(-7))
+            return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Đã quá hạn khôi phục (7 ngày)." });
+
+        post.IsDeleted = false;
+        post.DeletedAt = null;
+        post.DeletedByAdminId = null;
+        await _db.SaveChangesAsync();
+
+        await this.LogAdminAction(_db, "PostRestored", $"Restored post #{postId}");
+        _logger.LogInformation("Admin restored post #{PostId}", postId);
+
+        return Ok(new { message = "Đã khôi phục bài viết." });
+    }
+
+    /// <summary>
+    /// Get list of soft-deleted posts that can be restored (within 7-day window).
+    /// </summary>
+    [HttpGet("posts/deleted")]
+    public async Task<ActionResult> GetDeletedPosts(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20)
+    {
+        if (pageSize > 100) pageSize = 100;
+        var cutoff = DateTime.UtcNow.AddDays(-7);
+        var now = DateTime.UtcNow;
+
+        var query = _db.Posts
+            .AsNoTracking()
+            .Where(p => p.IsDeleted && p.DeletedAt != null && p.DeletedAt > cutoff);
+
+        var total = await query.CountAsync();
+        var posts = await query
+            .OrderByDescending(p => p.DeletedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(p => new DeletedPostDto
+            {
+                Id           = p.Id,
+                Content      = p.Content.Length > 200 ? p.Content.Substring(0, 200) : p.Content,
+                Category     = p.Category.ToString(),
+                AuthorId     = p.AuthorId,
+                AuthorName   = p.Author != null ? (p.Author.FullName ?? p.Author.UserName ?? "Ẩn danh") : "Ẩn danh",
+                CreatedAt    = p.CreatedAt,
+                DeletedAt    = p.DeletedAt,
+                DeletedByAdminName = p.DeletedByAdminId != null
+                    ? _db.Users.Where(u => u.Id == p.DeletedByAdminId).Select(u => u.FullName ?? u.UserName).FirstOrDefault() ?? "Admin"
+                    : null,
+                DaysRemaining = p.DeletedAt.HasValue ? Math.Max(0, 7 - (int)(now - p.DeletedAt.Value).TotalDays) : 0
+            })
+            .ToListAsync();
+
+        return Ok(new
+        {
+            items = posts,
+            total,
+            page,
+            pageSize,
+            totalPages = (int)Math.Ceiling(total / (double)pageSize)
+        });
+    }
+
+    // ═══════════════════════════════════════════
+    //  COMMENTS — Hide (soft-delete, visible 30 days for admin)
+    // ═══════════════════════════════════════════
+
+    /// <summary>
+    /// Hide a specific comment from a post (soft-delete). Hidden for 30 days before permanent deletion.
     /// </summary>
     [HttpDelete("posts/{postId}/comments/{commentId}")]
     public async Task<ActionResult> DeleteComment(int postId, int commentId)
     {
-        var commentInfo = await _db.Comments
-            .AsNoTracking()
-            .Where(c => c.Id == commentId && c.PostId == postId)
-            .Select(c => new { c.Id, UserName = c.User != null ? c.User.UserName : "unknown" })
+        var comment = await _db.Comments
+            .Where(c => c.Id == commentId && c.PostId == postId && !c.IsHidden)
+            .Include(c => c.User)
             .FirstOrDefaultAsync();
 
-        if (commentInfo == null)
+        if (comment == null)
             return NotFound(new ApiErrorResponse { StatusCode = 404, Message = "Bình luận không tồn tại." });
 
-        await _db.Comments.Where(c => c.Id == commentId).ExecuteDeleteAsync();
+        var adminId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        var userName = comment.User?.UserName ?? "unknown";
 
-        await this.LogAdminAction(_db, "CommentDeleted", $"Deleted comment #{commentId} on post #{postId} by {commentInfo.UserName}");
-        _logger.LogInformation("Admin deleted comment #{CommentId} on post #{PostId}", commentId, postId);
+        comment.IsHidden = true;
+        comment.HiddenAt = DateTime.UtcNow;
+        comment.HiddenByAdminId = adminId;
+        await _db.SaveChangesAsync();
 
-        return Ok(new { message = "Đã xóa bình luận." });
+        await this.LogAdminAction(_db, "CommentHidden", $"Hidden comment #{commentId} on post #{postId} by {userName} (auto-delete in 30 days)");
+        _logger.LogInformation("Admin hidden comment #{CommentId} on post #{PostId}", commentId, postId);
+
+        return Ok(new { message = "Đã ẩn bình luận. Sẽ tự động xóa sau 30 ngày." });
+    }
+
+    /// <summary>
+    /// Restore a hidden comment.
+    /// </summary>
+    [HttpPost("posts/{postId}/comments/{commentId}/restore")]
+    public async Task<ActionResult> RestoreComment(int postId, int commentId)
+    {
+        var comment = await _db.Comments
+            .Where(c => c.Id == commentId && c.PostId == postId && c.IsHidden)
+            .FirstOrDefaultAsync();
+
+        if (comment == null)
+            return NotFound(new ApiErrorResponse { StatusCode = 404, Message = "Bình luận ẩn không tồn tại." });
+
+        comment.IsHidden = false;
+        comment.HiddenAt = null;
+        comment.HiddenByAdminId = null;
+        await _db.SaveChangesAsync();
+
+        await this.LogAdminAction(_db, "CommentRestored", $"Restored comment #{commentId} on post #{postId}");
+        _logger.LogInformation("Admin restored comment #{CommentId} on post #{PostId}", commentId, postId);
+
+        return Ok(new { message = "Đã khôi phục bình luận." });
+    }
+
+    /// <summary>
+    /// Get list of hidden comments for admin review.
+    /// </summary>
+    [HttpGet("comments/hidden")]
+    public async Task<ActionResult> GetHiddenComments(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20)
+    {
+        if (pageSize > 100) pageSize = 100;
+        var now = DateTime.UtcNow;
+
+        var query = _db.Comments
+            .AsNoTracking()
+            .Where(c => c.IsHidden);
+
+        var total = await query.CountAsync();
+        var comments = await query
+            .OrderByDescending(c => c.HiddenAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(c => new HiddenCommentDto
+            {
+                Id        = c.Id,
+                Content   = c.Content,
+                PostId    = c.PostId,
+                UserId    = c.UserId,
+                UserName  = c.User != null ? (c.User.FullName ?? c.User.UserName ?? "Ẩn danh") : "Ẩn danh",
+                CreatedAt = c.CreatedAt,
+                HiddenAt  = c.HiddenAt,
+                HiddenByAdminName = c.HiddenByAdminId != null
+                    ? _db.Users.Where(u => u.Id == c.HiddenByAdminId).Select(u => u.FullName ?? u.UserName).FirstOrDefault() ?? "Admin"
+                    : null,
+                DaysRemaining = c.HiddenAt.HasValue ? Math.Max(0, 30 - (int)(now - c.HiddenAt.Value).TotalDays) : 30
+            })
+            .ToListAsync();
+
+        return Ok(new
+        {
+            items = comments,
+            total,
+            page,
+            pageSize,
+            totalPages = (int)Math.Ceiling(total / (double)pageSize)
+        });
     }
 
     // ═══════════════════════════════════════════

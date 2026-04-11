@@ -230,7 +230,7 @@ public class PostController : ControllerBase
         var query = _db.Comments
             .AsNoTracking()
             .Include(c => c.User)
-            .Where(c => c.PostId == postId)
+            .Where(c => c.PostId == postId && !c.IsHidden)
             .OrderByDescending(c => c.CreatedAt)
             .AsQueryable();
 
@@ -330,16 +330,13 @@ public class PostController : ControllerBase
         var userId = GetUserId();
         if (userId == null) return Unauthorized();
 
-        // Single lightweight query — check existence + ownership
-        var postInfo = await _db.Posts
-            .AsNoTracking()
-            .Where(p => p.Id == id)
-            .Select(p => new { p.AuthorId })
+        var post = await _db.Posts
+            .Where(p => p.Id == id && !p.IsDeleted)
             .FirstOrDefaultAsync();
 
-        if (postInfo == null) return NotFound();
+        if (post == null) return NotFound();
 
-        if (postInfo.AuthorId != userId)
+        if (post.AuthorId != userId)
         {
             var userRole = await _db.Users
                 .AsNoTracking()
@@ -350,7 +347,12 @@ public class PostController : ControllerBase
                 return Forbid();
         }
 
-        await _db.Posts.Where(p => p.Id == id).ExecuteDeleteAsync();
+        // Soft-delete: mark as deleted instead of removing
+        post.IsDeleted = true;
+        post.DeletedAt = DateTime.UtcNow;
+        post.DeletedByAdminId = post.AuthorId != userId ? userId : null;
+        await _db.SaveChangesAsync();
+
         return NoContent();
     }
 

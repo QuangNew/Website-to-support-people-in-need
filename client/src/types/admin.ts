@@ -103,3 +103,27 @@ export interface BatchResultItem {
   success: boolean;
   error?: string;
 }
+
+export interface DeletedPost {
+  id: number;
+  content: string;
+  category: string;
+  authorId: string;
+  authorName: string;
+  createdAt: string;
+  deletedAt?: string;
+  deletedByAdminName?: string;
+  daysRemaining: number;
+}
+
+export interface HiddenComment {
+  id: number;
+  content: string;
+  postId: number;
+  userId: string;
+  userName: string;
+  createdAt: string;
+  hiddenAt?: string;
+  hiddenByAdminName?: string;
+  daysRemaining: number;
+}

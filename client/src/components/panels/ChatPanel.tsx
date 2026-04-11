@@ -329,7 +329,13 @@ export default function ChatPanel() {
             )}
             <div className={`chat-panel-msg chat-panel-msg--${msg.role}`}>
               <div className={`chat-panel-msg-avatar chat-panel-msg-avatar--${msg.role}`}>
-                {msg.role === 'assistant' ? <Bot size={14} /> : <User size={14} />}
+                {msg.role === 'assistant' ? (
+                  <Bot size={14} />
+                ) : user?.avatarUrl ? (
+                  <img src={user.avatarUrl} alt="" className="chat-panel-msg-avatar-img" />
+                ) : (
+                  <User size={14} />
+                )}
               </div>
               <div className={`chat-panel-msg-bubble chat-panel-msg-bubble--${msg.role}`}>
                 {msg.imageDataUrl && !isImageExpired(msg.timestamp) && (

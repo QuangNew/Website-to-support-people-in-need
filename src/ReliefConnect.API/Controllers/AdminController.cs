@@ -501,21 +501,25 @@ public class AdminController : ControllerBase
             }
         }
 
-        // 3. Post deletions via ExecuteDeleteAsync
+        // 3. Post deletions via soft-delete (restorable 7 days)
         foreach (var postId in dto.PostDeletions)
         {
             try
             {
-                var rowsAffected = await _db.Posts.Where(p => p.Id == postId).ExecuteDeleteAsync();
-                if (rowsAffected == 0)
+                var post = await _db.Posts.Where(p => p.Id == postId && !p.IsDeleted).FirstOrDefaultAsync();
+                if (post == null)
                 {
                     results.Add(new BatchResultItem { OpType = "deletePost", Key = postId.ToString(), Success = false, Error = "Post not found" });
                     CollectChildLog(childLogs, "deletePost", postId.ToString(), false, "Post not found", batchId, parentLogId, adminId, adminName);
                 }
                 else
                 {
+                    post.IsDeleted = true;
+                    post.DeletedAt = DateTime.UtcNow;
+                    post.DeletedByAdminId = adminId;
+                    await _db.SaveChangesAsync();
                     results.Add(new BatchResultItem { OpType = "deletePost", Key = postId.ToString(), Success = true });
-                    CollectChildLog(childLogs, "deletePost", postId.ToString(), true, $"Deleted post #{postId}", batchId, parentLogId, adminId, adminName);
+                    CollectChildLog(childLogs, "deletePost", postId.ToString(), true, $"Soft-deleted post #{postId} (restorable 7 days)", batchId, parentLogId, adminId, adminName);
                 }
             }
             catch (Exception ex)

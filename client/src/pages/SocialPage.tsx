@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Heart, HandHeart, HandHelping, MessageCircle, Send, Image, Trash2, Filter } from 'lucide-react';
+import { Heart, HandHeart, HandHelping, MessageCircle, Send, Image, Trash2, Filter, EyeOff } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuthStore } from '../stores/authStore';
 import { socialApi, getImageUrl } from '../services/api';
@@ -197,6 +198,21 @@ export default function SocialPage() {
         } catch { /* ignore */ }
     };
 
+    const handleHideComment = async (postId: number, commentId: number) => {
+        if (!confirm(t('social.confirmHideComment'))) return;
+        try {
+            await socialApi.hideComment(postId, commentId);
+            setExpandedComments(prev => ({
+                ...prev,
+                [postId]: (prev[postId] || []).filter(c => c.id !== commentId),
+            }));
+            setPosts(prev => prev.map(p => p.id === postId ? { ...p, commentCount: Math.max(0, p.commentCount - 1) } : p));
+            toast.success(t('social.commentHidden'));
+        } catch {
+            toast.error(t('common.error'));
+        }
+    };
+
     const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
@@ -362,7 +378,7 @@ export default function SocialPage() {
                                     <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-tertiary)' }}>{t('social.noComments')}</p>
                                 )}
                                 {expandedComments[post.id]?.map(c => (
-                                    <div key={c.id} style={{ display: 'flex', gap: 'var(--sp-2)', marginBottom: 'var(--sp-2)' }}>
+                                    <div key={c.id} style={{ display: 'flex', gap: 'var(--sp-2)', marginBottom: 'var(--sp-2)', alignItems: 'flex-start' }}>
                                         {c.userAvatar ? (
                                             <img src={c.userAvatar} alt="" className="avatar avatar-sm" style={{ objectFit: 'cover' }} />
                                         ) : (
@@ -372,6 +388,16 @@ export default function SocialPage() {
                                             <span style={{ fontWeight: 600, fontSize: 'var(--text-sm)' }}>{c.userName}</span>
                                             <p style={{ fontSize: 'var(--text-sm)', margin: 0 }}>{c.content}</p>
                                         </div>
+                                        {user?.role === 'Admin' && (
+                                            <button
+                                                className="btn btn-ghost btn-icon btn-sm"
+                                                style={{ color: 'var(--danger-400)', flexShrink: 0 }}
+                                                title={t('social.hideComment')}
+                                                onClick={() => handleHideComment(post.id, c.id)}
+                                            >
+                                                <EyeOff size={14} />
+                                            </button>
+                                        )}
                                     </div>
                                 ))}
                             </div>

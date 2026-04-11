@@ -128,10 +128,11 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
 
             entity.HasIndex(p => p.CreatedAt).IsDescending();
             entity.HasIndex(p => p.AuthorId);
-            // Index for category filtering (used by 3+ endpoints)
             entity.HasIndex(p => p.Category);
-            // Composite index for cursor pagination (CreatedAt DESC, Id DESC)
             entity.HasIndex(p => new { p.CreatedAt, p.Id }).IsDescending();
+            // Soft-delete: index for restore queries
+            entity.HasIndex(p => p.IsDeleted);
+            entity.HasIndex(p => p.DeletedAt);
 
             entity.HasOne(p => p.Author)
                   .WithMany(u => u.Posts)
@@ -152,6 +153,9 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
 
             entity.HasIndex(c => c.PostId);
             entity.HasIndex(c => c.UserId);
+            // Soft-delete: index for hidden comment cleanup
+            entity.HasIndex(c => c.IsHidden);
+            entity.HasIndex(c => c.HiddenAt);
             // Index for chronological ordering (newest comments first)
             entity.HasIndex(c => c.CreatedAt).IsDescending();
 

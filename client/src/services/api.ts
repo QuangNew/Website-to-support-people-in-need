@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { uploadToStorage } from './supabase';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5164/api';
 
@@ -73,6 +74,10 @@ export const authApi = {
 
   updateProfile: (data: { fullName?: string; avatarUrl?: string }) =>
     api.put('/auth/profile', data),
+
+  uploadAvatar: async (file: File): Promise<string | null> => {
+    return uploadToStorage('avatars', file);
+  },
 
   submitVerification: (data: { requestedRole: string; reason?: string; imageUrls?: string[]; phoneNumber: string; address?: string }) =>
     api.post('/auth/verify-role', data),
@@ -163,7 +168,11 @@ export const socialApi = {
   getPost: (id: number) =>
     api.get(`/social/posts/${id}`),
 
-  uploadImage: (file: File) => {
+  uploadImage: async (file: File) => {
+    // Try Supabase Storage first, fall back to backend
+    const publicUrl = await uploadToStorage('post-images', file);
+    if (publicUrl) return { data: { imageUrl: publicUrl } };
+
     const formData = new FormData();
     formData.append('file', file);
     return api.post('/social/upload-image', formData, {
@@ -188,6 +197,9 @@ export const socialApi = {
 
   deletePost: (id: number) =>
     api.delete(`/social/posts/${id}`),
+
+  hideComment: (postId: number, commentId: number) =>
+    api.delete(`/admin/moderation/posts/${postId}/comments/${commentId}`),
 };
 
 // ═══════════════════════════════════════════
@@ -257,6 +269,18 @@ export const adminApi = {
 
   deleteComment: (postId: number, commentId: number) =>
     api.delete(`/admin/moderation/posts/${postId}/comments/${commentId}`),
+
+  restorePost: (postId: number) =>
+    api.post(`/admin/moderation/posts/${postId}/restore`),
+
+  getDeletedPosts: (params?: { page?: number; pageSize?: number }) =>
+    api.get('/admin/moderation/posts/deleted', { params }),
+
+  restoreComment: (postId: number, commentId: number) =>
+    api.post(`/admin/moderation/posts/${postId}/comments/${commentId}/restore`),
+
+  getHiddenComments: (params?: { page?: number; pageSize?: number }) =>
+    api.get('/admin/moderation/comments/hidden', { params }),
 
   getReports: (params?: { status?: string; page?: number; pageSize?: number }) =>
     api.get('/admin/moderation/reports', { params }),

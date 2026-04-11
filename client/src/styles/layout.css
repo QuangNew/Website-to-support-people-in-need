@@ -1287,6 +1287,13 @@
   color: white;
 }
 
+.chat-panel-msg-avatar-img {
+  width: 100%;
+  height: 100%;
+  border-radius: var(--radius-full);
+  object-fit: cover;
+}
+
 /* ── Bubble ── */
 .chat-panel-msg-bubble {
   padding: var(--sp-2) var(--sp-3);
@@ -1543,6 +1550,27 @@
 
 .profile-avatar-section .avatar {
   box-shadow: var(--shadow-glow-primary);
+}
+
+.profile-avatar-clickable {
+  position: relative;
+  cursor: pointer;
+}
+
+.profile-avatar-overlay {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-full);
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.profile-avatar-clickable:hover .profile-avatar-overlay {
+  opacity: 1;
 }
 
 .profile-name-section {

@@ -201,6 +201,7 @@ builder.Services.AddHangfireServer();
 //  BACKGROUND SERVICES
 // ═══════════════════════════════════════════
 builder.Services.AddHostedService<ReliefConnect.API.BackgroundServices.PingFlagMonitorService>();
+builder.Services.AddHostedService<ReliefConnect.API.BackgroundServices.SoftDeleteCleanupService>();
 
 var app = builder.Build();
 

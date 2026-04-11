@@ -5,7 +5,7 @@ import {
   LogOut, Eye,
   ArrowLeft, Search, CheckCircle2, XCircle, AlertTriangle,
   Heart, BookOpen, Stethoscope, Home, Activity, ShieldCheck, Plus, Edit2,
-  MapPin, Package, X, Key,
+  MapPin, Package, X, Key, RotateCcw,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
@@ -23,6 +23,8 @@ import type {
   Announcement,
   SystemStats,
   PagedResponse,
+  DeletedPost,
+  HiddenComment,
 } from '../types/admin';
 
 // ─── Debounce utility ───
@@ -61,7 +63,7 @@ function downloadBlob(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
-type Tab = 'stats' | 'verifications' | 'users' | 'posts' | 'reports' | 'logs' | 'announcements' | 'zones' | 'supply' | 'apikeys';
+type Tab = 'stats' | 'verifications' | 'users' | 'posts' | 'reports' | 'logs' | 'restore' | 'announcements' | 'zones' | 'supply' | 'apikeys';
 
 // ═══════════════════════════════════════════
 //  ADMIN PAGE
@@ -86,6 +88,7 @@ export default function AdminPage() {
     { key: 'posts', label: t('admin.posts'), icon: FileText },
     { key: 'reports', label: 'Reports', icon: Flag },
     { key: 'logs', label: t('admin.logs'), icon: ScrollText },
+    { key: 'restore', label: t('admin.restoreTab'), icon: RotateCcw },
     { key: 'announcements', label: 'Announcements', icon: Megaphone },
     { key: 'zones', label: 'Zones', icon: MapPin },
     { key: 'supply', label: 'Supply', icon: Package },
@@ -134,6 +137,7 @@ export default function AdminPage() {
           {activeTab === 'posts' && <PostsPanel />}
           {activeTab === 'reports' && <ReportsPanel />}
           {activeTab === 'logs' && <LogsPanel />}
+          {activeTab === 'restore' && <RestorePanel />}
           {activeTab === 'announcements' && <AnnouncementsPanel />}
           {activeTab === 'zones' && <ZonesPanel />}
           {activeTab === 'supply' && <SupplyPanel />}
@@ -1067,8 +1071,8 @@ function LogsPanel() {
           <tbody>
             {logs.map((l) => (
               <>
-                <tr key={l.id} style={l.hasChildren ? { cursor: 'pointer' } : undefined}
-                  onClick={() => { if (l.hasChildren) toggleExpand(l.id); else setDetailLog(l); }}>
+                <tr key={l.id} style={{ cursor: 'pointer' }}
+                  onClick={() => { setDetailLog(l); if (l.hasChildren && !childrenMap[l.id]) toggleExpand(l.id); }}>
                   <td>
                     {l.hasChildren && (
                       <button
@@ -1142,7 +1146,7 @@ function LogsPanel() {
         </div>
       )}
 
-      {/* Log detail overlay */}
+      {/* Log detail overlay — enhanced with batch children */}
       {detailLog && (
         <div
           style={{
@@ -1154,32 +1158,32 @@ function LogsPanel() {
           <div
             className="glass-card animate-fade-in"
             style={{
-              padding: 'var(--sp-6)', maxWidth: 560, width: '90%', maxHeight: '80vh', overflow: 'auto',
+              padding: 'var(--sp-6)', maxWidth: 640, width: '90%', maxHeight: '80vh', overflow: 'auto',
               borderRadius: 'var(--radius-lg)',
             }}
             onClick={(e) => e.stopPropagation()}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--sp-4)' }}>
-              <h4 style={{ margin: 0 }}>Log #{detailLog.id}</h4>
+              <h4 style={{ margin: 0 }}>{t('admin.logDetail')} #{detailLog.id}</h4>
               <button className="btn btn-ghost btn-sm" onClick={() => setDetailLog(null)}>
                 <X size={16} />
               </button>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
               <div>
-                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginBottom: 2 }}>Action</div>
+                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginBottom: 2 }}>{t('admin.action')}</div>
                 <span className="admin-badge admin-badge--action">{detailLog.action}</span>
               </div>
               <div>
-                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginBottom: 2 }}>User</div>
+                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginBottom: 2 }}>{t('admin.user')}</div>
                 <div style={{ fontWeight: 500 }}>{detailLog.userName || '-'}</div>
               </div>
               <div>
-                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginBottom: 2 }}>Date</div>
+                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginBottom: 2 }}>{t('admin.date')}</div>
                 <div>{new Date(detailLog.createdAt).toLocaleString()}</div>
               </div>
               <div>
-                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginBottom: 2 }}>Details</div>
+                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginBottom: 2 }}>{t('admin.details')}</div>
                 <div style={{
                   background: 'var(--bg-subtle, rgba(0,0,0,0.04))', padding: 'var(--sp-3)',
                   borderRadius: 'var(--radius-md)', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
@@ -1188,9 +1192,264 @@ function LogsPanel() {
                   {detailLog.details || 'No details available.'}
                 </div>
               </div>
+
+              {/* Batch children detail — clickable drill-down */}
+              {detailLog.hasChildren && childrenMap[detailLog.id] && (
+                <div>
+                  <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginBottom: 'var(--sp-2)' }}>
+                    {t('admin.batchChildren')} ({childrenMap[detailLog.id].length})
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-1)' }}>
+                    {childrenMap[detailLog.id].map((child) => (
+                      <div
+                        key={child.id}
+                        style={{
+                          background: 'var(--bg-subtle, rgba(0,0,0,0.04))',
+                          padding: 'var(--sp-2) var(--sp-3)',
+                          borderRadius: 'var(--radius-md)',
+                          borderLeft: '3px solid var(--accent-400)',
+                          fontSize: 'var(--text-sm)',
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span className="admin-badge admin-badge--action" style={{ fontSize: '0.65rem' }}>
+                            {child.action}
+                          </span>
+                          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+                            {new Date(child.createdAt).toLocaleString()}
+                          </span>
+                        </div>
+                        <div style={{ marginTop: 'var(--sp-1)', fontFamily: 'monospace', fontSize: 'var(--text-xs)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                          {child.details || '-'}
+                        </div>
+                        {child.userName && (
+                          <div style={{ marginTop: 2, fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+                            by {child.userName}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {detailLog.hasChildren && !childrenMap[detailLog.id] && (
+                <button className="btn btn-ghost btn-sm" onClick={() => toggleExpand(detailLog.id)}>
+                  <ChevronDown size={14} /> {t('admin.clickToExpand')}
+                </button>
+              )}
             </div>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════
+//  RESTORE PANEL
+// ═══════════════════════════════════════════
+
+function RestorePanel() {
+  const { t } = useLanguage();
+  const [subTab, setSubTab] = useState<'posts' | 'comments'>('posts');
+  const [deletedPosts, setDeletedPosts] = useState<DeletedPost[]>([]);
+  const [hiddenComments, setHiddenComments] = useState<HiddenComment[]>([]);
+  const [loadingPosts, setLoadingPosts] = useState(true);
+  const [loadingComments, setLoadingComments] = useState(true);
+  const [postsPage, setPostsPage] = useState(1);
+  const [postsTotalPages, setPostsTotalPages] = useState(0);
+  const [commentsPage, setCommentsPage] = useState(1);
+  const [commentsTotalPages, setCommentsTotalPages] = useState(0);
+  const [restoring, setRestoring] = useState<Set<string>>(new Set());
+
+  const loadDeletedPosts = useCallback(() => {
+    setLoadingPosts(true);
+    adminApi.getDeletedPosts({ page: postsPage, pageSize: 20 })
+      .then((res) => {
+        const data = res.data as PagedResponse<DeletedPost>;
+        setDeletedPosts(data.items);
+        setPostsTotalPages(data.totalPages);
+      })
+      .catch(() => toast.error(t('common.error')))
+      .finally(() => setLoadingPosts(false));
+  }, [postsPage, t]);
+
+  const loadHiddenComments = useCallback(() => {
+    setLoadingComments(true);
+    adminApi.getHiddenComments({ page: commentsPage, pageSize: 20 })
+      .then((res) => {
+        const data = res.data as PagedResponse<HiddenComment>;
+        setHiddenComments(data.items);
+        setCommentsTotalPages(data.totalPages);
+      })
+      .catch(() => toast.error(t('common.error')))
+      .finally(() => setLoadingComments(false));
+  }, [commentsPage, t]);
+
+  useEffect(() => { loadDeletedPosts(); }, [loadDeletedPosts]);
+  useEffect(() => { loadHiddenComments(); }, [loadHiddenComments]);
+
+  const handleRestorePost = async (postId: number) => {
+    const key = `post-${postId}`;
+    if (restoring.has(key)) return;
+    setRestoring((s) => new Set(s).add(key));
+    try {
+      await adminApi.restorePost(postId);
+      toast.success(t('admin.restored'));
+      setDeletedPosts((prev) => prev.filter((p) => p.id !== postId));
+    } catch {
+      toast.error(t('common.error'));
+    } finally {
+      setRestoring((s) => { const ns = new Set(s); ns.delete(key); return ns; });
+    }
+  };
+
+  const handleRestoreComment = async (postId: number, commentId: number) => {
+    const key = `comment-${commentId}`;
+    if (restoring.has(key)) return;
+    setRestoring((s) => new Set(s).add(key));
+    try {
+      await adminApi.restoreComment(postId, commentId);
+      toast.success(t('admin.restored'));
+      setHiddenComments((prev) => prev.filter((c) => c.id !== commentId));
+    } catch {
+      toast.error(t('common.error'));
+    } finally {
+      setRestoring((s) => { const ns = new Set(s); ns.delete(key); return ns; });
+    }
+  };
+
+  return (
+    <div className="animate-fade-in-up">
+      {/* Sub-tabs: Deleted Posts / Hidden Comments */}
+      <div className="admin-filters" style={{ gap: 'var(--sp-2)', marginBottom: 'var(--sp-4)' }}>
+        <button className={`btn btn-sm ${subTab === 'posts' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setSubTab('posts')}>
+          <FileText size={14} /> {t('admin.deletedPosts')}
+        </button>
+        <button className={`btn btn-sm ${subTab === 'comments' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setSubTab('comments')}>
+          <ScrollText size={14} /> {t('admin.hiddenComments')}
+        </button>
+        <button className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto' }} onClick={() => { loadDeletedPosts(); loadHiddenComments(); }}>
+          <RefreshCw size={14} />
+        </button>
+      </div>
+
+      {/* Deleted Posts */}
+      {subTab === 'posts' && (
+        <>
+          {loadingPosts && <div className="admin-loading"><span className="spinner" /></div>}
+          {!loadingPosts && deletedPosts.length === 0 && (
+            <p style={{ textAlign: 'center', color: 'var(--text-muted)', padding: 'var(--sp-8)' }}>{t('admin.noDeletedPosts')}</p>
+          )}
+          {!loadingPosts && deletedPosts.length > 0 && (
+            <div className="admin-table-wrap">
+              <table className="admin-table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Content</th>
+                    <th>Author</th>
+                    <th>{t('admin.deletedBy')}</th>
+                    <th>{t('admin.date')}</th>
+                    <th>{t('admin.daysRemaining')}</th>
+                    <th>{t('admin.action')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {deletedPosts.map((p) => (
+                    <tr key={p.id}>
+                      <td>#{p.id}</td>
+                      <td className="admin-td-content">{p.content}</td>
+                      <td>{p.authorName}</td>
+                      <td>{p.deletedByAdminName || '-'}</td>
+                      <td className="admin-td-date">{p.deletedAt ? new Date(p.deletedAt).toLocaleString() : '-'}</td>
+                      <td>
+                        <span className={`admin-badge ${p.daysRemaining <= 2 ? 'admin-badge--danger' : 'admin-badge--info'}`}>
+                          {p.daysRemaining} {t('admin.daysRemaining')}
+                        </span>
+                      </td>
+                      <td>
+                        <button
+                          className="btn btn-primary btn-sm"
+                          disabled={restoring.has(`post-${p.id}`)}
+                          onClick={() => handleRestorePost(p.id)}
+                        >
+                          <RotateCcw size={14} /> {t('admin.restore')}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {postsTotalPages > 1 && (
+            <div className="admin-pagination">
+              <button className="btn btn-ghost btn-sm" disabled={postsPage <= 1} onClick={() => setPostsPage(postsPage - 1)}>← Prev</button>
+              <span className="admin-page-info">{postsPage} / {postsTotalPages}</span>
+              <button className="btn btn-ghost btn-sm" disabled={postsPage >= postsTotalPages} onClick={() => setPostsPage(postsPage + 1)}>Next →</button>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Hidden Comments */}
+      {subTab === 'comments' && (
+        <>
+          {loadingComments && <div className="admin-loading"><span className="spinner" /></div>}
+          {!loadingComments && hiddenComments.length === 0 && (
+            <p style={{ textAlign: 'center', color: 'var(--text-muted)', padding: 'var(--sp-8)' }}>{t('admin.noHiddenComments')}</p>
+          )}
+          {!loadingComments && hiddenComments.length > 0 && (
+            <div className="admin-table-wrap">
+              <table className="admin-table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Content</th>
+                    <th>Post</th>
+                    <th>{t('admin.user')}</th>
+                    <th>{t('admin.hiddenBy')}</th>
+                    <th>{t('admin.daysRemaining')}</th>
+                    <th>{t('admin.action')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {hiddenComments.map((c) => (
+                    <tr key={c.id}>
+                      <td>#{c.id}</td>
+                      <td className="admin-td-content">{c.content}</td>
+                      <td>#{c.postId}</td>
+                      <td>{c.userName}</td>
+                      <td>{c.hiddenByAdminName || '-'}</td>
+                      <td>
+                        <span className={`admin-badge ${c.daysRemaining <= 5 ? 'admin-badge--danger' : 'admin-badge--info'}`}>
+                          {c.daysRemaining} {t('admin.daysRemaining')}
+                        </span>
+                      </td>
+                      <td>
+                        <button
+                          className="btn btn-primary btn-sm"
+                          disabled={restoring.has(`comment-${c.id}`)}
+                          onClick={() => handleRestoreComment(c.postId, c.id)}
+                        >
+                          <RotateCcw size={14} /> {t('admin.restore')}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {commentsTotalPages > 1 && (
+            <div className="admin-pagination">
+              <button className="btn btn-ghost btn-sm" disabled={commentsPage <= 1} onClick={() => setCommentsPage(commentsPage - 1)}>← Prev</button>
+              <span className="admin-page-info">{commentsPage} / {commentsTotalPages}</span>
+              <button className="btn btn-ghost btn-sm" disabled={commentsPage >= commentsTotalPages} onClick={() => setCommentsPage(commentsPage + 1)}>Next →</button>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
