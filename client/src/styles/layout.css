@@ -1504,6 +1504,7 @@
   border-radius: var(--radius-md);
   transition: all var(--transition-fast);
   flex-shrink: 0;
+  align-self: center;
 }
 
 .chat-panel-image-btn:hover:not(:disabled) {
