@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import ReactMarkdown from 'react-markdown';
 import { Send, Bot, User, Sparkles, LogIn, AlertTriangle, RotateCcw, MessageSquare, ImagePlus, X, ImageOff } from 'lucide-react';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useAuthStore } from '../../stores/authStore';
@@ -347,7 +348,9 @@ export default function ChatPanel() {
                     <span>{locale === 'vi' ? 'Ảnh đã hết hạn' : 'Image expired'}</span>
                   </div>
                 )}
-                <p className="chat-panel-msg-text">{msg.content}</p>
+                <div className="chat-panel-msg-text">
+                  <ReactMarkdown>{msg.content}</ReactMarkdown>
+                </div>
                 <time className="chat-panel-msg-time">{formatTime(msg.timestamp)}</time>
               </div>
             </div>
