@@ -3,5 +3,8 @@
     "@playwright/test": "^1.58.2",
     "@types/node": "^25.3.3"
   },
-  "scripts": {}
+  "scripts": {},
+  "dependencies": {
+    "react-markdown": "^10.1.0"
+  }
 }

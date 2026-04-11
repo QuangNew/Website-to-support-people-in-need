@@ -1312,7 +1312,96 @@
 
 .chat-panel-msg-text {
   margin: 0;
+  /* Remove white-space: pre-wrap so Markdown blocks line-up properly, 
+     ReactMarkdown will handle structure. If needed, can add pre-wrap just for p tags */
+}
+
+.chat-panel-msg-text p {
+  margin: 0 0 8px 0;
   white-space: pre-wrap;
+}
+
+.chat-panel-msg-text p:last-child {
+  margin-bottom: 0;
+}
+
+.chat-panel-msg-text strong {
+  font-weight: 600;
+}
+
+.chat-panel-msg-text em {
+  font-style: italic;
+}
+
+.chat-panel-msg-text u {
+  text-decoration: underline;
+}
+
+.chat-panel-msg-text ul, .chat-panel-msg-text ol {
+  margin: 0 0 8px 0;
+  padding-left: 20px;
+}
+
+.chat-panel-msg-text ul {
+  list-style-type: disc;
+}
+
+.chat-panel-msg-text ul ul {
+  list-style-type: circle;
+  margin-bottom: 0;
+}
+
+.chat-panel-msg-text ul ul ul {
+  list-style-type: square;
+}
+
+.chat-panel-msg-text ol {
+  list-style-type: decimal;
+}
+
+.chat-panel-msg-text ol ol {
+  list-style-type: lower-alpha;
+  margin-bottom: 0;
+}
+
+.chat-panel-msg-text ol ol ol {
+  list-style-type: lower-roman;
+}
+
+.chat-panel-msg-text li {
+  margin-bottom: 4px;
+}
+
+.chat-panel-msg-text li p {
+  margin: 0 !important; /* overrides paragraph margins in list items */
+}
+
+.chat-panel-msg-text li:last-child {
+  margin-bottom: 0;
+}
+
+.chat-panel-msg-text a {
+  color: #3b82f6;
+  text-decoration: underline;
+}
+
+.chat-panel-msg-text h1,
+.chat-panel-msg-text h2,
+.chat-panel-msg-text h3,
+.chat-panel-msg-text h4,
+.chat-panel-msg-text h5,
+.chat-panel-msg-text h6 {
+  margin: 12px 0 8px 0;
+  font-weight: 600;
+}
+
+.chat-panel-msg-text h1:first-child,
+.chat-panel-msg-text h2:first-child,
+.chat-panel-msg-text h3:first-child,
+.chat-panel-msg-text h4:first-child,
+.chat-panel-msg-text h5:first-child,
+.chat-panel-msg-text h6:first-child {
+  margin-top: 0;
 }
 
 .chat-panel-msg-time {
