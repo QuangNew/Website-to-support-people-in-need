@@ -18,7 +18,10 @@ public class RateLimitingMiddleware
     {
         var path = context.Request.Path.Value?.ToLower() ?? "";
 
-        var ip = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        // Use X-Forwarded-For behind reverse proxy (Vercel, Cloudflare, etc.)
+        var ip = context.Request.Headers["X-Forwarded-For"].FirstOrDefault()?.Split(',')[0].Trim()
+            ?? context.Connection.RemoteIpAddress?.ToString()
+            ?? "unknown";
 
         if (path.StartsWith("/api/auth/login") ||
             path.StartsWith("/api/auth/register") ||

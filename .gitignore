@@ -528,3 +528,4 @@ playwright.config.ts
 .claude
 .cocoindex_code
 client/env
+src/ReliefConnect.API/appsettings.json

@@ -13,6 +13,9 @@ import {
   ChevronRight,
   Menu,
   BookOpen,
+  HeartPulse,
+  ClipboardCheck,
+  HandHeart,
   type LucideIcon,
 } from 'lucide-react';
 import { useMapStore, type PanelType } from '../../stores/mapStore';
@@ -35,7 +38,7 @@ export default function Sidebar() {
   const { t, locale, toggleLocale } = useLanguage();
 
   const handleNav = (panel: PanelType) => {
-    if ((panel === 'profile' || panel === 'verify') && !isAuthenticated) {
+    if ((panel === 'profile' || panel === 'verify' || panel === 'my-sos' || panel === 'volunteer' || panel === 'sponsor') && !isAuthenticated) {
       setAuthModal('login');
       return;
     }
@@ -57,6 +60,17 @@ export default function Sidebar() {
     { id: 'verify', icon: UserCheck, labelKey: 'sidebar.verify' },
     { id: 'guide', icon: BookOpen, labelKey: 'sidebar.guide' },
   ];
+
+  // ─── Role-specific nav items (only for verified users) ───
+  if (isAuthenticated && user?.verificationStatus === 'Approved') {
+    if (user.role === 'PersonInNeed') {
+      midBottomItems.unshift({ id: 'my-sos', icon: HeartPulse, labelKey: 'sidebar.mySos' });
+    } else if (user.role === 'Volunteer') {
+      midBottomItems.unshift({ id: 'volunteer', icon: ClipboardCheck, labelKey: 'sidebar.volunteerTasks' });
+    } else if (user.role === 'Sponsor') {
+      midBottomItems.unshift({ id: 'sponsor', icon: HandHeart, labelKey: 'sidebar.sponsorSupport' });
+    }
+  }
 
   if (isAuthenticated && user?.role === 'Admin') {
     midBottomItems.push({ id: 'admin', icon: Shield, labelKey: 'sidebar.admin' });
@@ -80,7 +94,7 @@ export default function Sidebar() {
     }
 
     // Panel items (list, social, chat, profile, verify, guide, admin)
-    if (['list', 'social', 'chat', 'profile', 'verify', 'guide', 'admin'].includes(item.id as string)) {
+    if (['list', 'social', 'chat', 'profile', 'verify', 'guide', 'admin', 'my-sos', 'volunteer', 'sponsor'].includes(item.id as string)) {
       const panelId = item.id as PanelType;
       return (
         <button

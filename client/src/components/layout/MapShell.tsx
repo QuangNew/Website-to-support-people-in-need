@@ -11,6 +11,9 @@ import ChatPanel from '../panels/ChatPanel';
 import ProfilePanel from '../panels/ProfilePanel';
 import VerificationPanel from '../panels/VerificationPanel';
 import GuidePanel from '../panels/GuidePanel';
+import PersonInNeedPanel from '../panels/PersonInNeedPanel';
+import VolunteerPanel from '../panels/VolunteerPanel';
+import SponsorPanel from '../panels/SponsorPanel';
 import LoginModal from '../auth/LoginModal';
 import RegisterModal from '../auth/RegisterModal';
 import ForgotPasswordModal from '../auth/ForgotPasswordModal';
@@ -26,6 +29,9 @@ const PANEL_COMPONENTS: Record<NonNullable<PanelType>, React.FC> = {
   profile: ProfilePanel,
   verify: VerificationPanel,
   guide: GuidePanel,
+  'my-sos': PersonInNeedPanel,
+  volunteer: VolunteerPanel,
+  sponsor: SponsorPanel,
 };
 
 export default function MapShell() {

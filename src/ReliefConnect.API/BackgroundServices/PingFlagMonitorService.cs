@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using ReliefConnect.Core.Entities;
 using ReliefConnect.Core.Enums;
 using ReliefConnect.Infrastructure.Data;
 
@@ -25,6 +24,8 @@ public class PingFlagMonitorService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // Rule 2.2: Wait for EF Core + Hangfire to finish startup initialization
+        await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
         _logger.LogInformation("PingFlagMonitorService started — checking every {Interval} min", CheckInterval.TotalMinutes);
 
         while (!stoppingToken.IsCancellationRequested)
@@ -44,100 +45,35 @@ public class PingFlagMonitorService : BackgroundService
 
     private async Task CheckUnconfirmedPings(CancellationToken ct)
     {
-        // Check cancellation before starting — don't pass ct to Npgsql operations
-        // because cancelling mid-query corrupts the connector (ObjectDisposedException)
         if (ct.IsCancellationRequested) return;
 
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-        var threshold = DateTime.UtcNow.Subtract(BlinkThreshold);
+        var now = DateTime.UtcNow;
+        var threshold = now.Subtract(BlinkThreshold);
 
-        // Find SOS pings that are Pending, created >15 min ago
-        var pingsToFlag = await db.Pings
-            .Include(p => p.PingFlag)
-            .Where(p => p.Type == MapItemType.SOS
-                     && p.Status == SOSStatus.Pending
-                     && p.CreatedAt <= threshold)
-            .ToListAsync(CancellationToken.None);
+        // Use a single SQL upsert to avoid EF's batched INSERT ... RETURNING pattern,
+        // which is the command shape that keeps failing through the Supabase pooler.
+        var affected = await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO "PingFlags" ("PingId", "IsBlinking", "UnconfirmedTimeMinutes", "LastCheckedAt")
+            SELECT p."Id",
+                   TRUE,
+                   GREATEST(0, FLOOR(EXTRACT(EPOCH FROM ({now} - p."CreatedAt")) / 60))::integer,
+                   {now}
+            FROM "Pings" AS p
+            WHERE p."Type" = {(int)MapItemType.SOS}
+              AND p."Status" = {(int)SOSStatus.Pending}
+              AND p."CreatedAt" <= {threshold}
+            ON CONFLICT ("PingId") DO UPDATE
+            SET "IsBlinking" = EXCLUDED."IsBlinking",
+                "UnconfirmedTimeMinutes" = EXCLUDED."UnconfirmedTimeMinutes",
+                "LastCheckedAt" = EXCLUDED."LastCheckedAt";
+            """, CancellationToken.None);
 
-        if (ct.IsCancellationRequested) return;
-
-        var toAdd = new List<PingFlag>();
-        var updated = 0;
-        foreach (var ping in pingsToFlag)
+        if (affected > 0)
         {
-            var minutesUnconfirmed = (int)(DateTime.UtcNow - ping.CreatedAt).TotalMinutes;
-
-            if (ping.PingFlag == null)
-            {
-                // Create PingFlag if it doesn't exist — batch add to avoid
-                // duplicate INSERT when entities share a tracking context
-                toAdd.Add(new PingFlag
-                {
-                    PingId = ping.Id,
-                    IsBlinking = true,
-                    UnconfirmedTimeMinutes = minutesUnconfirmed,
-                    LastCheckedAt = DateTime.UtcNow
-                });
-                updated++;
-            }
-            else if (!ping.PingFlag.IsBlinking)
-            {
-                // Start blinking
-                ping.PingFlag.IsBlinking = true;
-                ping.PingFlag.UnconfirmedTimeMinutes = minutesUnconfirmed;
-                ping.PingFlag.LastCheckedAt = DateTime.UtcNow;
-                updated++;
-            }
-            else
-            {
-                // Already blinking — just update timer
-                ping.PingFlag.UnconfirmedTimeMinutes = minutesUnconfirmed;
-                ping.PingFlag.LastCheckedAt = DateTime.UtcNow;
-            }
-        }
-
-        if (updated > 0 || toAdd.Count > 0)
-        {
-            if (ct.IsCancellationRequested) return;
-
-            if (toAdd.Count > 0)
-                db.PingFlags.AddRange(toAdd);
-
-            try
-            {
-                // Use CancellationToken.None — cancelling mid-save disposes the Npgsql connection
-                // and throws ObjectDisposedException on ManualResetEventSlim
-                await db.SaveChangesAsync(CancellationToken.None);
-                _logger.LogInformation("PingFlagMonitor: Set {Count} pings to blinking", updated + toAdd.Count);
-            }
-            catch (DbUpdateException ex) when (ex.InnerException?.Message?.Contains("duplicate key") == true)
-            {
-                _logger.LogWarning("PingFlagMonitor: duplicate PingFlag detected, skipping batch");
-            }
-            catch (ObjectDisposedException)
-            {
-                // Npgsql pooled connection was recycled while idle — retry with a fresh scope
-                _logger.LogWarning("PingFlagMonitor: connection disposed, retrying with fresh scope");
-                try
-                {
-                    using var retryScope = _scopeFactory.CreateScope();
-                    var retryDb = retryScope.ServiceProvider.GetRequiredService<AppDbContext>();
-
-                    foreach (var flag in toAdd)
-                    {
-                        var exists = await retryDb.PingFlags.AnyAsync(f => f.PingId == flag.PingId, CancellationToken.None);
-                        if (!exists) retryDb.PingFlags.Add(flag);
-                    }
-                    await retryDb.SaveChangesAsync(CancellationToken.None);
-                    _logger.LogInformation("PingFlagMonitor: Retry succeeded — {Count} pings updated", updated + toAdd.Count);
-                }
-                catch (Exception retryEx)
-                {
-                    _logger.LogError(retryEx, "PingFlagMonitor: Retry also failed");
-                }
-            }
+            _logger.LogInformation("PingFlagMonitor: Upserted {Count} ping flags", affected);
         }
     }
 }

@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { uploadToStorage } from './supabase';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5164/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
 /** Base server URL (without /api) for resolving uploaded file paths like /uploads/... */
 const SERVER_BASE_URL = API_BASE_URL.replace(/\/api\/?$/, '');
@@ -354,6 +354,31 @@ export const notificationApi = {
 
   deleteNotification: (id: number) =>
     api.delete(`/notifications/${id}`),
+};
+
+// ═══════════════════════════════════════════
+//  VOLUNTEER API
+// ═══════════════════════════════════════════
+export const volunteerApi = {
+  getAvailableTasks: (params?: { lat?: number; lng?: number }) =>
+    api.get('/volunteer/tasks', { params }),
+
+  acceptTask: (data: { pingId: number }) =>
+    api.post('/volunteer/accept-task', data),
+
+  getActiveTasks: () =>
+    api.get('/volunteer/active-tasks'),
+};
+
+// ═══════════════════════════════════════════
+//  SPONSOR API
+// ═══════════════════════════════════════════
+export const sponsorApi = {
+  searchCases: (params?: { category?: string; status?: string; lat?: number; lng?: number; radiusKm?: number }) =>
+    api.get('/sponsor/cases', { params }),
+
+  offerHelp: (data: { pingId: number; message?: string }) =>
+    api.post('/sponsor/offer-help', data),
 };
 
 // ═══════════════════════════════════════════

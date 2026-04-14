@@ -19,12 +19,14 @@ public class PostController : ControllerBase
     private readonly IPostRepository _postRepo;
     private readonly AppDbContext _db;
     private readonly HtmlSanitizer _sanitizer;
+    private readonly ILogger<PostController> _logger;
 
-    public PostController(IPostRepository postRepo, AppDbContext db, HtmlSanitizer sanitizer)
+    public PostController(IPostRepository postRepo, AppDbContext db, HtmlSanitizer sanitizer, ILogger<PostController> logger)
     {
         _postRepo = postRepo;
         _db = db;
         _sanitizer = sanitizer;
+        _logger = logger;
     }
 
     private string? GetUserId() => User.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -91,6 +93,8 @@ public class PostController : ControllerBase
 
         if (file.Length > 5 * 1024 * 1024)
             return BadRequest(new { message = "File too large (max 5MB)" });
+
+        _logger.LogWarning("Local file upload used — files stored in wwwroot/uploads are ephemeral on Azure. Configure Supabase Storage for production.");
 
         var uploadsDir = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads");
         Directory.CreateDirectory(uploadsDir);

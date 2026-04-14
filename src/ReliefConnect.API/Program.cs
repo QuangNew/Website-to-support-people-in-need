@@ -1,6 +1,6 @@
 using System.Text;
 using Hangfire;
-using Hangfire.MemoryStorage;
+using Hangfire.PostgreSql;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -33,9 +33,12 @@ builder.Host.UseSerilog();
 // ═══════════════════════════════════════════
 //  DATABASE (Supabase PostgreSQL + PostGIS)
 // ═══════════════════════════════════════════
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
+    ?? throw new InvalidOperationException("ConnectionStrings:DefaultConnection must be configured");
+
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(
-        builder.Configuration.GetConnectionString("DefaultConnection"),
+        connectionString,
         npgsqlOptions =>
         {
             npgsqlOptions.EnableRetryOnFailure(
@@ -43,7 +46,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
                 maxRetryDelay: TimeSpan.FromSeconds(5),
                 errorCodesToAdd: null);
             npgsqlOptions.MaxBatchSize(100);
-            npgsqlOptions.CommandTimeout(15); // 15s query timeout (was default 30s)
+            npgsqlOptions.CommandTimeout(30); // 30s query timeout (production-safe default)
         })
     .EnableSensitiveDataLogging(builder.Environment.IsDevelopment())
     .UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking));
@@ -188,20 +191,40 @@ builder.Services.AddScoped<IPostRepository, PostRepository>();
 builder.Services.AddScoped<IEmailService, SmtpEmailService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddSingleton<IGeminiService, GeminiService>();
-builder.Services.AddSingleton<ITokenBlacklistService, TokenBlacklistService>();
+builder.Services.AddScoped<ITokenBlacklistService, TokenBlacklistService>();
 builder.Services.AddSingleton<Ganss.Xss.HtmlSanitizer>();
 
 // ═══════════════════════════════════════════
 //  HANGFIRE
 // ═══════════════════════════════════════════
-builder.Services.AddHangfire(config => config.UseMemoryStorage());
-builder.Services.AddHangfireServer();
+var hangfireConnectionString = BuildHangfireConnectionString(builder.Configuration, connectionString);
+var hangfireEnabled = ShouldEnableHangfire(hangfireConnectionString);
+
+var hangfireStorageOptions = new PostgreSqlStorageOptions
+{
+    SchemaName = "hangfire",
+    PrepareSchemaIfNecessary = false
+};
+
+if (hangfireEnabled)
+{
+    builder.Services.AddHangfire(config =>
+        config.UsePostgreSqlStorage(
+            options => options.UseNpgsqlConnection(hangfireConnectionString),
+            hangfireStorageOptions));
+    builder.Services.AddHangfireServer();
+}
+else
+{
+    Log.Warning("Hangfire server is disabled because the configured connection uses a Supabase pooler, which is causing Npgsql ObjectDisposedException in distributed locks. Configure ConnectionStrings:HangfireConnection with a compatible direct or dedicated connection to enable Hangfire again.");
+}
 
 // ═══════════════════════════════════════════
 //  BACKGROUND SERVICES
 // ═══════════════════════════════════════════
 builder.Services.AddHostedService<ReliefConnect.API.BackgroundServices.PingFlagMonitorService>();
 builder.Services.AddHostedService<ReliefConnect.API.BackgroundServices.SoftDeleteCleanupService>();
+builder.Services.AddHostedService<ReliefConnect.API.BackgroundServices.TokenCleanupService>();
 
 var app = builder.Build();
 
@@ -223,8 +246,10 @@ app.Use(async (context, next) =>
 {
     context.Response.Headers["X-Content-Type-Options"] = "nosniff";
     context.Response.Headers["X-Frame-Options"] = "DENY";
-    context.Response.Headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';";
+    context.Response.Headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' https: wss:; font-src 'self';";
     context.Response.Headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains";
+    context.Response.Headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
+    context.Response.Headers["Permissions-Policy"] = "geolocation=(self), camera=(), microphone=()";
     await next();
 });
 app.UseMiddleware<RateLimitingMiddleware>();
@@ -240,10 +265,14 @@ app.UseSerilogRequestLogging();
 
 app.MapControllers();
 app.MapHub<SOSAlertHub>("/hubs/sos-alerts");
-app.MapHangfireDashboard("/hangfire", new Hangfire.DashboardOptions
+app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }));
+if (hangfireEnabled)
 {
-    Authorization = Array.Empty<Hangfire.Dashboard.IDashboardAuthorizationFilter>()
-}).RequireAuthorization("RequireAdmin");
+    app.MapHangfireDashboard("/hangfire", new Hangfire.DashboardOptions
+    {
+        Authorization = Array.Empty<Hangfire.Dashboard.IDashboardAuthorizationFilter>()
+    }).RequireAuthorization("RequireAdmin");
+}
 
 app.Run();
 
@@ -298,4 +327,32 @@ static void FreeDevelopmentPort(int port)
     {
         Log.Warning(ex, "Could not auto-free port {Port}", port);
     }
+}
+
+static string BuildHangfireConnectionString(IConfiguration configuration, string defaultConnectionString)
+{
+    var configuredConnectionString = configuration.GetConnectionString("HangfireConnection");
+    var builder = new Npgsql.NpgsqlConnectionStringBuilder(
+        string.IsNullOrWhiteSpace(configuredConnectionString) ? defaultConnectionString : configuredConnectionString)
+    {
+        Pooling = false,
+        Enlist = false,
+        NoResetOnClose = false
+    };
+
+    var host = builder.Host ?? string.Empty;
+
+    if (host.EndsWith(".pooler.supabase.com", StringComparison.OrdinalIgnoreCase))
+    {
+        Log.Warning("Hangfire is using a Supabase pooler connection. Configure ConnectionStrings:HangfireConnection with a direct database host if startup installation still fails.");
+    }
+
+    return builder.ConnectionString;
+}
+
+static bool ShouldEnableHangfire(string connectionString)
+{
+    var builder = new Npgsql.NpgsqlConnectionStringBuilder(connectionString);
+    var host = builder.Host ?? string.Empty;
+    return !host.EndsWith(".pooler.supabase.com", StringComparison.OrdinalIgnoreCase);
 }

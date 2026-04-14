@@ -1,24 +1,31 @@
-using System.Collections.Concurrent;
+using Microsoft.EntityFrameworkCore;
+using ReliefConnect.Core.Entities;
 using ReliefConnect.Core.Interfaces;
+using ReliefConnect.Infrastructure.Data;
 
 namespace ReliefConnect.Infrastructure.Services;
 
 public class TokenBlacklistService : ITokenBlacklistService
 {
-    private readonly ConcurrentDictionary<string, DateTime> _blacklist = new();
+    private readonly AppDbContext _db;
+
+    public TokenBlacklistService(AppDbContext db)
+    {
+        _db = db;
+    }
 
     public void BlacklistToken(string jti, DateTime expiry)
     {
-        _blacklist[jti] = expiry;
-        CleanupExpired();
+        var exists = _db.BlacklistedTokens.Any(t => t.Jti == jti);
+        if (!exists)
+        {
+            _db.BlacklistedTokens.Add(new BlacklistedToken { Jti = jti, Expiry = expiry });
+            _db.SaveChanges();
+        }
     }
 
-    public bool IsBlacklisted(string jti) => _blacklist.ContainsKey(jti);
-
-    private void CleanupExpired()
+    public bool IsBlacklisted(string jti)
     {
-        var now = DateTime.UtcNow;
-        foreach (var kvp in _blacklist.Where(x => x.Value < now))
-            _blacklist.TryRemove(kvp.Key, out _);
+        return _db.BlacklistedTokens.Any(t => t.Jti == jti);
     }
 }

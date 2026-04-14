@@ -127,7 +127,7 @@ export default function MapView() {
           west: bounds.getWest(),
         });
       }
-    }, 500);
+    }, 300);
   }, [fetchPingsInBounds]);
 
   // ─── Initialize map (once) ───

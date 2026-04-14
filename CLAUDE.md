@@ -198,17 +198,45 @@ npx playwright show-report
 - `Gemini:ApiKey`: Google Gemini API key for chatbot
 - `Gemini:Model`: Gemini model (use "gemini-2.5-flash" , "gemini-3-flash")
 
-**Security Note:** Never commit `appsettings.Development.json` with real credentials. Use environment variables or `dotnet user-secrets` for sensitive data.
+**Security Note:** `appsettings.json` contains only placeholder values. Use `appsettings.Development.json` (gitignored) for local dev secrets. In production, use Azure App Settings or environment variables.
 
 ### Frontend (`client/vite.config.ts`)
 - Default Vite configuration with React plugin
+
+## Deployment (Azure)
+
+### Architecture
+- **Backend**: Azure App Service (Linux) — ASP.NET Core 10.0
+- **Frontend**: Azure Static Web Apps — React SPA with `staticwebapp.config.json`
+- **Database**: Supabase PostgreSQL (external)
+- **Storage**: Supabase Storage (avatars + post images)
+
+### Required Azure App Settings (Environment Variables)
+```
+ConnectionStrings__DefaultConnection=Host=...;Port=5432;Database=postgres;...
+Jwt__Key=<256-bit-minimum-secret>
+Google__ClientId=<google-oauth-client-id>
+Smtp__User=<email>
+Smtp__Password=<app-password>
+Gemini__ApiKey=<gemini-api-key>
+Frontend__Urls__0=https://<your-static-web-app>.azurestaticapps.net
+```
+
+### Health Check
+- `GET /health` — returns `{ status: "healthy", timestamp: "..." }`
+
+### Background Services
+- `TokenCleanupService`: Cleans expired blacklisted tokens every hour
+- `PingFlagMonitorService`: Monitors SOS ping flags
+- `SoftDeleteCleanupService`: Hard-deletes soft-deleted content after retention period
+- Hangfire: PostgreSQL-backed job storage (survives restarts)
 
 ## Testing
 - **Unit Tests**: `src/ReliefConnect.Tests` - Run with `dotnet test`
 - **E2E Tests**: Playwright suite with 22 tests covering auth, map, SOS, social, chatbot flows
 - **Test Status**: 12 UI tests passing (as of 2026-03-17)
 
-## Security Improvements (Updated 2026-04-06)
+## Security Improvements (Updated 2026-04-15)
 
 **Fixed Vulnerabilities:**
 1. ✅ **Token Blacklist** - Implemented logout endpoint that invalidates JWT tokens
@@ -219,8 +247,12 @@ npx playwright show-report
 6. ✅ **Timing Attack Prevention** - Using CryptographicOperations.FixedTimeEquals()
 7. ✅ **Image Upload Validation** - MIME type regex whitelist on DTO, base64 decode + 4MB binary size check in controller
 8. ✅ **Image Consistency Check** - ImageBase64 and ImageMimeType must both be present or both absent
+9. ✅ **Secrets Sanitized** - All secrets removed from appsettings.json, use env vars or appsettings.Development.json for local dev
+10. ✅ **Token Blacklist Persistent** - Moved from in-memory ConcurrentDictionary to PostgreSQL (BlacklistedTokens table)
+11. ✅ **Hangfire PostgreSQL** - Replaced MemoryStorage with PostgreSql storage (survives restarts)
+12. ✅ **Startup Validation** - ConnectionString and JWT key validated at startup (fail-fast)
 
-**Security Score:** 8.5/10
+**Security Score:** 9/10
 
 **Remaining Concerns:**
 - JWT in localStorage (vulnerable to XSS) - consider httpOnly cookies
@@ -252,7 +284,7 @@ npx playwright show-report
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **Website-to-support-people-in-need** (1353 symbols, 3606 relationships, 32 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **Website-to-support-people-in-need** (1429 symbols, 3786 relationships, 34 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 

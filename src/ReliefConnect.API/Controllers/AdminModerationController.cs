@@ -189,25 +189,53 @@ public class AdminModerationController : ControllerBase
             .Where(p => p.IsDeleted && p.DeletedAt != null && p.DeletedAt > cutoff);
 
         var total = await query.CountAsync();
-        var posts = await query
+
+        // Fetch posts first (without the N+1 admin subquery)
+        var rawPosts = await query
             .OrderByDescending(p => p.DeletedAt)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(p => new DeletedPostDto
+            .Select(p => new
             {
-                Id           = p.Id,
-                Content      = p.Content.Length > 200 ? p.Content.Substring(0, 200) : p.Content,
-                Category     = p.Category.ToString(),
-                AuthorId     = p.AuthorId,
-                AuthorName   = p.Author != null ? (p.Author.FullName ?? p.Author.UserName ?? "Ẩn danh") : "Ẩn danh",
-                CreatedAt    = p.CreatedAt,
-                DeletedAt    = p.DeletedAt,
-                DeletedByAdminName = p.DeletedByAdminId != null
-                    ? _db.Users.Where(u => u.Id == p.DeletedByAdminId).Select(u => u.FullName ?? u.UserName).FirstOrDefault() ?? "Admin"
-                    : null,
-                DaysRemaining = p.DeletedAt.HasValue ? Math.Max(0, 7 - (int)(now - p.DeletedAt.Value).TotalDays) : 0
+                p.Id,
+                p.Content,
+                Category = p.Category.ToString(),
+                p.AuthorId,
+                AuthorName = p.Author != null ? (p.Author.FullName ?? p.Author.UserName ?? "Ẩn danh") : "Ẩn danh",
+                p.CreatedAt,
+                p.DeletedAt,
+                p.DeletedByAdminId
             })
             .ToListAsync();
+
+        // Pre-fetch admin names in a single query (eliminates N+1)
+        var adminIds = rawPosts
+            .Where(p => p.DeletedByAdminId != null)
+            .Select(p => p.DeletedByAdminId!)
+            .Distinct()
+            .ToList();
+
+        var adminNames = adminIds.Count > 0
+            ? await _db.Users
+                .AsNoTracking()
+                .Where(u => adminIds.Contains(u.Id))
+                .ToDictionaryAsync(u => u.Id, u => u.FullName ?? u.UserName ?? "Admin")
+            : new Dictionary<string, string>();
+
+        var posts = rawPosts.Select(p => new DeletedPostDto
+        {
+            Id           = p.Id,
+            Content      = p.Content.Length > 200 ? p.Content.Substring(0, 200) : p.Content,
+            Category     = p.Category,
+            AuthorId     = p.AuthorId,
+            AuthorName   = p.AuthorName,
+            CreatedAt    = p.CreatedAt,
+            DeletedAt    = p.DeletedAt,
+            DeletedByAdminName = p.DeletedByAdminId != null
+                ? adminNames.GetValueOrDefault(p.DeletedByAdminId, "Admin")
+                : null,
+            DaysRemaining = p.DeletedAt.HasValue ? Math.Max(0, 7 - (int)(now - p.DeletedAt.Value).TotalDays) : 0
+        }).ToList();
 
         return Ok(new
         {

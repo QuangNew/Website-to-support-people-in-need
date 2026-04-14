@@ -3,7 +3,6 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using Google.Apis.Auth;
-using Hangfire;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -85,7 +84,7 @@ public class AuthController : ControllerBase
         }
 
         // Send verification email
-        BackgroundJob.Enqueue<IEmailService>(x => x.SendVerificationCodeAsync(dto.Email, verificationCode));
+        await _emailService.SendVerificationCodeAsync(dto.Email, verificationCode);
 
         _logger.LogInformation("User registered: {Username} ({Email}) — verification code sent", dto.Username, dto.Email);
 
@@ -163,7 +162,7 @@ public class AuthController : ControllerBase
         user.EmailVerificationCodeExpiry = DateTime.UtcNow.AddMinutes(15);
         await _userManager.UpdateAsync(user);
 
-        BackgroundJob.Enqueue<IEmailService>(x => x.SendVerificationCodeAsync(user.Email!, code));
+        await _emailService.SendVerificationCodeAsync(user.Email!, code);
 
         return Ok(new { message = "Mã xác nhận mới đã được gửi." });
     }
@@ -187,10 +186,10 @@ public class AuthController : ControllerBase
         user.PasswordResetTokenExpiry = DateTime.UtcNow.AddMinutes(15);
         await _userManager.UpdateAsync(user);
 
-        BackgroundJob.Enqueue<IEmailService>(x => x.SendEmailAsync(
+        await _emailService.SendEmailAsync(
             dto.Email,
             "Đặt lại mật khẩu - ReliefConnect",
-            $"<p>Mã đặt lại mật khẩu của bạn là: <strong>{resetToken}</strong></p><p>Mã có hiệu lực trong 15 phút.</p>"));
+            $"<p>Mã đặt lại mật khẩu của bạn là: <strong>{resetToken}</strong></p><p>Mã có hiệu lực trong 15 phút.</p>");
 
         _logger.LogInformation("Password reset requested: {Email}", dto.Email);
 
@@ -336,7 +335,7 @@ public class AuthController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Google OAuth: token validation failed — {Message}", ex.Message);
-            return Unauthorized(new ApiErrorResponse { StatusCode = 401, Message = $"Google xác thực thất bại: {ex.Message}" });
+            return Unauthorized(new ApiErrorResponse { StatusCode = 401, Message = "Google xác thực thất bại. Vui lòng thử lại." });
         }
 
         // Find existing user by Google ID or email

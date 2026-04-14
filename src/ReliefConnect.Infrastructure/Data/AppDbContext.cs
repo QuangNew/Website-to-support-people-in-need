@@ -28,6 +28,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<HelpOffer> HelpOffers => Set<HelpOffer>();
     public DbSet<SystemAnnouncement> SystemAnnouncements => Set<SystemAnnouncement>();
     public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
+    public DbSet<BlacklistedToken> BlacklistedTokens => Set<BlacklistedToken>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -351,6 +352,13 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
         builder.Entity<ApplicationUser>(entity =>
         {
             entity.HasIndex(u => u.IsSuspended);
+        });
+
+        // ═══════ BLACKLISTED TOKEN ═══════
+        builder.Entity<BlacklistedToken>(entity =>
+        {
+            entity.HasIndex(t => t.Jti).IsUnique();
+            entity.HasIndex(t => t.Expiry);
         });
     }
 }

@@ -23,6 +23,8 @@ public class SoftDeleteCleanupService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // Rule 2.2: Wait for EF Core + Hangfire to finish startup initialization
+        await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
         _logger.LogInformation("SoftDeleteCleanupService started — checking every {Interval} hours", CheckInterval.TotalHours);
 
         while (!stoppingToken.IsCancellationRequested)
@@ -51,7 +53,7 @@ public class SoftDeleteCleanupService : BackgroundService
         var postCutoff = now.AddDays(-7);
         var deletedPosts = await db.Posts
             .Where(p => p.IsDeleted && p.DeletedAt != null && p.DeletedAt < postCutoff)
-            .ExecuteDeleteAsync(ct);
+            .ExecuteDeleteAsync(CancellationToken.None);
 
         if (deletedPosts > 0)
             _logger.LogInformation("Permanently deleted {Count} expired soft-deleted posts", deletedPosts);
@@ -60,7 +62,7 @@ public class SoftDeleteCleanupService : BackgroundService
         var commentCutoff = now.AddDays(-30);
         var deletedComments = await db.Comments
             .Where(c => c.IsHidden && c.HiddenAt != null && c.HiddenAt < commentCutoff)
-            .ExecuteDeleteAsync(ct);
+            .ExecuteDeleteAsync(CancellationToken.None);
 
         if (deletedComments > 0)
             _logger.LogInformation("Permanently deleted {Count} expired hidden comments", deletedComments);
