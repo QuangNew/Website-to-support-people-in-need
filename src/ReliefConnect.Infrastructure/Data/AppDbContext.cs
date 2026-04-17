@@ -56,6 +56,9 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             entity.Property(p => p.Type).HasConversion<int>();
             entity.Property(p => p.Status).HasConversion<int>();
             entity.Property(p => p.Details).HasMaxLength(2000);
+            entity.Property(p => p.ContactName).HasMaxLength(200);
+            entity.Property(p => p.ContactPhone).HasMaxLength(32);
+            entity.Property(p => p.ConditionImageUrl).HasMaxLength(500);
             entity.Property(p => p.SOSCategory).HasConversion<int?>();
 
             // B-tree index on coordinates (for equality queries)

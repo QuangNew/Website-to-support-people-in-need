@@ -27,6 +27,15 @@ public class Ping
     /// <summary>User-provided details about the situation</summary>
     public string? Details { get; set; }
 
+    /// <summary>Contact name captured at SOS creation time.</summary>
+    public string? ContactName { get; set; }
+
+    /// <summary>Contact phone captured at SOS creation time.</summary>
+    public string? ContactPhone { get; set; }
+
+    /// <summary>Optional uploaded image showing the SOS situation.</summary>
+    public string? ConditionImageUrl { get; set; }
+
     /// <summary>SOS category tag (evacuate, food, medical, shelter, other). Only relevant for SOS type pings.</summary>
     public SOSCategory? SOSCategory { get; set; }
 

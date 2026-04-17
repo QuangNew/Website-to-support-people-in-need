@@ -1,8 +1,8 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
-import { AlertTriangle, MapPin, X, Loader2, CheckCircle2, Navigation } from 'lucide-react';
+import { useState, useCallback, useEffect, useRef, type ChangeEvent } from 'react';
+import { AlertTriangle, MapPin, X, Loader2, CheckCircle2, Navigation, Phone, UserRound, ImagePlus, Trash2 } from 'lucide-react';
 import { useMapStore } from '../../stores/mapStore';
 import { useAuthStore } from '../../stores/authStore';
-import { mapApi } from '../../services/api';
+import { mapApi, socialApi } from '../../services/api';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { isInsideVietnam } from '../../utils/vietnamTerritory';
 
@@ -23,38 +23,83 @@ const TAG_COLORS: Record<SOSTag, { bg: string; border: string; text: string }> =
   other: { bg: 'rgba(156,163,175,0.15)', border: '#9ca3af', text: '#9ca3af' },
 };
 
+const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
+
 /** Trigger a short haptic vibration on mobile */
 function haptic(ms = 50) {
   if (navigator.vibrate) navigator.vibrate(ms);
 }
 
+function isValidPhoneNumber(phone: string) {
+  const digits = phone.replace(/\D/g, '');
+  return digits.length >= 8 && digits.length <= 15;
+}
+
 export default function SOSCreationFlow() {
   const { t } = useLanguage();
   const { fetchPings, setFlyTo, setSosDraftLocation } = useMapStore();
-  const { isAuthenticated } = useAuthStore();
-  const userRole = useAuthStore((s) => s.user?.role);
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const user = useAuthStore((s) => s.user);
+  const userRole = user?.role;
   const setAuthModal = useMapStore((s) => s.setAuthModal);
 
   const [step, setStep] = useState<Step>('idle');
   const [location, setLocation] = useState<SOSLocation | null>(null);
   const [details, setDetails] = useState('');
+  const [contactName, setContactName] = useState('');
+  const [contactPhone, setContactPhone] = useState('');
   const [selectedTags, setSelectedTags] = useState<SOSTag[]>([]);
   const [error, setError] = useState('');
+  const [contactNameError, setContactNameError] = useState('');
+  const [contactPhoneError, setContactPhoneError] = useState('');
   const [medicalError, setMedicalError] = useState(false);
+  const [imageError, setImageError] = useState('');
+  const [conditionImageFile, setConditionImageFile] = useState<File | null>(null);
+  const [conditionImagePreview, setConditionImagePreview] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const revokePreviewUrl = useCallback((previewUrl: string | null) => {
+    if (previewUrl?.startsWith('blob:')) {
+      URL.revokeObjectURL(previewUrl);
+    }
+  }, []);
+
+  const primeContactFields = useCallback(() => {
+    setContactName(user?.fullName?.trim() ?? '');
+    setContactPhone(user?.phoneNumber?.trim() ?? '');
+    setContactNameError('');
+    setContactPhoneError('');
+  }, [user?.fullName, user?.phoneNumber]);
 
   // Reset when closing
   const reset = useCallback(() => {
+    revokePreviewUrl(conditionImagePreview);
     setStep('idle');
     setLocation(null);
     setDetails('');
+    setContactName('');
+    setContactPhone('');
     setSelectedTags([]);
     setError('');
+    setContactNameError('');
+    setContactPhoneError('');
     setMedicalError(false);
+    setImageError('');
+    setConditionImageFile(null);
+    setConditionImagePreview(null);
     setIsSubmitting(false);
+    setIsUploadingImage(false);
     setSosDraftLocation(null);
-  }, [setSosDraftLocation]);
+  }, [conditionImagePreview, revokePreviewUrl, setSosDraftLocation]);
+
+  useEffect(() => {
+    return () => {
+      revokePreviewUrl(conditionImagePreview);
+    };
+  }, [conditionImagePreview, revokePreviewUrl]);
 
   // GPS-only: SOS pings are placed at the user's actual GPS location, not map center.
   // This prevents accidentally placing an SOS in the wrong location.
@@ -71,6 +116,10 @@ export default function SOSCreationFlow() {
       setAuthModal('login');
       return;
     }
+
+    primeContactFields();
+    setError('');
+    setImageError('');
 
     // GPS is required for SOS — we need the user's real location
     // Strategy: get a fast low-accuracy fix first (~1s), then refine with high accuracy
@@ -116,7 +165,7 @@ export default function SOSCreationFlow() {
       setError(t('sos.gpsError') || 'Trình duyệt không hỗ trợ GPS.');
       setStep('form');
     }
-  }, [isAuthenticated, setAuthModal, setFlyTo, setSosDraftLocation, t]);
+  }, [isAuthenticated, primeContactFields, setAuthModal, setFlyTo, setSosDraftLocation, t]);
 
   // Toggle a tag
   const toggleTag = useCallback((tag: SOSTag) => {
@@ -159,9 +208,46 @@ export default function SOSCreationFlow() {
     );
   }, [setFlyTo, setSosDraftLocation, t]);
 
+  const handleConditionImageSelect = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+      setImageError(t('sos.conditionImageInvalidType'));
+      return;
+    }
+
+    if (file.size > MAX_IMAGE_SIZE) {
+      setImageError(t('sos.conditionImageTooLarge'));
+      return;
+    }
+
+    revokePreviewUrl(conditionImagePreview);
+    setConditionImageFile(file);
+    setConditionImagePreview(URL.createObjectURL(file));
+    setImageError('');
+  }, [conditionImagePreview, revokePreviewUrl, t]);
+
+  const clearConditionImage = useCallback(() => {
+    revokePreviewUrl(conditionImagePreview);
+    setConditionImageFile(null);
+    setConditionImagePreview(null);
+    setImageError('');
+  }, [conditionImagePreview, revokePreviewUrl]);
+
   // Submit
   const handleSubmit = useCallback(async () => {
     if (!location) return;
+
+    const trimmedContactName = contactName.trim();
+    const trimmedContactPhone = contactPhone.trim();
+    const trimmedDetails = details.trim();
+    let hasValidationError = false;
+
+    setContactNameError('');
+    setContactPhoneError('');
+    setImageError('');
 
     // Validate: location must be within Vietnam territory
     if (!isInsideVietnam(location.lat, location.lng)) {
@@ -169,10 +255,27 @@ export default function SOSCreationFlow() {
       return;
     }
 
+    if (!trimmedContactName) {
+      setContactNameError(t('sos.contactNameRequired'));
+      hasValidationError = true;
+    }
+
+    if (!trimmedContactPhone) {
+      setContactPhoneError(t('sos.contactPhoneRequired'));
+      hasValidationError = true;
+    } else if (!isValidPhoneNumber(trimmedContactPhone)) {
+      setContactPhoneError(t('sos.contactPhoneInvalid'));
+      hasValidationError = true;
+    }
+
     // Validate: if medical tag selected, textarea must not be empty
-    if (selectedTags.includes('medical') && !details.trim()) {
+    if (selectedTags.includes('medical') && !trimmedDetails) {
       setMedicalError(true);
       textareaRef.current?.focus();
+      hasValidationError = true;
+    }
+
+    if (hasValidationError) {
       return;
     }
 
@@ -186,11 +289,21 @@ export default function SOSCreationFlow() {
       const type = 'SOS';
       const sosCategory = selectedTags.find((tag) => ['evacuate', 'food', 'medical', 'shelter', 'other'].includes(tag)) || 'other';
 
+      let conditionImageUrl: string | undefined;
+      if (conditionImageFile) {
+        setIsUploadingImage(true);
+        const uploadRes = await socialApi.uploadImage(conditionImageFile);
+        conditionImageUrl = uploadRes.data.imageUrl;
+      }
+
       await mapApi.createPing({
         lat: location.lat,
         lng: location.lng,
         type,
-        details: details.trim() || selectedTags.join(', ') || undefined,
+        contactName: trimmedContactName,
+        contactPhone: trimmedContactPhone,
+        details: trimmedDetails || selectedTags.join(', ') || undefined,
+        conditionImageUrl,
         sosCategory,
       });
       setStep('success');
@@ -200,9 +313,11 @@ export default function SOSCreationFlow() {
       const axiosErr = err as { response?: { data?: { message?: string } } };
       setError(axiosErr?.response?.data?.message || t('sos.submitError'));
       setStep('form');
+    } finally {
       setIsSubmitting(false);
+      setIsUploadingImage(false);
     }
-  }, [location, details, selectedTags, fetchPings, reset, t]);
+  }, [conditionImageFile, contactName, contactPhone, details, fetchPings, location, reset, selectedTags, t]);
 
   // Escape to close
   useEffect(() => {
@@ -213,6 +328,7 @@ export default function SOSCreationFlow() {
   }, [step, reset]);
 
   const showMedicalTextarea = selectedTags.includes('medical');
+  const submitLabel = isUploadingImage ? t('sos.conditionImageUploading') : t('sos.submit');
 
   // ─── Floating SOS Button (always visible) ───
   if (step === 'idle') {
@@ -253,6 +369,8 @@ export default function SOSCreationFlow() {
 
       {/* Scrollable body */}
       <div className="sos-panel-body">
+        <p className="sos-intro-note">{t('sos.contactPrivacyHint')}</p>
+
         {/* Live location bar */}
         <button type="button" className="sos-location-bar" onClick={redetectGPS}>
           <MapPin size={16} className="sos-location-icon" />
@@ -295,6 +413,59 @@ export default function SOSCreationFlow() {
           })}
         </div>
 
+        <div className="sos-contact-card">
+          <div className="sos-contact-card-head">
+            <label className="sos-section-label">
+              {t('sos.contactSectionTitle')}
+            </label>
+            <p className="sos-section-help">{t('sos.contactSectionHint')}</p>
+          </div>
+
+          <div className="sos-contact-grid">
+            <label className="sos-field">
+              <span className="sos-field-label">
+                {t('sos.contactNameLabel')} <span className="sos-required">*</span>
+              </span>
+              <span className={`sos-input-wrap ${contactNameError ? 'sos-input-wrap--error' : ''}`}>
+                <UserRound size={16} className="sos-input-icon" />
+                <input
+                  className="sos-input"
+                  value={contactName}
+                  onChange={(event) => {
+                    setContactName(event.target.value);
+                    setContactNameError('');
+                  }}
+                  placeholder={t('sos.contactNamePlaceholder')}
+                  maxLength={200}
+                />
+              </span>
+              {contactNameError && <p className="sos-error-text">{contactNameError}</p>}
+            </label>
+
+            <label className="sos-field">
+              <span className="sos-field-label">
+                {t('sos.contactPhoneLabel')} <span className="sos-required">*</span>
+              </span>
+              <span className={`sos-input-wrap ${contactPhoneError ? 'sos-input-wrap--error' : ''}`}>
+                <Phone size={16} className="sos-input-icon" />
+                <input
+                  className="sos-input"
+                  type="tel"
+                  inputMode="tel"
+                  value={contactPhone}
+                  onChange={(event) => {
+                    setContactPhone(event.target.value);
+                    setContactPhoneError('');
+                  }}
+                  placeholder={t('sos.contactPhonePlaceholder')}
+                  maxLength={32}
+                />
+              </span>
+              {contactPhoneError && <p className="sos-error-text">{contactPhoneError}</p>}
+            </label>
+          </div>
+        </div>
+
         {/* Smart Textarea – always visible, adapts to selected tags */}
         <div className="sos-details-section">
           <label className="sos-section-label">
@@ -319,6 +490,55 @@ export default function SOSCreationFlow() {
           <div className="sos-char-count">{details.length}/500</div>
         </div>
 
+        <div className="sos-media-section">
+          <div className="sos-media-section-head">
+            <label className="sos-section-label">{t('sos.conditionImageLabel')}</label>
+            <p className="sos-section-help">{t('sos.conditionImageHint')}</p>
+          </div>
+
+          {!conditionImagePreview && (
+            <label className="sos-image-picker">
+              <ImagePlus size={18} />
+              <span className="sos-image-picker-copy">
+                <strong>{t('sos.conditionImageAdd')}</strong>
+                <span>{t('sos.conditionImageFormats')}</span>
+              </span>
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                hidden
+                onChange={handleConditionImageSelect}
+              />
+            </label>
+          )}
+
+          {conditionImagePreview && (
+            <>
+              <div className="sos-image-preview-card">
+                <img src={conditionImagePreview} alt={t('sos.conditionImagePreviewAlt')} />
+              </div>
+              <div className="sos-image-actions">
+                <label className="sos-image-picker sos-image-picker--secondary">
+                  <ImagePlus size={16} />
+                  <span>{t('sos.conditionImageChange')}</span>
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    hidden
+                    onChange={handleConditionImageSelect}
+                  />
+                </label>
+                <button type="button" className="btn btn-ghost btn-sm sos-image-remove" onClick={clearConditionImage}>
+                  <Trash2 size={14} />
+                  <span>{t('sos.conditionImageRemove')}</span>
+                </button>
+              </div>
+            </>
+          )}
+
+          {imageError && <p className="sos-error-text">{imageError}</p>}
+        </div>
+
         {error && <p className="sos-error-text" style={{ marginTop: 8 }}>{error}</p>}
       </div>
 
@@ -327,17 +547,17 @@ export default function SOSCreationFlow() {
         <button
           className="sos-submit-btn"
           onClick={handleSubmit}
-          disabled={isSubmitting}
+          disabled={isSubmitting || isUploadingImage || !location}
         >
-          {isSubmitting ? (
+          {isSubmitting || isUploadingImage ? (
             <>
               <Loader2 size={20} className="animate-spin" />
-              <span>{t('sos.submitting') || 'Đang xử lý...'}</span>
+              <span>{isUploadingImage ? submitLabel : t('sos.submitting')}</span>
             </>
           ) : (
             <>
               <AlertTriangle size={20} />
-              <span>{t('sos.submit') || 'Gửi yêu cầu'}</span>
+              <span>{submitLabel}</span>
             </>
           )}
         </button>

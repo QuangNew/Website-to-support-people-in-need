@@ -14,7 +14,10 @@ export interface PingData {
     address: string;
     createdAt: string;
     items?: string[];
+    contactName?: string;
     contactPhone?: string;
+    contactEmail?: string;
+    conditionImageUrl?: string;
     status: 'active' | 'resolved' | 'expired';
     isBlinking?: boolean;
     sosCategory?: string;
@@ -177,6 +180,53 @@ export const MOCK_PINGS: PingData[] = [
     },
 ];
 
+const BACKEND_PING_TYPE_MAP: Record<string, PingType> = {
+    SOS: 'need_help',
+    Supply: 'offering',
+    Shelter: 'support_point',
+};
+
+const BACKEND_PING_STATUS_MAP: Record<string, 'active' | 'resolved' | 'expired'> = {
+    Pending: 'active',
+    InProgress: 'active',
+    Resolved: 'resolved',
+    VerifiedSafe: 'resolved',
+};
+
+function formatPingLocation(lat: number, lng: number): string {
+    return `GPS ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+}
+
+function mapBackendPing(payload: Record<string, unknown>): PingData {
+    const lat = typeof payload.lat === 'number' ? payload.lat : 0;
+    const lng = typeof payload.lng === 'number' ? payload.lng : 0;
+    const details = typeof payload.details === 'string' ? payload.details : '';
+    const contactName = typeof payload.contactName === 'string' && payload.contactName.trim().length > 0
+        ? payload.contactName
+        : typeof payload.userName === 'string' && payload.userName.trim().length > 0
+            ? payload.userName
+            : undefined;
+
+    return {
+        id: String(payload.id),
+        lat,
+        lng,
+        type: BACKEND_PING_TYPE_MAP[payload.type as string] || 'need_help',
+        title: details || contactName || 'SOS',
+        description: details,
+        address: formatPingLocation(lat, lng),
+        createdAt: typeof payload.createdAt === 'string' ? payload.createdAt : new Date().toISOString(),
+        status: BACKEND_PING_STATUS_MAP[payload.status as string] || 'active',
+        items: [],
+        contactName,
+        contactPhone: typeof payload.contactPhone === 'string' ? payload.contactPhone : undefined,
+        contactEmail: typeof payload.contactEmail === 'string' ? payload.contactEmail : undefined,
+        conditionImageUrl: typeof payload.conditionImageUrl === 'string' ? payload.conditionImageUrl : undefined,
+        isBlinking: Boolean(payload.isBlinking),
+        sosCategory: typeof payload.sosCategory === 'string' ? payload.sosCategory : undefined,
+    };
+}
+
 export const useMapStore = create<MapState>((set, get) => ({
     center: { lat: 15.8, lng: 106.6 },
     zoom: 6,
@@ -238,34 +288,7 @@ export const useMapStore = create<MapState>((set, get) => ({
                 lng: useMapStore.getState().center.lng,
                 radius: 500, // 500km radius covers all of Vietnam
             });
-            const backendPings: PingData[] = (res.data as Array<Record<string, unknown>>).map((p) => {
-                const typeMap: Record<string, PingType> = {
-                    SOS: 'need_help',
-                    Supply: 'offering',
-                    Shelter: 'support_point',
-                };
-                const statusMap: Record<string, 'active' | 'resolved' | 'expired'> = {
-                    Pending: 'active',
-                    InProgress: 'active',
-                    Resolved: 'resolved',
-                    VerifiedSafe: 'resolved',
-                };
-                return {
-                    id: String(p.id),
-                    lat: p.lat as number,
-                    lng: p.lng as number,
-                    type: typeMap[p.type as string] || 'need_help',
-                    title: (p.details as string) || 'SOS',
-                    description: (p.details as string) || '',
-                    address: '',
-                    createdAt: p.createdAt as string,
-                    status: statusMap[p.status as string] || 'active',
-                    items: [],
-                    contactPhone: undefined,
-                    isBlinking: (p.isBlinking as boolean) || false,
-                    sosCategory: (p.sosCategory as string) || undefined,
-                };
-            });
+            const backendPings = (res.data as Array<Record<string, unknown>>).map(mapBackendPing);
             set({ pings: backendPings, pingsLoading: false });
         } catch {
             console.warn('[MapStore] Backend unavailable, keeping mock pings');
@@ -294,34 +317,7 @@ export const useMapStore = create<MapState>((set, get) => ({
                 lng: centerLng,
                 radius: Math.min(Math.max(radiusKm, 20), 500), // 20km minimum, 500km maximum
             });
-            const backendPings: PingData[] = (res.data as Array<Record<string, unknown>>).map((p) => {
-                const typeMap: Record<string, PingType> = {
-                    SOS: 'need_help',
-                    Supply: 'offering',
-                    Shelter: 'support_point',
-                };
-                const statusMap: Record<string, 'active' | 'resolved' | 'expired'> = {
-                    Pending: 'active',
-                    InProgress: 'active',
-                    Resolved: 'resolved',
-                    VerifiedSafe: 'resolved',
-                };
-                return {
-                    id: String(p.id),
-                    lat: p.lat as number,
-                    lng: p.lng as number,
-                    type: typeMap[p.type as string] || 'need_help',
-                    title: (p.details as string) || 'SOS',
-                    description: (p.details as string) || '',
-                    address: '',
-                    createdAt: p.createdAt as string,
-                    status: statusMap[p.status as string] || 'active',
-                    items: [],
-                    contactPhone: undefined,
-                    isBlinking: (p.isBlinking as boolean) || false,
-                    sosCategory: (p.sosCategory as string) || undefined,
-                };
-            });
+            const backendPings = (res.data as Array<Record<string, unknown>>).map(mapBackendPing);
             set({ pings: backendPings, pingsLoading: false });
         } catch {
             console.warn('[MapStore] Failed to fetch pings in bounds');

@@ -149,7 +149,16 @@ public class CreatePingDto
     [Required]
     public string Type { get; set; } = string.Empty; // "SOS", "Supply", "Shelter"
 
+    [StringLength(200)]
+    public string? ContactName { get; set; }
+
+    [StringLength(32)]
+    public string? ContactPhone { get; set; }
+
     public string? Details { get; set; }
+
+    [StringLength(500)]
+    public string? ConditionImageUrl { get; set; }
 
     /// <summary>SOS category tag: evacuate, food, medical, shelter, other. Only used for SOS type pings.</summary>
     public string? SOSCategory { get; set; }
@@ -168,6 +177,10 @@ public class PingResponseDto
     public DateTime CreatedAt { get; set; }
     public string UserId { get; set; } = string.Empty;
     public string? UserName { get; set; }
+    public string? ContactName { get; set; }
+    public string? ContactPhone { get; set; }
+    public string? ContactEmail { get; set; }
+    public string? ConditionImageUrl { get; set; }
     public bool IsBlinking { get; set; }
 }
 

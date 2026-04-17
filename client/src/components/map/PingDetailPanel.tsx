@@ -8,18 +8,19 @@ import {
   Heart,
   Home,
   MapPin,
-  Clock,
   Phone,
   Package,
   Navigation,
   Loader2,
   Trash2,
   UtensilsCrossed,
+  Mail,
+  Camera,
 } from 'lucide-react';
 import { useMapStore, type PingType } from '../../stores/mapStore';
 import { useAuthStore } from '../../stores/authStore';
 import { useLanguage } from '../../contexts/LanguageContext';
-import { mapApi } from '../../services/api';
+import { getImageUrl, mapApi } from '../../services/api';
 import toast from 'react-hot-toast';
 
 const TYPE_CONFIG: Record<PingType, { label: string; icon: typeof AlertTriangle; colorClass: string }> = {
@@ -61,6 +62,19 @@ export default function PingDetailPanel() {
   const categoryConfig = ping.type === 'need_help' ? getSosCategoryConfig(ping.sosCategory) : null;
   const timeAgo = getRelativeTime(ping.createdAt, t);
   const isAdmin = user?.role === 'Admin';
+  const canViewSensitiveContact = Boolean(user && user.role !== 'Guest' && user.role !== 'PersonInNeed');
+  const contactName = ping.contactName || t('ping.unknownReporter');
+  const contactPhone = canViewSensitiveContact ? ping.contactPhone : undefined;
+  const contactEmail = canViewSensitiveContact ? ping.contactEmail : undefined;
+  const hasSensitiveContact = Boolean(contactPhone || contactEmail);
+  const incidentSummary = ping.description || (ping.type === 'need_help' ? t('ping.needsHelpGeneral') : t(config.label));
+  const locationLabel = ping.address || `${ping.lat.toFixed(5)}, ${ping.lng.toFixed(5)}`;
+  const initials = contactName
+    .split(' ')
+    .map((segment) => segment[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
 
   const handleDeletePing = () => {
     if (!isAdmin) return;
@@ -99,7 +113,7 @@ export default function PingDetailPanel() {
 
   return (
     <div className="ping-detail-panel animate-slide-in-up">
-      {/* Header */}
+      {/* Header with close button */}
       <div className="ping-detail-header">
         <div className="ping-detail-type">
           <span className={`ping-type-badge ${config.colorClass}`}>
@@ -127,61 +141,107 @@ export default function PingDetailPanel() {
         </button>
       </div>
 
-      {/* Title */}
-      <h3 className="ping-detail-title">{ping.title || t(config.label)}</h3>
-
-      {/* Description */}
-      <p className="ping-detail-description">{ping.description}</p>
-
-      {/* Info rows */}
-      <div className="ping-detail-info">
-        <div className="ping-info-row">
-          <MapPin size={14} />
-          <span>{ping.address}</span>
-        </div>
-        <div className="ping-info-row">
-          <Clock size={14} />
-          <span>{timeAgo}</span>
-        </div>
-        {ping.contactPhone && (
-          <div className="ping-info-row">
-            <Phone size={14} />
-            <a href={`tel:${ping.contactPhone}`} className="ping-phone-link">
-              {ping.contactPhone}
-            </a>
+      {/* Hero: Reporter Profile Card — Only shown ONCE */}
+      <div className="ping-detail-hero">
+        <div className="ping-detail-reporter">
+          <div className="ping-detail-avatar">{initials || 'RC'}</div>
+          <div className="ping-detail-reporter-copy">
+            <span className="ping-detail-eyebrow">{t('ping.reportedBy')}</span>
+            <h3 className="ping-detail-title">{contactName}</h3>
+            <p className="ping-detail-subtitle">{timeAgo}</p>
           </div>
-        )}
+        </div>
       </div>
 
-      {/* Items */}
-      {ping.items && ping.items.length > 0 && (
-        <div className="ping-detail-items">
-          <div className="ping-items-header">
-            <Package size={14} />
-            <span>{t('ping.items')}</span>
+      {/* Incident Summary — HIGHLIGHTED in a prominent block */}
+      {incidentSummary && (
+        <div className="ping-detail-incident-block">
+          <div className="ping-incident-icon">
+            <AlertCircle size={18} />
           </div>
-          <div className="ping-items-list">
-            {ping.items.map((item, i) => (
-              <span key={i} className="mini-tag">{item}</span>
-            ))}
+          <div className="ping-incident-content">
+            <span className="ping-incident-label">{t('ping.description') || 'Yêu cầu'}</span>
+            <p className="ping-incident-text">{incidentSummary}</p>
           </div>
         </div>
       )}
 
-      {/* Need help hint when no items specified */}
-      {ping.type === 'need_help' && (!ping.items || ping.items.length === 0) && (
-        <div className="ping-detail-items">
-          <div className="ping-items-header">
+      {/* Meta Info Grid — Location & Details (Compact horizontal row) */}
+      <div className="ping-detail-meta-grid">
+        <div className="ping-detail-meta-card">
+          <span className="ping-detail-meta-label">
+            <MapPin size={14} />
+            {t('ping.locationLabel')}
+          </span>
+          <span className="ping-detail-meta-value">{locationLabel}</span>
+        </div>
+        <div className="ping-detail-meta-card">
+          <span className="ping-detail-meta-label">
             <Package size={14} />
-            <span>{t('ping.needsHelp')}</span>
+            {t('ping.items')}
+          </span>
+          <span className="ping-detail-meta-value">
+            {ping.items && ping.items.length > 0 ? ping.items.join(', ') : (t('ping.notSpecified') || 'Chưa chỉ rõ')}
+          </span>
+        </div>
+      </div>
+
+      {/* Condition Image — If available */}
+      {ping.conditionImageUrl && (
+        <div className="ping-detail-card ping-detail-card--visual">
+          <div className="ping-detail-card-head">
+            <span className="ping-detail-card-title">
+              <Camera size={14} />
+              {t('ping.conditionImageLabel')}
+            </span>
+            <span className="ping-detail-card-caption">{t('ping.conditionImageCaption')}</span>
           </div>
-          <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', margin: 0 }}>
-            {t('ping.needsHelpGeneral')}
-          </p>
+          <img
+            src={getImageUrl(ping.conditionImageUrl)}
+            alt={t('ping.conditionImageAlt')}
+            className="ping-detail-image"
+          />
         </div>
       )}
 
-      {/* Route info */}
+      {/* Contact Information Card */}
+      {hasSensitiveContact && (
+        <div className="ping-detail-card">
+          <div className="ping-detail-card-head">
+            <span className="ping-detail-card-title">
+              <Phone size={14} />
+              {t('ping.contactSectionTitle')}
+            </span>
+            <span className="ping-detail-card-caption">
+              {t('ping.contactSectionResponders')}
+            </span>
+          </div>
+
+          <div className="ping-contact-grid">
+            {contactPhone && (
+              <a href={`tel:${contactPhone}`} className="ping-contact-item ping-contact-item--link">
+                <Phone size={14} />
+                <div>
+                  <span className="ping-contact-label">{t('ping.contactPhoneLabel')}</span>
+                  <strong>{contactPhone}</strong>
+                </div>
+              </a>
+            )}
+
+            {contactEmail && (
+              <a href={`mailto:${contactEmail}`} className="ping-contact-item ping-contact-item--link">
+                <Mail size={14} />
+                <div>
+                  <span className="ping-contact-label">{t('ping.contactEmailLabel')}</span>
+                  <strong>{contactEmail}</strong>
+                </div>
+              </a>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Route Info */}
       {route && route.destination.lat === ping.lat && route.destination.lng === ping.lng && (() => {
         const formatDuration = (min: number) =>
           min < 60 ? `${min} ${t('ping.minutes')}` : `${Math.floor(min / 60)}h ${min % 60}m`;
@@ -199,7 +259,7 @@ export default function PingDetailPanel() {
         const selected = allRoutes[route.selectedIndex] || allRoutes[0];
 
         return (
-          <div className="ping-route-info">
+          <div className="ping-detail-card ping-route-info">
             {/* Selected route summary */}
             <div className="ping-route-info-row">
               <span className="ping-route-label">{t('ping.distance')}</span>
@@ -270,22 +330,47 @@ export default function PingDetailPanel() {
         </div>
       )}
 
-      {/* Actions */}
-      <div className="ping-detail-actions">
+      {/* CTA Actions — Prominent buttons at bottom */}
+      <div className="ping-detail-actions ping-detail-actions--cta">
+        {/* Main CTA: Directions */}
         <button
-          className="btn btn-primary btn-sm ping-directions-btn"
+          className="btn btn-primary ping-cta-btn ping-cta-btn--primary"
           onClick={handleDirections}
           disabled={isRouting}
         >
-          {isRouting ? <Loader2 size={14} className="animate-spin" /> : <Navigation size={14} />}
-          {isRouting ? t('common.loading') : t('ping.directions')}
+          {isRouting ? (
+            <>
+              <Loader2 size={16} className="animate-spin" />
+              <span>{t('common.loading')}</span>
+            </>
+          ) : (
+            <>
+              <Navigation size={16} />
+              <span>{t('ping.directions') || 'Chỉ đường'}</span>
+            </>
+          )}
         </button>
+
+        {/* Secondary CTA: Contact */}
+        {hasSensitiveContact && contactPhone && (
+          <a
+            href={`tel:${contactPhone}`}
+            className="btn btn-secondary ping-cta-btn ping-cta-btn--contact"
+          >
+            <Phone size={16} />
+            <span>{t('ping.callPerson') || 'Liên hệ'}</span>
+          </a>
+        )}
+
+        {/* Support button for active SOS */}
         {ping.type === 'need_help' && ping.status === 'active' && (
           <button className="btn btn-accent btn-sm">
             <Gift size={14} />
             {t('ping.support')}
           </button>
         )}
+
+        {/* Admin delete button */}
         {isAdmin && (
           <button
             className="btn btn-danger btn-sm"

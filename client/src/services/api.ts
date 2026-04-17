@@ -111,7 +111,16 @@ export const mapApi = {
   getPingById: (id: number) =>
     api.get(`/map/pings/${id}`),
 
-  createPing: (data: { lat: number; lng: number; type: string; details?: string; sosCategory?: string }) =>
+  createPing: (data: {
+    lat: number;
+    lng: number;
+    type: string;
+    contactName?: string;
+    contactPhone?: string;
+    details?: string;
+    conditionImageUrl?: string;
+    sosCategory?: string;
+  }) =>
     api.post('/map/pings', data),
 
   updatePingStatus: (id: number, data: { status: string }) =>

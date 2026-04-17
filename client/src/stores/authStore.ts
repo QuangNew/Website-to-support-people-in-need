@@ -6,6 +6,8 @@ export interface User {
     userName: string;
     email: string;
     fullName: string;
+    phoneNumber?: string;
+    address?: string;
     role: string;
     verificationStatus: string;
     emailVerified: boolean;
@@ -35,6 +37,8 @@ interface AuthResponse {
     userName: string;
     email: string;
     fullName: string;
+    phoneNumber?: string;
+    address?: string;
     role: string;
     emailVerified: boolean;
 }
@@ -52,6 +56,8 @@ function applyAuthResponse(
             id: data.userId,
             userName: data.userName,
             fullName: data.fullName,
+            phoneNumber: data.phoneNumber,
+            address: data.address,
             role: data.role,
             email: data.email,
             emailVerified: data.emailVerified,

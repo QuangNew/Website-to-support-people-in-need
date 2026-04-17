@@ -142,6 +142,8 @@ npx playwright show-report
 - Leaflet with marker clustering (`leaflet.markercluster`)
 - PostGIS for geospatial queries in PostgreSQL
 - Coordinates stored as `Point` geometry type
+- SOS creation now snapshots required contact name and phone, plus an optional condition image URL
+- Ping detail responses redact phone and email for unauthenticated viewers, logged-in guests, and `PersonInNeed`
 - OSRM routing with up to 2 alternative routes (click-to-select)
 
 ### Chatbot (Gemini AI)
@@ -284,7 +286,7 @@ Frontend__Urls__0=https://<your-static-web-app>.azurestaticapps.net
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **Website-to-support-people-in-need** (1445 symbols, 3858 relationships, 33 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **Website-to-support-people-in-need** (1587 symbols, 4252 relationships, 46 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
