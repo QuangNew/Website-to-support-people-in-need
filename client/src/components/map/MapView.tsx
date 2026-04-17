@@ -43,10 +43,47 @@ const PING_SVGS: Record<PingType, string> = {
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>',
 };
 
+// Category-specific SVG icons for SOS pings
+const SOS_CATEGORY_SVGS: Record<string, string> = {
+  // Evacuate: running person
+  evacuate:
+    '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="16" cy="4" r="2"/><path d="m12 12-2-3-3 5h5l3-5-3-2"/><path d="m9 20 1.5-5"/><path d="M16 20l-1-4"/><path d="m19 12-2.5-4"/><path d="M6 17l2-5"/></svg>',
+  // Food: utensils (fork + knife)
+  food:
+    '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2v0a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3zm0 0v7"/></svg>',
+  // Medical: heart pulse
+  medical:
+    '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/><path d="M3.22 12H9.5l.5-1 2 4.5 2-7 1.5 3.5h5.27"/></svg>',
+  // Shelter: house
+  shelter:
+    '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>',
+  // Other: default warning triangle (same as need_help)
+  other:
+    '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>',
+};
+
+// Category-specific background colors for SOS pings
+const SOS_CATEGORY_COLORS: Record<string, string> = {
+  evacuate: '#f97316', // orange
+  food: '#eab308',     // amber/yellow
+  medical: '#ef4444',  // red
+  shelter: '#8b5cf6',  // purple
+  other: '#dc2626',    // dark red (default SOS)
+};
+
 /** Create a Leaflet DivIcon for a ping marker */
 function createPingIcon(ping: PingData, isSelected: boolean): L.DivIcon {
-  const color = PING_COLORS[ping.type];
-  const svg = PING_SVGS[ping.type];
+  // Use category-specific icon and color for SOS (need_help) pings
+  let color: string;
+  let svg: string;
+  if (ping.type === 'need_help' && ping.sosCategory) {
+    const cat = ping.sosCategory.toLowerCase();
+    color = SOS_CATEGORY_COLORS[cat] || PING_COLORS[ping.type];
+    svg = SOS_CATEGORY_SVGS[cat] || PING_SVGS[ping.type];
+  } else {
+    color = PING_COLORS[ping.type];
+    svg = PING_SVGS[ping.type];
+  }
   const isPulsing = ping.isBlinking === true;
   return L.divIcon({
     className: '', // no default leaflet icon styles
@@ -410,47 +447,45 @@ export default function MapView() {
       isDark ? '#34d399' : '#059669', // Alt 2: green
     ];
 
-    // Draw alternative routes first (underneath, dashed)
-    route.alternatives.forEach((alt, idx) => {
-      if (alt.coordinates.length <= 1) return;
-      const isSelected = route.selectedIndex === idx + 1;
-      const altPolyline = L.polyline(alt.coordinates, {
-        color: altColors[idx] || (isDark ? '#6b7280' : '#9ca3af'),
-        weight: isSelected ? 6 : 4,
-        opacity: isSelected ? 0.85 : 0.4,
-        dashArray: isSelected ? undefined : '10, 8',
-        lineCap: 'round',
-        lineJoin: 'round',
-      }).addTo(map);
-      altPolyline.on('click', () => {
-        const { selectRouteIndex } = useMapStore.getState();
-        selectRouteIndex(idx + 1);
-      });
-      routeLayersRef.current.push(altPolyline);
-    });
-
-    // Draw primary route
-    if (route.coordinates.length > 1) {
-      const isSelected = route.selectedIndex === 0;
-      const primaryPolyline = L.polyline(route.coordinates, {
+    const routeEntries = [
+      {
+        index: 0,
+        coordinates: route.coordinates,
         color: isDark ? '#60a5fa' : '#2563eb',
-        weight: isSelected ? 6 : 4,
-        opacity: isSelected ? 0.85 : 0.4,
-        dashArray: isSelected ? undefined : '10, 8',
+      },
+      ...route.alternatives.map((alt, idx) => ({
+        index: idx + 1,
+        coordinates: alt.coordinates,
+        color: altColors[idx] || (isDark ? '#6b7280' : '#9ca3af'),
+      })),
+    ];
+
+    const orderedEntries = [
+      ...routeEntries.filter((entry) => entry.index !== route.selectedIndex),
+      ...routeEntries.filter((entry) => entry.index === route.selectedIndex),
+    ];
+
+    for (const entry of orderedEntries) {
+      if (entry.coordinates.length <= 1) continue;
+      const isSelected = route.selectedIndex === entry.index;
+      const polyline = L.polyline(entry.coordinates, {
+        color: entry.color,
+        weight: isSelected ? 6 : 5,
+        opacity: isSelected ? 0.88 : 0.65,
+        dashArray: isSelected ? undefined : '12, 8',
         lineCap: 'round',
         lineJoin: 'round',
       }).addTo(map);
-      primaryPolyline.on('click', () => {
+      polyline.on('click', () => {
         const { selectRouteIndex } = useMapStore.getState();
-        selectRouteIndex(0);
+        selectRouteIndex(entry.index);
       });
-      routeLayersRef.current.push(primaryPolyline);
+      routeLayersRef.current.push(polyline);
+    }
 
-      // Fit map to selected route bounds
-      const selectedCoords = route.selectedIndex === 0
-        ? route.coordinates
-        : route.alternatives[route.selectedIndex - 1]?.coordinates || route.coordinates;
-      const fitPolyline = L.polyline(selectedCoords);
+    const allCoordinates = routeEntries.flatMap((entry) => entry.coordinates);
+    if (allCoordinates.length > 1) {
+      const fitPolyline = L.polyline(allCoordinates);
       map.fitBounds(fitPolyline.getBounds(), { padding: [60, 60] });
     }
 

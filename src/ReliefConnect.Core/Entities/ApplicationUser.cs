@@ -55,6 +55,9 @@ public class ApplicationUser : IdentityUser
     /// <summary>Admin-provided reason for ban.</summary>
     public string? BanReason { get; set; }
 
+    /// <summary>Number of community guideline violations. 3 = permanent ban.</summary>
+    public int ViolationCount { get; set; }
+
     /// <summary>JTI of user's most recent JWT token (for force-logout).</summary>
     public string? LastTokenJti { get; set; }
 

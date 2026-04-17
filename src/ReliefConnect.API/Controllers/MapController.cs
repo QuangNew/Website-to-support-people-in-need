@@ -131,6 +131,9 @@ public class MapController : ControllerBase
             Type = mapType,
             Status = mapType == MapItemType.SOS ? SOSStatus.Pending : SOSStatus.Resolved,
             Details = dto.Details,
+            SOSCategory = mapType == MapItemType.SOS && !string.IsNullOrEmpty(dto.SOSCategory)
+                ? Enum.TryParse<Core.Enums.SOSCategory>(dto.SOSCategory, true, out var cat) ? cat : Core.Enums.SOSCategory.Other
+                : null,
             UserId = userId,
             CreatedAt = DateTime.UtcNow,
         };
@@ -142,8 +145,15 @@ public class MapController : ControllerBase
         if (ping.Type == MapItemType.SOS)
         {
             var detail = ping.Details?.Length > 100 ? ping.Details[..100] + "…" : ping.Details ?? "Không có chi tiết";
-            _ = _notifications.SendToRoleAsync((int)Core.Enums.RoleEnum.Volunteer,
-                $"SOS mới từ {userName}: {detail}");
+            try
+            {
+                await _notifications.SendToRoleAsync((int)Core.Enums.RoleEnum.Volunteer,
+                    $"SOS mới từ {userName}: {detail}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to send volunteer notification for SOS {PingId}", created.Id);
+            }
         }
 
         // Build DTO directly — avoid reload round-trip
@@ -156,6 +166,7 @@ public class MapController : ControllerBase
             Status = created.Status.ToString(),
             PriorityLevel = created.PriorityLevel,
             Details = created.Details,
+            SOSCategory = created.SOSCategory?.ToString()?.ToLowerInvariant(),
             CreatedAt = created.CreatedAt,
             UserId = userId,
             UserName = userName,
@@ -193,8 +204,15 @@ public class MapController : ControllerBase
         _logger.LogInformation("Ping {PingId} status updated to {Status}", id, dto.Status);
 
         // Notify ping owner about status change
-        _ = _notifications.SendAsync(ping.UserId,
-            $"Trạng thái SOS của bạn đã được cập nhật: {newStatus}");
+        try
+        {
+            await _notifications.SendAsync(ping.UserId,
+                $"Trạng thái SOS của bạn đã được cập nhật: {newStatus}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to send owner notification for ping {PingId}", id);
+        }
 
         return Ok(MapPingToDto(ping));
     }
@@ -226,8 +244,15 @@ public class MapController : ControllerBase
         _logger.LogInformation("Ping {PingId} confirmed safe by user {UserId}", id, userId);
 
         // Notify volunteers that user confirmed safe
-        _ = _notifications.SendToRoleAsync((int)Core.Enums.RoleEnum.Volunteer,
-            $"Người dùng đã xác nhận an toàn cho SOS #{id}");
+        try
+        {
+            await _notifications.SendToRoleAsync((int)Core.Enums.RoleEnum.Volunteer,
+                $"Người dùng đã xác nhận an toàn cho SOS #{id}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to send volunteer safe-confirmation notification for ping {PingId}", id);
+        }
 
         return Ok(MapPingToDto(ping));
     }
@@ -269,6 +294,7 @@ public class MapController : ControllerBase
         Status = ping.Status.ToString(),
         PriorityLevel = ping.PriorityLevel,
         Details = ping.Details,
+        SOSCategory = ping.SOSCategory?.ToString()?.ToLowerInvariant(),
         CreatedAt = ping.CreatedAt,
         UserId = ping.UserId,
         UserName = ping.User?.FullName ?? ping.User?.UserName,

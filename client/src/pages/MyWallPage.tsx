@@ -14,11 +14,14 @@ import {
   Shield,
   Edit3,
   ArrowLeft,
+  EyeOff,
 } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { useAuthStore } from '../stores/authStore';
 import { useMapStore } from '../stores/mapStore';
 import { useLanguage } from '../contexts/LanguageContext';
-import { socialApi, authApi, getImageUrl } from '../services/api';
+import HideCommentModal from '../components/ui/HideCommentModal';
+import { socialApi, authApi, getImageUrl, type HideCommentRequest } from '../services/api';
 
 interface PostDto {
   id: number;
@@ -56,6 +59,13 @@ interface UserProfile {
   verificationStatus: string;
 }
 
+interface HideCommentTarget {
+  postId: number;
+  commentId: number;
+  content: string;
+  userName: string;
+}
+
 function timeAgo(dateStr: string, t: (key: string) => string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
   const mins = Math.floor(diff / 60000);
@@ -85,6 +95,8 @@ export default function MyWallPage() {
   const [expandedComments, setExpandedComments] = useState<Record<number, CommentDto[]>>({});
   const [commentInputs, setCommentInputs] = useState<Record<number, string>>({});
   const [loadingComments, setLoadingComments] = useState<Record<number, boolean>>({});
+  const [hideCommentTarget, setHideCommentTarget] = useState<HideCommentTarget | null>(null);
+  const [hidingComment, setHidingComment] = useState(false);
   const observerRef = useRef<HTMLDivElement>(null);
 
   const isOwnProfile = currentUser?.id === userId;
@@ -190,7 +202,52 @@ export default function MyWallPage() {
       }));
       setCommentInputs(prev => ({ ...prev, [postId]: '' }));
       setPosts(prev => prev.map(p => p.id === postId ? { ...p, commentCount: p.commentCount + 1 } : p));
-    } catch { /* ignore */ }
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { status?: number; data?: { message?: string; isBanned?: boolean } } };
+      if (axiosErr?.response?.status === 422) {
+        const data = axiosErr.response.data;
+        toast.error(data?.message || t('social.commentViolation'), { duration: 6000 });
+        setCommentInputs(prev => ({ ...prev, [postId]: '' }));
+        if (data?.isBanned) {
+          setTimeout(() => window.location.reload(), 3000);
+        }
+        return;
+      }
+
+      if (axiosErr?.response?.status === 403) {
+        toast.error(axiosErr.response.data?.message || t('common.forbidden'), { duration: 5000 });
+        return;
+      }
+
+      toast.error(t('common.error'));
+    }
+  };
+
+  const handleHideComment = async (payload: HideCommentRequest) => {
+    if (!hideCommentTarget) return;
+
+    setHidingComment(true);
+    try {
+      const res = await socialApi.hideComment(hideCommentTarget.postId, hideCommentTarget.commentId, payload);
+      setExpandedComments(prev => ({
+        ...prev,
+        [hideCommentTarget.postId]: (prev[hideCommentTarget.postId] || []).filter(c => c.id !== hideCommentTarget.commentId),
+      }));
+      setPosts(prev => prev.map(p => p.id === hideCommentTarget.postId ? {
+        ...p,
+        commentCount: Math.max(0, p.commentCount - 1),
+      } : p));
+      toast.success(res.data?.message || t('social.commentHidden'));
+      if (payload.notifyUser && res.data?.notificationRequested && !res.data?.notificationSent) {
+        toast.error(t('social.commentHiddenWithoutNotification'), { duration: 5000 });
+      }
+      setHideCommentTarget(null);
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { message?: string } } };
+      toast.error(axiosErr.response?.data?.message || t('common.error'));
+    } finally {
+      setHidingComment(false);
+    }
   };
 
   const handleDelete = async (postId: number) => {
@@ -223,7 +280,7 @@ export default function MyWallPage() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)', marginBottom: 'var(--space-5)' }}>
               <div className="avatar avatar-xl">
                 {profileData.avatarUrl ? (
-                  <img src={profileData.avatarUrl} alt={profileData.fullName} />
+                  <img src={getImageUrl(profileData.avatarUrl)} alt={profileData.fullName} />
                 ) : (
                   <User size={40} />
                 )}
@@ -265,9 +322,13 @@ export default function MyWallPage() {
           {posts.map((post) => (
             <article key={post.id} className="glass-card" style={{ padding: 'var(--space-5)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', marginBottom: 'var(--space-3)' }}>
-                <div className="avatar avatar-sm">
-                  <span>{post.authorAvatar ? '' : getInitials(post.authorName)}</span>
-                </div>
+                {post.authorAvatar ? (
+                  <img src={getImageUrl(post.authorAvatar)} alt="" className="avatar avatar-sm" style={{ objectFit: 'cover' }} />
+                ) : (
+                  <div className="avatar avatar-sm">
+                    <span>{getInitials(post.authorName)}</span>
+                  </div>
+                )}
                 <div style={{ flex: 1 }}>
                   <span style={{ fontWeight: 600, fontSize: 'var(--text-sm)' }}>{post.authorName}</span>
                   <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginLeft: 'var(--space-2)' }}>
@@ -338,14 +399,33 @@ export default function MyWallPage() {
                   </div>
                   {expandedComments[post.id].map(c => (
                     <div key={c.id} style={{ display: 'flex', gap: 'var(--space-2)', marginBottom: 'var(--space-2)', fontSize: 'var(--text-sm)' }}>
-                      <div className="avatar" style={{ width: 24, height: 24, fontSize: '0.6rem' }}>
-                        <span>{getInitials(c.userName)}</span>
-                      </div>
+                      {c.userAvatar ? (
+                        <img
+                          src={getImageUrl(c.userAvatar)}
+                          alt=""
+                          className="avatar"
+                          style={{ width: 24, height: 24, fontSize: '0.6rem', objectFit: 'cover' }}
+                        />
+                      ) : (
+                        <div className="avatar" style={{ width: 24, height: 24, fontSize: '0.6rem' }}>
+                          <span>{getInitials(c.userName)}</span>
+                        </div>
+                      )}
                       <div>
                         <strong>{c.userName}</strong>{' '}
                         <span style={{ opacity: 0.6, fontSize: 'var(--text-xs)' }}>{timeAgo(c.createdAt, t)}</span>
                         <p style={{ margin: '2px 0 0' }}>{c.content}</p>
                       </div>
+                      {currentUser?.role === 'Admin' && (
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          onClick={() => setHideCommentTarget({ postId: post.id, commentId: c.id, content: c.content, userName: c.userName })}
+                          title={t('social.hideComment')}
+                          style={{ color: 'var(--danger-500)', paddingInline: 'var(--space-2)' }}
+                        >
+                          <EyeOff size={12} />
+                        </button>
+                      )}
                     </div>
                   ))}
                   {expandedComments[post.id].length === 0 && (
@@ -365,6 +445,14 @@ export default function MyWallPage() {
             <p style={{ textAlign: 'center', opacity: 0.4, padding: 'var(--space-4)', fontSize: 'var(--text-sm)' }}>{t('social.noMore')}</p>
           )}
         </div>
+
+        <HideCommentModal
+          isOpen={!!hideCommentTarget}
+          commentPreview={hideCommentTarget ? `${hideCommentTarget.userName}: ${hideCommentTarget.content}` : undefined}
+          submitting={hidingComment}
+          onClose={() => !hidingComment && setHideCommentTarget(null)}
+          onConfirm={handleHideComment}
+        />
       </div>
     </div>
   );

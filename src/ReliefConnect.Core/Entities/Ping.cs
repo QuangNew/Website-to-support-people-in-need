@@ -27,6 +27,9 @@ public class Ping
     /// <summary>User-provided details about the situation</summary>
     public string? Details { get; set; }
 
+    /// <summary>SOS category tag (evacuate, food, medical, shelter, other). Only relevant for SOS type pings.</summary>
+    public SOSCategory? SOSCategory { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     // Foreign keys

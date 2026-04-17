@@ -2,7 +2,7 @@ namespace ReliefConnect.Core.Entities;
 
 /// <summary>
 /// Comment on a social post (REQ-SOC-02).
-/// Supports soft-delete: hidden comments are invisible to normal users for 30 days before permanent deletion.
+/// Supports admin moderation with configurable hide duration and optional private notification.
 /// </summary>
 public class Comment
 {
@@ -18,8 +18,17 @@ public class Comment
     /// <summary>When the comment was hidden. Null if not hidden. Used for 30-day cleanup.</summary>
     public DateTime? HiddenAt { get; set; }
 
+    /// <summary>When the comment should be permanently deleted. Null means hidden indefinitely.</summary>
+    public DateTime? HiddenUntil { get; set; }
+
     /// <summary>Admin who hid the comment.</summary>
     public string? HiddenByAdminId { get; set; }
+
+    /// <summary>Moderation reason shown to admins and optionally to the comment author.</summary>
+    public string? HiddenReason { get; set; }
+
+    /// <summary>Whether the author received a private notification about the hide action.</summary>
+    public bool UserWasNotified { get; set; }
 
     // Foreign keys
     public int PostId { get; set; }

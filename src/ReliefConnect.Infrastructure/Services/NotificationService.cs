@@ -1,6 +1,5 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using ReliefConnect.Core.Entities;
 using ReliefConnect.Core.Enums;
 using ReliefConnect.Core.Interfaces;
 using ReliefConnect.Infrastructure.Data;
@@ -22,16 +21,18 @@ public class NotificationService : INotificationService
         _logger = logger;
     }
 
+    private Task InsertNotificationAsync(string userId, string message)
+    {
+        var createdAt = DateTime.UtcNow;
+        return _db.Database.ExecuteSqlInterpolatedAsync(
+            $@"INSERT INTO ""Notifications"" (""CreatedAt"", ""IsRead"", ""MessageText"", ""UserId"")
+               VALUES ({createdAt}, {false}, {message}, {userId})");
+    }
+
     /// <inheritdoc />
     public async Task SendAsync(string userId, string message)
     {
-        _db.Notifications.Add(new Notification
-        {
-            UserId = userId,
-            MessageText = message,
-            CreatedAt = DateTime.UtcNow
-        });
-        await _db.SaveChangesAsync();
+        await InsertNotificationAsync(userId, message);
         _logger.LogDebug("Notification sent to user {UserId}", userId);
     }
 
@@ -41,15 +42,10 @@ public class NotificationService : INotificationService
         var ids = userIds.ToList();
         if (ids.Count == 0) return;
 
-        var notifications = ids.Select(uid => new Notification
+        foreach (var userId in ids)
         {
-            UserId = uid,
-            MessageText = message,
-            CreatedAt = DateTime.UtcNow
-        });
-
-        _db.Notifications.AddRange(notifications);
-        await _db.SaveChangesAsync();
+            await InsertNotificationAsync(userId, message);
+        }
         _logger.LogDebug("Notification sent to {Count} users", ids.Count);
     }
 
@@ -65,16 +61,7 @@ public class NotificationService : INotificationService
 
         if (userIds.Count == 0) return;
 
-        // Use AddRange directly to avoid extra SaveChangesAsync from SendToManyAsync
-        var notifications = userIds.Select(uid => new Notification
-        {
-            UserId = uid,
-            MessageText = message,
-            CreatedAt = DateTime.UtcNow
-        });
-
-        _db.Notifications.AddRange(notifications);
-        await _db.SaveChangesAsync();
+        await SendToManyAsync(userIds, message);
         _logger.LogDebug("Notification sent to {Count} users with role {Role}", userIds.Count, roleEnum);
     }
 }

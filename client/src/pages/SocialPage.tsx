@@ -188,7 +188,20 @@ export default function SocialPage() {
             setExpandedComments(prev => ({ ...prev, [postId]: [newComment, ...(prev[postId] || [])] }));
             setCommentInputs(prev => ({ ...prev, [postId]: '' }));
             setPosts(prev => prev.map(p => p.id === postId ? { ...p, commentCount: p.commentCount + 1 } : p));
-        } catch { /* ignore */ }
+        } catch (err: unknown) {
+            const axiosErr = err as { response?: { status?: number; data?: { message?: string; violationCount?: number; isBanned?: boolean } } };
+            if (axiosErr?.response?.status === 422) {
+                const data = axiosErr.response.data;
+                toast.error(data?.message || t('social.commentViolation'), { duration: 6000 });
+                setCommentInputs(prev => ({ ...prev, [postId]: '' }));
+                if (data?.isBanned) {
+                    // Force logout if banned
+                    setTimeout(() => window.location.reload(), 3000);
+                }
+            } else if (axiosErr?.response?.status === 403) {
+                toast.error(axiosErr.response.data?.message || t('common.forbidden'), { duration: 5000 });
+            }
+        }
     };
 
     const handleDeletePost = async (postId: number) => {
@@ -201,7 +214,11 @@ export default function SocialPage() {
     const handleHideComment = async (postId: number, commentId: number) => {
         if (!confirm(t('social.confirmHideComment'))) return;
         try {
-            await socialApi.hideComment(postId, commentId);
+            await socialApi.hideComment(postId, commentId, {
+                durationDays: 30,
+                reason: 'Ẩn bởi quản trị viên do vi phạm tiêu chuẩn cộng đồng.',
+                notifyUser: false,
+            });
             setExpandedComments(prev => ({
                 ...prev,
                 [postId]: (prev[postId] || []).filter(c => c.id !== commentId),
@@ -305,7 +322,7 @@ export default function SocialPage() {
                         {/* Header */}
                         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', marginBottom: 'var(--sp-4)' }}>
                             {post.authorAvatar ? (
-                                <img src={post.authorAvatar} alt="" className="avatar avatar-md" style={{ objectFit: 'cover' }} />
+                                <img src={getImageUrl(post.authorAvatar)} alt="" className="avatar avatar-md" style={{ objectFit: 'cover' }} />
                             ) : (
                                 <div className="avatar avatar-md">{getInitials(post.authorName)}</div>
                             )}
@@ -380,7 +397,7 @@ export default function SocialPage() {
                                 {expandedComments[post.id]?.map(c => (
                                     <div key={c.id} style={{ display: 'flex', gap: 'var(--sp-2)', marginBottom: 'var(--sp-2)', alignItems: 'flex-start' }}>
                                         {c.userAvatar ? (
-                                            <img src={c.userAvatar} alt="" className="avatar avatar-sm" style={{ objectFit: 'cover' }} />
+                                            <img src={getImageUrl(c.userAvatar)} alt="" className="avatar avatar-sm" style={{ objectFit: 'cover' }} />
                                         ) : (
                                             <div className="avatar avatar-sm" style={{ fontSize: '0.6rem' }}>{getInitials(c.userName)}</div>
                                         )}

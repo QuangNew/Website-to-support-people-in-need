@@ -9,10 +9,14 @@ import {
   MessageSquare,
   AlertTriangle,
   X,
+  Package,
+  Plus,
 } from 'lucide-react';
-import { sponsorApi } from '../../services/api';
+import toast from 'react-hot-toast';
+import { sponsorApi, supplyApi } from '../../services/api';
 import { useMapStore } from '../../stores/mapStore';
 import { useLanguage } from '../../contexts/LanguageContext';
+import { isInsideVietnam } from '../../utils/vietnamTerritory';
 
 interface SOSCase {
   id: number;
@@ -32,7 +36,25 @@ interface SocialCase {
   authorName: string | null;
 }
 
-type TabType = 'sos' | 'posts';
+type TabType = 'sos' | 'posts' | 'supply';
+
+interface SupplyItem {
+  id: number;
+  name: string;
+  quantity: number;
+  lat: number;
+  lng: number;
+  createdAt: string;
+}
+
+interface SupplyForm {
+  name: string;
+  quantity: number;
+  lat: number;
+  lng: number;
+}
+
+const emptySupplyForm: SupplyForm = { name: '', quantity: 0, lat: 0, lng: 0 };
 
 export default function SponsorPanel() {
   const { selectPing, setActivePanel, setFlyTo } = useMapStore();
@@ -50,6 +72,14 @@ export default function SponsorPanel() {
   const [offerMessage, setOfferMessage] = useState('');
   const [offering, setOffering] = useState(false);
   const [offerSent, setOfferSent] = useState(false);
+
+  // Supply state
+  const [supplies, setSupplies] = useState<SupplyItem[]>([]);
+  const [supplyLoading, setSupplyLoading] = useState(false);
+  const [showSupplyForm, setShowSupplyForm] = useState(false);
+  const [supplyForm, setSupplyForm] = useState<SupplyForm>(emptySupplyForm);
+  const [supplyFormError, setSupplyFormError] = useState('');
+  const [savingSupply, setSavingSupply] = useState(false);
 
   const fetchCases = useCallback(async () => {
     try {
@@ -100,6 +130,84 @@ export default function SponsorPanel() {
   const categories = ['Livelihood', 'Medical', 'Education'];
   const statuses = ['Pending', 'InProgress', 'Resolved'];
 
+  // ── Supply CRUD ──
+  const fetchSupplies = useCallback(async () => {
+    setSupplyLoading(true);
+    try {
+      const res = await supplyApi.getSupplies();
+      setSupplies(res.data as SupplyItem[]);
+    } catch {
+      toast.error(t('sponsorPanel.supplyLoadError'));
+    } finally {
+      setSupplyLoading(false);
+    }
+  }, [t]);
+
+  useEffect(() => {
+    if (tab === 'supply') fetchSupplies();
+  }, [tab, fetchSupplies]);
+
+  const openCreateSupply = () => {
+    setSupplyForm(emptySupplyForm);
+    setSupplyFormError('');
+    setShowSupplyForm(true);
+  };
+
+  const closeSupplyForm = () => {
+    setSupplyForm(emptySupplyForm);
+    setSupplyFormError('');
+    setShowSupplyForm(false);
+  };
+
+  const handleSaveSupply = async () => {
+    const trimmedName = supplyForm.name.trim();
+
+    if (!trimmedName) {
+      setSupplyFormError(t('sponsorPanel.supplyNameRequired'));
+      return;
+    }
+
+    if (!Number.isInteger(supplyForm.quantity) || supplyForm.quantity < 0) {
+      setSupplyFormError(t('sponsorPanel.supplyQuantityInvalid'));
+      return;
+    }
+
+    if (!Number.isFinite(supplyForm.lat) || !Number.isFinite(supplyForm.lng)) {
+      setSupplyFormError(t('sponsorPanel.supplyLocationRequired'));
+      return;
+    }
+
+    if (!isInsideVietnam(supplyForm.lat, supplyForm.lng)) {
+      setSupplyFormError(t('sponsorPanel.supplyLocationInvalid'));
+      return;
+    }
+
+    setSavingSupply(true);
+    setSupplyFormError('');
+    try {
+      await supplyApi.createSupply({
+        name: trimmedName,
+        quantity: supplyForm.quantity,
+        lat: supplyForm.lat,
+        lng: supplyForm.lng,
+      });
+      closeSupplyForm();
+      toast.success(t('sponsorPanel.supplyCreated'));
+      void fetchSupplies();
+    } catch {
+      const message = t('common.error');
+      setSupplyFormError(message);
+      toast.error(message);
+    } finally {
+      setSavingSupply(false);
+    }
+  };
+
+  const handleViewSupplyOnMap = (s: SupplyItem) => {
+    setFlyTo({ lat: s.lat, lng: s.lng, zoom: 15 });
+    setActivePanel(null);
+  };
+
   return (
     <div className="panel-content">
       <div className="panel-header">
@@ -145,6 +253,12 @@ export default function SponsorPanel() {
           onClick={() => setTab('posts')}
         >
           <MessageSquare size={14} /> {t('sponsorPanel.tabPosts')} ({socialCases.length})
+        </button>
+        <button
+          className={`btn btn-sm ${tab === 'supply' ? 'btn-primary' : 'btn-ghost'}`}
+          onClick={() => setTab('supply')}
+        >
+          <Package size={14} /> {t('sponsorPanel.tabSupply') || 'Supply'}
         </button>
       </div>
 
@@ -206,7 +320,7 @@ export default function SponsorPanel() {
             ))}
           </div>
         )
-      ) : (
+      ) : tab === 'posts' ? (
         socialCases.length === 0 ? (
           <div className="empty-state">
             <Inbox size={48} strokeWidth={1.5} />
@@ -240,6 +354,152 @@ export default function SponsorPanel() {
             ))}
           </div>
         )
+      ) : /* tab === 'supply' */ (
+        <div style={{ padding: '0 1rem' }}>
+          {/* Create button */}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.75rem' }}>
+            <button className="btn btn-sm btn-primary" onClick={openCreateSupply}>
+              <Plus size={14} /> {t('sponsorPanel.newSupply') || 'New Supply'}
+            </button>
+          </div>
+
+          {/* Supply form */}
+          {showSupplyForm && (
+            <div style={{
+              background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '10px',
+              padding: '1rem', marginBottom: '0.75rem',
+            }}>
+              <h4 style={{ margin: '0 0 0.75rem', fontSize: '0.95rem' }}>
+                {t('sponsorPanel.newSupply')}
+              </h4>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                <input
+                  type="text"
+                  placeholder={t('sponsorPanel.supplyName')}
+                  value={supplyForm.name}
+                  onChange={(e) => setSupplyForm((f) => ({ ...f, name: e.target.value }))}
+                  style={{
+                    width: '100%', padding: '0.4rem 0.6rem', borderRadius: '6px',
+                    border: '1px solid var(--border)', background: 'var(--background)', fontSize: '0.85rem',
+                  }}
+                />
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                      {t('sponsorPanel.quantity')}
+                    </label>
+                    <input
+                      type="number"
+                      value={supplyForm.quantity}
+                      onChange={(e) => setSupplyForm((f) => ({ ...f, quantity: Number(e.target.value) }))}
+                      min={0}
+                      step={1}
+                      style={{
+                        width: '100%', padding: '0.4rem 0.6rem', borderRadius: '6px',
+                        border: '1px solid var(--border)', background: 'var(--background)', fontSize: '0.85rem',
+                      }}
+                    />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                      {t('sponsorPanel.latitude')}
+                    </label>
+                    <input
+                      type="number"
+                      value={supplyForm.lat}
+                      onChange={(e) => setSupplyForm((f) => ({ ...f, lat: Number(e.target.value) }))}
+                      step={0.0001}
+                      style={{
+                        width: '100%', padding: '0.4rem 0.6rem', borderRadius: '6px',
+                        border: '1px solid var(--border)', background: 'var(--background)', fontSize: '0.85rem',
+                      }}
+                    />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                      {t('sponsorPanel.longitude')}
+                    </label>
+                    <input
+                      type="number"
+                      value={supplyForm.lng}
+                      onChange={(e) => setSupplyForm((f) => ({ ...f, lng: Number(e.target.value) }))}
+                      step={0.0001}
+                      style={{
+                        width: '100%', padding: '0.4rem 0.6rem', borderRadius: '6px',
+                        border: '1px solid var(--border)', background: 'var(--background)', fontSize: '0.85rem',
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {supplyFormError && (
+                  <p style={{ color: 'var(--danger-500)', fontSize: '0.8rem', margin: 0 }}>{supplyFormError}</p>
+                )}
+
+                <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '0.25rem' }}>
+                  <button
+                    className="btn btn-sm btn-ghost"
+                    onClick={closeSupplyForm}
+                    disabled={savingSupply}
+                  >
+                    {t('common.cancel')}
+                  </button>
+                  <button className="btn btn-sm btn-primary" onClick={handleSaveSupply} disabled={savingSupply}>
+                    {savingSupply && <Loader2 size={14} className="animate-spin" />}
+                    {savingSupply
+                      ? t('common.saving')
+                      : t('common.create')}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Supply list */}
+          {supplyLoading ? (
+            <div className="empty-state">
+              <Loader2 size={32} className="animate-spin" />
+            </div>
+          ) : supplies.length === 0 ? (
+            <div className="empty-state">
+              <Package size={48} strokeWidth={1.5} />
+              <p>{t('sponsorPanel.noSupplies')}</p>
+            </div>
+          ) : (
+            <div className="panel-list">
+              {supplies.map((s) => (
+                <div key={s.id} className="list-item" style={{ cursor: 'default', flexDirection: 'column', alignItems: 'stretch', gap: '0.4rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <div
+                      className="list-item-icon"
+                      style={{ color: s.quantity > 0 ? 'var(--primary-500)' : 'var(--text-muted)', backgroundColor: s.quantity > 0 ? 'var(--primary-500)15' : 'var(--text-muted)15' }}
+                    >
+                      <Package size={18} />
+                    </div>
+                    <div className="list-item-content" style={{ flex: 1 }}>
+                      <h4 className="list-item-title">
+                        {s.name}
+                        <span className="mini-tag" style={{ marginLeft: '0.5rem' }}>×{s.quantity}</span>
+                      </h4>
+                      <p className="list-item-subtitle" style={{ margin: 0 }}>
+                        {s.lat.toFixed(4)}, {s.lng.toFixed(4)}
+                      </p>
+                    </div>
+                    <span className="list-item-time">
+                      <Clock size={12} /> {getShortTime(s.createdAt)}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.5rem', paddingLeft: '2.75rem' }}>
+                    <button className="btn btn-sm btn-ghost" onClick={() => handleViewSupplyOnMap(s)}>
+                      <MapPin size={14} /> {t('mySos.viewOnMap')}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       {/* Offer Help Modal */}

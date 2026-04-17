@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using ReliefConnect.Infrastructure.Data;
@@ -11,9 +12,11 @@ using ReliefConnect.Infrastructure.Data;
 namespace ReliefConnect.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260416130928_AddContentViolation")]
+    partial class AddContentViolation
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -381,13 +384,6 @@ namespace ReliefConnect.Infrastructure.Migrations
                     b.Property<string>("HiddenByAdminId")
                         .HasColumnType("text");
 
-                    b.Property<string>("HiddenReason")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)");
-
-                    b.Property<DateTime?>("HiddenUntil")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<bool>("IsHidden")
                         .HasColumnType("boolean");
 
@@ -398,17 +394,12 @@ namespace ReliefConnect.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<bool>("UserWasNotified")
-                        .HasColumnType("boolean");
-
                     b.HasKey("Id");
 
                     b.HasIndex("CreatedAt")
                         .IsDescending();
 
                     b.HasIndex("HiddenAt");
-
-                    b.HasIndex("HiddenUntil");
 
                     b.HasIndex("IsHidden");
 
@@ -633,9 +624,6 @@ namespace ReliefConnect.Infrastructure.Migrations
                         .HasColumnType("character varying(2000)");
 
                     b.Property<int>("PriorityLevel")
-                        .HasColumnType("integer");
-
-                    b.Property<int?>("SOSCategory")
                         .HasColumnType("integer");
 
                     b.Property<int>("Status")

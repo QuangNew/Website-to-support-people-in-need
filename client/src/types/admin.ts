@@ -124,6 +124,10 @@ export interface HiddenComment {
   userName: string;
   createdAt: string;
   hiddenAt?: string;
+  hiddenUntil?: string;
   hiddenByAdminName?: string;
-  daysRemaining: number;
+  hiddenReason?: string;
+  userWasNotified: boolean;
+  isIndefinite: boolean;
+  daysRemaining?: number;
 }

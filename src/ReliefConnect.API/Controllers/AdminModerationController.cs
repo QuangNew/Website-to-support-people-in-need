@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using ReliefConnect.Core.DTOs;
 using ReliefConnect.Core.Enums;
+using ReliefConnect.Core.Interfaces;
 using ReliefConnect.Infrastructure.Data;
 using ReliefConnect.API.Extensions;
 
@@ -22,15 +23,18 @@ public class AdminModerationController : ControllerBase
     private readonly AppDbContext _db;
     private readonly ILogger<AdminModerationController> _logger;
     private readonly IMemoryCache _cache;
+    private readonly INotificationService _notifications;
 
     public AdminModerationController(
         AppDbContext db,
         ILogger<AdminModerationController> logger,
-        IMemoryCache cache)
+        IMemoryCache cache,
+        INotificationService notifications)
     {
         _db = db;
         _logger = logger;
         _cache = cache;
+        _notifications = notifications;
     }
 
     // ═══════════════════════════════════════════
@@ -252,11 +256,37 @@ public class AdminModerationController : ControllerBase
     // ═══════════════════════════════════════════
 
     /// <summary>
-    /// Hide a specific comment from a post (soft-delete). Hidden for 30 days before permanent deletion.
+    /// Hide a specific comment from a post with configurable moderation options.
     /// </summary>
-    [HttpDelete("posts/{postId}/comments/{commentId}")]
-    public async Task<ActionResult> DeleteComment(int postId, int commentId)
+    [HttpPost("posts/{postId}/comments/{commentId}/hide")]
+    public Task<ActionResult> HideComment(int postId, int commentId, [FromBody] HideCommentRequestDto dto)
     {
+        return HideCommentInternal(postId, commentId, dto, legacyResponse: false);
+    }
+
+    [HttpDelete("posts/{postId}/comments/{commentId}")]
+    public Task<ActionResult> DeleteComment(int postId, int commentId)
+    {
+        return HideCommentInternal(postId, commentId, new HideCommentRequestDto
+        {
+            DurationDays = 30,
+            Reason = "Ẩn bởi quản trị viên do vi phạm tiêu chuẩn cộng đồng.",
+            NotifyUser = false,
+        }, legacyResponse: true);
+    }
+
+    private async Task<ActionResult> HideCommentInternal(int postId, int commentId, HideCommentRequestDto dto, bool legacyResponse)
+    {
+        if (dto.DurationDays.HasValue && (dto.DurationDays.Value < 1 || dto.DurationDays.Value > 365))
+            return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Thời hạn ẩn phải nằm trong khoảng 1-365 ngày hoặc chọn vô thời hạn." });
+
+        var reason = dto.Reason?.Trim();
+        if (string.IsNullOrWhiteSpace(reason))
+            return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Vui lòng nhập lý do ẩn bình luận." });
+
+        if (reason.Length > 500)
+            return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Lý do ẩn bình luận không được vượt quá 500 ký tự." });
+
         var comment = await _db.Comments
             .Where(c => c.Id == commentId && c.PostId == postId && !c.IsHidden)
             .Include(c => c.User)
@@ -267,16 +297,55 @@ public class AdminModerationController : ControllerBase
 
         var adminId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         var userName = comment.User?.UserName ?? "unknown";
+        var durationLabel = dto.DurationDays.HasValue ? $"trong {dto.DurationDays.Value} ngày" : "vô thời hạn";
+        var hiddenAt = DateTime.UtcNow;
+        DateTime? hiddenUntil = dto.DurationDays.HasValue ? hiddenAt.AddDays(dto.DurationDays.Value) : null;
 
         comment.IsHidden = true;
-        comment.HiddenAt = DateTime.UtcNow;
+        comment.HiddenAt = hiddenAt;
+        comment.HiddenUntil = hiddenUntil;
         comment.HiddenByAdminId = adminId;
+        comment.HiddenReason = reason;
+        comment.UserWasNotified = false;
         await _db.SaveChangesAsync();
 
-        await this.LogAdminAction(_db, "CommentHidden", $"Hidden comment #{commentId} on post #{postId} by {userName} (auto-delete in 30 days)");
+        var notificationSent = false;
+        if (dto.NotifyUser)
+        {
+            try
+            {
+                await _notifications.SendAsync(comment.UserId,
+                    $"Bình luận của bạn đã bị ẩn {durationLabel}. Lý do: {reason}");
+
+                comment.UserWasNotified = true;
+                await _db.SaveChangesAsync();
+                notificationSent = true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to notify user {UserId} about hidden comment {CommentId}", comment.UserId, commentId);
+            }
+        }
+
+        await this.LogAdminAction(_db, "CommentHidden",
+            $"Hidden comment #{commentId} on post #{postId} by {userName} ({durationLabel}); notified user: {notificationSent}; reason: {reason}");
         _logger.LogInformation("Admin hidden comment #{CommentId} on post #{PostId}", commentId, postId);
 
-        return Ok(new { message = "Đã ẩn bình luận. Sẽ tự động xóa sau 30 ngày." });
+        if (legacyResponse)
+        {
+            return Ok(new { message = "Đã ẩn bình luận. Sẽ tự động xóa sau 30 ngày." });
+        }
+
+        return Ok(new
+        {
+            message = dto.DurationDays.HasValue
+                ? $"Đã ẩn bình luận {durationLabel}."
+                : "Đã ẩn bình luận vô thời hạn.",
+            hiddenUntil,
+            isIndefinite = !hiddenUntil.HasValue,
+            notificationRequested = dto.NotifyUser,
+            notificationSent,
+        });
     }
 
     /// <summary>
@@ -294,7 +363,10 @@ public class AdminModerationController : ControllerBase
 
         comment.IsHidden = false;
         comment.HiddenAt = null;
+        comment.HiddenUntil = null;
         comment.HiddenByAdminId = null;
+        comment.HiddenReason = null;
+        comment.UserWasNotified = false;
         await _db.SaveChangesAsync();
 
         await this.LogAdminAction(_db, "CommentRestored", $"Restored comment #{commentId} on post #{postId}");
@@ -332,10 +404,16 @@ public class AdminModerationController : ControllerBase
                 UserName  = c.User != null ? (c.User.FullName ?? c.User.UserName ?? "Ẩn danh") : "Ẩn danh",
                 CreatedAt = c.CreatedAt,
                 HiddenAt  = c.HiddenAt,
+                HiddenUntil = c.HiddenUntil,
                 HiddenByAdminName = c.HiddenByAdminId != null
                     ? _db.Users.Where(u => u.Id == c.HiddenByAdminId).Select(u => u.FullName ?? u.UserName).FirstOrDefault() ?? "Admin"
                     : null,
-                DaysRemaining = c.HiddenAt.HasValue ? Math.Max(0, 30 - (int)(now - c.HiddenAt.Value).TotalDays) : 30
+                HiddenReason = c.HiddenReason,
+                UserWasNotified = c.UserWasNotified,
+                IsIndefinite = c.HiddenUntil == null,
+                DaysRemaining = c.HiddenUntil.HasValue
+                    ? Math.Max(0, (int)Math.Ceiling((c.HiddenUntil.Value - now).TotalDays))
+                    : null
             })
             .ToListAsync();
 

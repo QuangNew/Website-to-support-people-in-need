@@ -182,15 +182,16 @@ export default function SOSCreationFlow() {
     haptic(100);
 
     try {
-      const type = selectedTags.includes('shelter') ? 'Shelter'
-        : selectedTags.includes('food') ? 'Supply'
-        : 'SOS';
+      // SOS flow should always create SOS pings; category drives the marker/icon.
+      const type = 'SOS';
+      const sosCategory = selectedTags.find((tag) => ['evacuate', 'food', 'medical', 'shelter', 'other'].includes(tag)) || 'other';
 
       await mapApi.createPing({
         lat: location.lat,
         lng: location.lng,
         type,
         details: details.trim() || selectedTags.join(', ') || undefined,
+        sosCategory,
       });
       setStep('success');
       await fetchPings();

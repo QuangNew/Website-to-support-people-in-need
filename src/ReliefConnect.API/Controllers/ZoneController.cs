@@ -89,8 +89,15 @@ public class ZoneController : ControllerBase
         _logger.LogInformation("Zone created: {ZoneId} — {ZoneName}, risk={Risk}", zone.Id, zone.Name, zone.RiskLevel);
 
         // Notify admins about new priority zone
-        _ = _notifications.SendToRoleAsync((int)Core.Enums.RoleEnum.Admin,
-            $"Vùng ưu tiên mới: {zone.Name} (Mức rủi ro: {zone.RiskLevel})");
+        try
+        {
+            await _notifications.SendToRoleAsync((int)Core.Enums.RoleEnum.Admin,
+                $"Vùng ưu tiên mới: {zone.Name} (Mức rủi ro: {zone.RiskLevel})");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to send admin notification for zone {ZoneId}", zone.Id);
+        }
 
         return CreatedAtAction(nameof(GetZone), new { id = zone.Id }, new ZoneResponseDto
         {

@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
 import { useLanguage } from '../../contexts/LanguageContext';
-import { authApi } from '../../services/api';
+import { authApi, getImageUrl } from '../../services/api';
 
 const VERIFICATION_CONFIG: Record<string, { color: string; labelVi: string; labelEn: string }> = {
   Verified: { color: 'var(--success-500)', labelVi: 'Đã xác minh', labelEn: 'Verified' },
@@ -95,7 +95,7 @@ export default function ProfilePanel() {
         <div className="profile-avatar-section">
           <div className="avatar avatar-lg profile-avatar-clickable" onClick={() => avatarInputRef.current?.click()}>
             {user.avatarUrl ? (
-              <img src={user.avatarUrl} alt={user.fullName} />
+              <img src={getImageUrl(user.avatarUrl)} alt={user.fullName} />
             ) : (
               <User size={32} />
             )}

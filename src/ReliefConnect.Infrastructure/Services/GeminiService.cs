@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
@@ -96,6 +97,25 @@ public class GeminiService : IGeminiService
         "heart attack", "poisoning", "bleeding", "emergency", "stopped breathing", "accident"
     };
 
+    private static string MapProviderFailureMessage(HttpStatusCode statusCode)
+    {
+        return statusCode switch
+        {
+            HttpStatusCode.ServiceUnavailable or HttpStatusCode.BadGateway or HttpStatusCode.GatewayTimeout =>
+                "Trợ lý AI đang quá tải do dịch vụ bên thứ ba tạm thời không sẵn sàng. Vui lòng thử lại sau ít phút.",
+            (HttpStatusCode)429 =>
+                "Trợ lý AI đang bị giới hạn lưu lượng do nhu cầu cao. Vui lòng thử lại sau ít phút.",
+            HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden =>
+                "Trợ lý AI đang tạm thời bảo trì kết nối với dịch vụ bên thứ ba. Vui lòng thử lại sau.",
+            HttpStatusCode.BadRequest or HttpStatusCode.RequestEntityTooLarge =>
+                "Yêu cầu gửi tới trợ lý AI chưa phù hợp. Hãy rút gọn câu hỏi hoặc kiểm tra lại ảnh rồi thử lại.",
+            _ when (int)statusCode >= 500 =>
+                "Dịch vụ AI bên thứ ba đang gặp sự cố tạm thời. Vui lòng thử lại sau.",
+            _ =>
+                "Hiện chưa thể kết nối tới dịch vụ AI bên thứ ba. Vui lòng thử lại sau."
+        };
+    }
+
     public async Task<(string Response, bool HasSafetyWarning)> SendMessageAsync(
         string userMessage,
         IEnumerable<(string Role, string Content)>? conversationHistory = null,
@@ -107,7 +127,7 @@ public class GeminiService : IGeminiService
         var allowedImageTypes = new[] { "image/jpeg", "image/png", "image/webp" };
         if (hasImage && !allowedImageTypes.Contains(imageMimeType))
         {
-            return ("Unsupported image type. Please use JPEG, PNG, or WebP.", false);
+            return ("Ảnh chưa đúng định dạng hỗ trợ. Vui lòng dùng JPEG, PNG hoặc WebP.", false);
         }
 
         // Check for emergency keywords
@@ -190,7 +210,7 @@ public class GeminiService : IGeminiService
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogWarning("Gemini API error {StatusCode}: {Body}", response.StatusCode, json);
-                return ($"Xin lỗi, tôi đang gặp sự cố (HTTP {(int)response.StatusCode}). Vui lòng thử lại sau.", false);
+                return (MapProviderFailureMessage(response.StatusCode), false);
             }
 
             using var doc = JsonDocument.Parse(json);
@@ -240,10 +260,20 @@ public class GeminiService : IGeminiService
 
             return (text, hasSafetyWarning);
         }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogError(ex, "Gemini API is not configured correctly");
+            return ("Trợ lý AI đang tạm thời bảo trì cấu hình dịch vụ. Vui lòng thử lại sau.", false);
+        }
         catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException || !ex.CancellationToken.IsCancellationRequested)
         {
             _logger.LogWarning("Gemini API timeout after 30s");
             return ("Xin lỗi, phản hồi quá lâu. Vui lòng thử lại với câu hỏi ngắn hơn.", false);
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogWarning(ex, "Gemini API network failure");
+            return ("Không thể kết nối tới dịch vụ AI bên thứ ba. Vui lòng kiểm tra mạng và thử lại sau.", false);
         }
         catch (Exception ex)
         {

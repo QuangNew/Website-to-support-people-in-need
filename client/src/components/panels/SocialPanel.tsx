@@ -10,11 +10,14 @@ import {
   Trash2,
   ImagePlus,
   X,
+  EyeOff,
 } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { useAuthStore } from '../../stores/authStore';
 import { useMapStore } from '../../stores/mapStore';
 import { useLanguage } from '../../contexts/LanguageContext';
-import { socialApi, getImageUrl } from '../../services/api';
+import HideCommentModal from '../ui/HideCommentModal';
+import { socialApi, getImageUrl, type HideCommentRequest } from '../../services/api';
 
 interface PostDto {
   id: number;
@@ -41,6 +44,13 @@ interface CommentDto {
   userAvatar?: string;
 }
 
+interface HideCommentTarget {
+  postId: number;
+  commentId: number;
+  content: string;
+  userName: string;
+}
+
 const CATEGORIES = ['Livelihood', 'Medical', 'Education'] as const;
 
 function timeAgo(dateStr: string, t: (key: string) => string): string {
@@ -62,6 +72,7 @@ export default function SocialPanel() {
   const { isAuthenticated, user } = useAuthStore();
   const { setAuthModal } = useMapStore();
   const { t } = useLanguage();
+  const isAdmin = user?.role === 'Admin';
 
   const [posts, setPosts] = useState<PostDto[]>([]);
   const [loading, setLoading] = useState(false);
@@ -75,6 +86,8 @@ export default function SocialPanel() {
   const [expandedComments, setExpandedComments] = useState<Record<number, CommentDto[]>>({});
   const [commentInputs, setCommentInputs] = useState<Record<number, string>>({});
   const [loadingComments, setLoadingComments] = useState<Record<number, boolean>>({});
+  const [hideCommentTarget, setHideCommentTarget] = useState<HideCommentTarget | null>(null);
+  const [hidingComment, setHidingComment] = useState(false);
   const observerRef = useRef<HTMLDivElement>(null);
   const inflightRef = useRef(false); // Track inflight requests to prevent race conditions
 
@@ -210,7 +223,25 @@ export default function SocialPanel() {
       }));
       setCommentInputs(prev => ({ ...prev, [postId]: '' }));
       setPosts(prev => prev.map(p => p.id === postId ? { ...p, commentCount: p.commentCount + 1 } : p));
-    } catch { /* ignore */ }
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { status?: number; data?: { message?: string; isBanned?: boolean } } };
+      if (axiosErr?.response?.status === 422) {
+        const data = axiosErr.response.data;
+        toast.error(data?.message || t('social.commentViolation'), { duration: 6000 });
+        setCommentInputs(prev => ({ ...prev, [postId]: '' }));
+        if (data?.isBanned) {
+          setTimeout(() => window.location.reload(), 3000);
+        }
+        return;
+      }
+
+      if (axiosErr?.response?.status === 403) {
+        toast.error(axiosErr.response.data?.message || t('common.forbidden'), { duration: 5000 });
+        return;
+      }
+
+      toast.error(t('common.error'));
+    }
   };
 
   const handleDelete = async (postId: number) => {
@@ -218,6 +249,33 @@ export default function SocialPanel() {
       await socialApi.deletePost(postId);
       setPosts(prev => prev.filter(p => p.id !== postId));
     } catch { /* ignore */ }
+  };
+
+  const handleHideComment = async (payload: HideCommentRequest) => {
+    if (!hideCommentTarget) return;
+
+    setHidingComment(true);
+    try {
+      const res = await socialApi.hideComment(hideCommentTarget.postId, hideCommentTarget.commentId, payload);
+      setExpandedComments(prev => ({
+        ...prev,
+        [hideCommentTarget.postId]: (prev[hideCommentTarget.postId] || []).filter(c => c.id !== hideCommentTarget.commentId),
+      }));
+      setPosts(prev => prev.map(p => p.id === hideCommentTarget.postId ? {
+        ...p,
+        commentCount: Math.max(0, p.commentCount - 1),
+      } : p));
+      toast.success(res.data?.message || t('social.commentHidden'));
+      if (payload.notifyUser && res.data?.notificationRequested && !res.data?.notificationSent) {
+        toast.error(t('social.commentHiddenWithoutNotification'), { duration: 5000 });
+      }
+      setHideCommentTarget(null);
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { message?: string } } };
+      toast.error(axiosErr.response?.data?.message || t('common.error'));
+    } finally {
+      setHidingComment(false);
+    }
   };
 
   return (
@@ -287,9 +345,13 @@ export default function SocialPanel() {
           <article key={post.id} className="social-post glass-card-sm">
             {/* Author */}
             <div className="social-post-header">
-              <div className="avatar avatar-sm">
-                <span>{post.authorAvatar ? '' : getInitials(post.authorName)}</span>
-              </div>
+              {post.authorAvatar ? (
+                <img src={getImageUrl(post.authorAvatar)} alt="" className="avatar avatar-sm" style={{ objectFit: 'cover' }} />
+              ) : (
+                <div className="avatar avatar-sm">
+                  <span>{getInitials(post.authorName)}</span>
+                </div>
+              )}
               <div className="social-post-author">
                 <span className="social-post-name">{post.authorName}</span>
                 <span className="social-post-time">{timeAgo(post.createdAt, t)}</span>
@@ -360,14 +422,33 @@ export default function SocialPanel() {
                 </div>
                 {expandedComments[post.id].map(c => (
                   <div key={c.id} style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.4rem', fontSize: '0.8rem' }}>
-                    <div className="avatar" style={{ width: 24, height: 24, fontSize: '0.6rem' }}>
-                      <span>{getInitials(c.userName)}</span>
-                    </div>
+                    {c.userAvatar ? (
+                      <img
+                        src={getImageUrl(c.userAvatar)}
+                        alt=""
+                        className="avatar"
+                        style={{ width: 24, height: 24, fontSize: '0.6rem', objectFit: 'cover' }}
+                      />
+                    ) : (
+                      <div className="avatar" style={{ width: 24, height: 24, fontSize: '0.6rem' }}>
+                        <span>{getInitials(c.userName)}</span>
+                      </div>
+                    )}
                     <div>
                       <strong>{c.userName}</strong>{' '}
                       <span style={{ opacity: 0.6 }}>{timeAgo(c.createdAt, t)}</span>
                       <p style={{ margin: '2px 0 0' }}>{c.content}</p>
                     </div>
+                    {isAdmin && (
+                      <button
+                        className="btn-ghost btn-sm"
+                        onClick={() => setHideCommentTarget({ postId: post.id, commentId: c.id, content: c.content, userName: c.userName })}
+                        title={t('social.hideComment')}
+                        style={{ alignSelf: 'flex-start', color: 'var(--danger-500)' }}
+                      >
+                        <EyeOff size={12} />
+                      </button>
+                    )}
                   </div>
                 ))}
                 {expandedComments[post.id].length === 0 && (
@@ -388,6 +469,14 @@ export default function SocialPanel() {
           <p style={{ textAlign: 'center', opacity: 0.4, padding: '1rem', fontSize: '0.8rem' }}>{t('social.noMore')}</p>
         )}
       </div>
+
+      <HideCommentModal
+        isOpen={!!hideCommentTarget}
+        commentPreview={hideCommentTarget ? `${hideCommentTarget.userName}: ${hideCommentTarget.content}` : undefined}
+        submitting={hidingComment}
+        onClose={() => !hidingComment && setHideCommentTarget(null)}
+        onConfirm={handleHideComment}
+      />
     </div>
   );
 }

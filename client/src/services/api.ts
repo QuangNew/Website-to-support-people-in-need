@@ -21,6 +21,12 @@ const api = axios.create({
   timeout: 10000,
 });
 
+export interface HideCommentRequest {
+  durationDays?: number | null;
+  reason: string;
+  notifyUser: boolean;
+}
+
 // Request interceptor: Attach JWT token
 api.interceptors.request.use(
   (config) => {
@@ -105,7 +111,7 @@ export const mapApi = {
   getPingById: (id: number) =>
     api.get(`/map/pings/${id}`),
 
-  createPing: (data: { lat: number; lng: number; type: string; details?: string }) =>
+  createPing: (data: { lat: number; lng: number; type: string; details?: string; sosCategory?: string }) =>
     api.post('/map/pings', data),
 
   updatePingStatus: (id: number, data: { status: string }) =>
@@ -198,8 +204,8 @@ export const socialApi = {
   deletePost: (id: number) =>
     api.delete(`/social/posts/${id}`),
 
-  hideComment: (postId: number, commentId: number) =>
-    api.delete(`/admin/moderation/posts/${postId}/comments/${commentId}`),
+  hideComment: (postId: number, commentId: number, data: HideCommentRequest) =>
+    api.post(`/admin/moderation/posts/${postId}/comments/${commentId}/hide`, data),
 };
 
 // ═══════════════════════════════════════════

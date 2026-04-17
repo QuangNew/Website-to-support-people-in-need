@@ -6,7 +6,7 @@ namespace ReliefConnect.API.BackgroundServices;
 /// <summary>
 /// Periodically cleans up expired soft-deleted content:
 /// - Posts: hard-delete after 7 days of soft-deletion.
-/// - Comments: hard-delete after 30 days of being hidden.
+/// - Comments: hard-delete when the configured hide window expires.
 /// Runs every 6 hours.
 /// </summary>
 public class SoftDeleteCleanupService : BackgroundService
@@ -58,10 +58,9 @@ public class SoftDeleteCleanupService : BackgroundService
         if (deletedPosts > 0)
             _logger.LogInformation("Permanently deleted {Count} expired soft-deleted posts", deletedPosts);
 
-        // Hard-delete comments hidden more than 30 days ago
-        var commentCutoff = now.AddDays(-30);
+        // Hard-delete comments whose moderation window has expired
         var deletedComments = await db.Comments
-            .Where(c => c.IsHidden && c.HiddenAt != null && c.HiddenAt < commentCutoff)
+            .Where(c => c.IsHidden && c.HiddenUntil != null && c.HiddenUntil < now)
             .ExecuteDeleteAsync(CancellationToken.None);
 
         if (deletedComments > 0)

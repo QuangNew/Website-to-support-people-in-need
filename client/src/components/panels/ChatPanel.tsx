@@ -4,7 +4,7 @@ import { Send, Bot, User, Sparkles, LogIn, AlertTriangle, RotateCcw, MessageSqua
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useAuthStore } from '../../stores/authStore';
 import { useMapStore } from '../../stores/mapStore';
-import { chatbotApi } from '../../services/api';
+import { chatbotApi, getImageUrl } from '../../services/api';
 
 const CHAT_STORAGE_KEY = 'chatpanel_messages';
 const CHAT_CONV_KEY = 'chatpanel_conversation_id';
@@ -333,7 +333,7 @@ export default function ChatPanel() {
                 {msg.role === 'assistant' ? (
                   <Bot size={14} />
                 ) : user?.avatarUrl ? (
-                  <img src={user.avatarUrl} alt="" className="chat-panel-msg-avatar-img" />
+                  <img src={getImageUrl(user.avatarUrl)} alt="" className="chat-panel-msg-avatar-img" />
                 ) : (
                   <User size={14} />
                 )}

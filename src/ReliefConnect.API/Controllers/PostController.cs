@@ -20,13 +20,17 @@ public class PostController : ControllerBase
     private readonly AppDbContext _db;
     private readonly HtmlSanitizer _sanitizer;
     private readonly ILogger<PostController> _logger;
+    private readonly IContentModerationService _moderation;
+    private readonly INotificationService _notifications;
 
-    public PostController(IPostRepository postRepo, AppDbContext db, HtmlSanitizer sanitizer, ILogger<PostController> logger)
+    public PostController(IPostRepository postRepo, AppDbContext db, HtmlSanitizer sanitizer, ILogger<PostController> logger, IContentModerationService moderation, INotificationService notifications)
     {
         _postRepo = postRepo;
         _db = db;
         _sanitizer = sanitizer;
         _logger = logger;
+        _moderation = moderation;
+        _notifications = notifications;
     }
 
     private string? GetUserId() => User.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -276,12 +280,72 @@ public class PostController : ControllerBase
         var userId = GetUserId();
         if (userId == null) return Unauthorized();
 
+        // Check if user is banned
+        var user = await _db.Users.FindAsync(userId);
+        if (user == null) return Unauthorized();
+        if (user.IsSuspended)
+            return StatusCode(403, new { message = "Tài khoản của bạn đã bị khóa do vi phạm tiêu chuẩn cộng đồng." });
+
         var postExists = await _db.Posts.AnyAsync(p => p.Id == postId);
         if (!postExists) return NotFound();
 
+        var sanitizedContent = _sanitizer.Sanitize(dto.Content);
+
+        // ── Content Moderation Check ──
+        var violationReason = _moderation.CheckContent(dto.Content);
+        if (violationReason != null)
+        {
+            // Record violation
+            user.ViolationCount++;
+            var violation = new ContentViolation
+            {
+                UserId = userId,
+                Content = dto.Content,
+                Reason = violationReason,
+                StrikeNumber = user.ViolationCount,
+                IsAutoDetected = true,
+                CreatedAt = DateTime.UtcNow
+            };
+            _db.ContentViolations.Add(violation);
+
+            // Create warning notification
+            string warningMessage;
+            if (user.ViolationCount >= 3)
+            {
+                // 3rd strike → permanent ban
+                user.IsSuspended = true;
+                user.SuspendedUntil = null; // permanent
+                user.BanReason = $"Vi phạm tiêu chuẩn cộng đồng lần thứ 3 (tự động). Lý do: {violationReason}";
+                warningMessage = $"⛔ Tài khoản của bạn đã bị KHÓA VĨNH VIỄN do vi phạm tiêu chuẩn cộng đồng lần thứ 3. Lý do: {violationReason}";
+                _logger.LogWarning("User {UserId} permanently banned: 3rd content violation ({Reason})", userId, violationReason);
+            }
+            else
+            {
+                warningMessage = $"⚠️ Cảnh cáo lần {user.ViolationCount}/3: Bình luận của bạn vi phạm tiêu chuẩn cộng đồng ({violationReason}). Vi phạm thêm {3 - user.ViolationCount} lần nữa sẽ bị khóa tài khoản.";
+                _logger.LogInformation("Content violation #{Count} for user {UserId}: {Reason}", user.ViolationCount, userId, violationReason);
+            }
+
+            // Persist state changes in smaller steps to avoid Supabase pooler issues
+            // with batched INSERT ... RETURNING commands.
+            await _db.SaveChangesAsync();
+
+            await _db.Database.ExecuteSqlInterpolatedAsync(
+                $@"INSERT INTO ""ContentViolations"" (""CommentId"", ""Content"", ""CreatedAt"", ""IsAutoDetected"", ""Reason"", ""StrikeNumber"", ""UserId"")
+                   VALUES ({(int?)null}, {dto.Content}, {violation.CreatedAt}, {true}, {violationReason}, {user.ViolationCount}, {userId})");
+
+            await _notifications.SendAsync(userId, warningMessage);
+
+            return StatusCode(422, new
+            {
+                message = warningMessage,
+                violationCount = user.ViolationCount,
+                isBanned = user.IsSuspended
+            });
+        }
+
         var comment = new Comment
         {
-            Content = _sanitizer.Sanitize(dto.Content),
+            Content = sanitizedContent,
             PostId = postId,
             UserId = userId,
             CreatedAt = DateTime.UtcNow
@@ -290,21 +354,14 @@ public class PostController : ControllerBase
         _db.Comments.Add(comment);
         await _db.SaveChangesAsync();
 
-        // Lightweight projection — no full entity load
-        var userInfo = await _db.Users
-            .AsNoTracking()
-            .Where(u => u.Id == userId)
-            .Select(u => new { Name = u.FullName ?? u.UserName ?? "Ẩn danh", u.AvatarUrl })
-            .FirstOrDefaultAsync();
-
         return CreatedAtAction(nameof(GetComments), new { postId }, new CommentResponseDto
         {
             Id = comment.Id,
             Content = comment.Content,
             CreatedAt = comment.CreatedAt,
             UserId = userId,
-            UserName = userInfo?.Name ?? "Ẩn danh",
-            UserAvatar = userInfo?.AvatarUrl
+            UserName = user.FullName ?? user.UserName ?? "Ẩn danh",
+            UserAvatar = user.AvatarUrl
         });
     }
 

@@ -17,6 +17,7 @@ export interface PingData {
     contactPhone?: string;
     status: 'active' | 'resolved' | 'expired';
     isBlinking?: boolean;
+    sosCategory?: string;
 }
 
 export interface ZoneData {
@@ -262,6 +263,7 @@ export const useMapStore = create<MapState>((set, get) => ({
                     items: [],
                     contactPhone: undefined,
                     isBlinking: (p.isBlinking as boolean) || false,
+                    sosCategory: (p.sosCategory as string) || undefined,
                 };
             });
             set({ pings: backendPings, pingsLoading: false });
@@ -317,6 +319,7 @@ export const useMapStore = create<MapState>((set, get) => ({
                     items: [],
                     contactPhone: undefined,
                     isBlinking: (p.isBlinking as boolean) || false,
+                    sosCategory: (p.sosCategory as string) || undefined,
                 };
             });
             set({ pings: backendPings, pingsLoading: false });
@@ -386,7 +389,8 @@ export const useMapStore = create<MapState>((set, get) => ({
             const originLng = position.coords.longitude;
 
             // Call OSRM public API for driving directions
-            const url = `https://router.project-osrm.org/route/v1/driving/${originLng},${originLat};${destLng},${destLat}?overview=full&geometries=geojson&alternatives=true`;
+            // alternatives=2 requests up to 2 alternative routes; continue_straight=false encourages diverse alternatives
+            const url = `https://router.project-osrm.org/route/v1/driving/${originLng},${originLat};${destLng},${destLat}?overview=full&geometries=geojson&alternatives=2&continue_straight=false`;
             const response = await fetch(url);
             if (!response.ok) throw new Error('OSRM request failed');
 

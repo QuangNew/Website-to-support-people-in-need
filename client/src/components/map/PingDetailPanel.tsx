@@ -1,9 +1,12 @@
 import { useMemo, useState } from 'react';
 import {
   X,
+  AlertCircle,
   AlertTriangle,
   Gift,
   CheckCircle2,
+  Heart,
+  Home,
   MapPin,
   Clock,
   Phone,
@@ -11,6 +14,7 @@ import {
   Navigation,
   Loader2,
   Trash2,
+  UtensilsCrossed,
 } from 'lucide-react';
 import { useMapStore, type PingType } from '../../stores/mapStore';
 import { useAuthStore } from '../../stores/authStore';
@@ -24,6 +28,19 @@ const TYPE_CONFIG: Record<PingType, { label: string; icon: typeof AlertTriangle;
   received: { label: 'filter.received', icon: CheckCircle2, colorClass: 'text-accent' },
   support_point: { label: 'filter.supportPoint', icon: MapPin, colorClass: 'text-primary' },
 };
+
+const SOS_CATEGORY_CONFIG: Record<string, { label: string; icon: typeof AlertTriangle; color: string }> = {
+  evacuate: { label: 'sos.tagEvacuate', icon: AlertTriangle, color: '#f97316' },
+  food: { label: 'sos.tagFood', icon: UtensilsCrossed, color: '#eab308' },
+  medical: { label: 'sos.tagMedical', icon: Heart, color: '#ef4444' },
+  shelter: { label: 'sos.tagShelter', icon: Home, color: '#8b5cf6' },
+  other: { label: 'sos.tagOther', icon: AlertCircle, color: '#dc2626' },
+};
+
+function getSosCategoryConfig(sosCategory?: string) {
+  if (!sosCategory) return null;
+  return SOS_CATEGORY_CONFIG[sosCategory.toLowerCase()] || SOS_CATEGORY_CONFIG.other;
+}
 
 export default function PingDetailPanel() {
   const { selectedPingId, pings, selectPing, fetchRoute, clearRoute, selectRouteIndex, route, isRouting, routeError, removePing } = useMapStore();
@@ -41,6 +58,7 @@ export default function PingDetailPanel() {
 
   const config = TYPE_CONFIG[ping.type];
   const Icon = config.icon;
+  const categoryConfig = ping.type === 'need_help' ? getSosCategoryConfig(ping.sosCategory) : null;
   const timeAgo = getRelativeTime(ping.createdAt, t);
   const isAdmin = user?.role === 'Admin';
 
@@ -88,6 +106,18 @@ export default function PingDetailPanel() {
             <Icon size={14} />
             {t(config.label)}
           </span>
+          {categoryConfig && (() => {
+            const CategoryIcon = categoryConfig.icon;
+            return (
+              <span
+                className="ping-type-badge"
+                style={{ background: `${categoryConfig.color}18`, color: categoryConfig.color }}
+              >
+                <CategoryIcon size={14} />
+                {t(categoryConfig.label)}
+              </span>
+            );
+          })()}
           <span className={`ping-status-badge ping-status-${ping.status}`}>
             {t(`ping.status.${ping.status}`)}
           </span>
@@ -98,7 +128,7 @@ export default function PingDetailPanel() {
       </div>
 
       {/* Title */}
-      <h3 className="ping-detail-title">{t(config.label)}</h3>
+      <h3 className="ping-detail-title">{ping.title || t(config.label)}</h3>
 
       {/* Description */}
       <p className="ping-detail-description">{ping.description}</p>
@@ -157,11 +187,12 @@ export default function PingDetailPanel() {
           min < 60 ? `${min} ${t('ping.minutes')}` : `${Math.floor(min / 60)}h ${min % 60}m`;
 
         const allRoutes = [
-          { label: t('ping.mainRoute'), info: route.info, index: 0 },
+          { label: t('ping.mainRoute'), info: route.info, index: 0, color: '#2563eb' },
           ...route.alternatives.map((alt, i) => ({
             label: `${t('ping.altRoute')} ${i + 1}`,
             info: alt.info,
             index: i + 1,
+            color: i === 0 ? '#7c3aed' : '#059669',
           })),
         ];
 
@@ -180,6 +211,35 @@ export default function PingDetailPanel() {
             </div>
 
             {/* Route selector (only if multiple routes) */}
+            {allRoutes.length > 1 && (
+              <>
+                <p className="ping-route-note">{t('ping.routeCompareHint')}</p>
+                <div className="ping-route-grid">
+                  {allRoutes.map((r) => (
+                    <button
+                      key={r.index}
+                      className={`ping-route-card ${route.selectedIndex === r.index ? 'ping-route-card--active' : ''}`}
+                      onClick={() => selectRouteIndex(r.index)}
+                    >
+                      <div className="ping-route-card-head">
+                        <span className="ping-route-card-title">
+                          <span className="ping-route-dot" style={{ backgroundColor: r.color }} />
+                          {r.label}
+                        </span>
+                        {route.selectedIndex === r.index && (
+                          <span className="mini-tag">{t('ping.selectedRoute')}</span>
+                        )}
+                      </div>
+                      <span className="ping-route-card-stats">
+                        <span>{r.info.distanceKm} km</span>
+                        <span>{formatDuration(r.info.durationMin)}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+
             {allRoutes.length > 1 && (
               <div className="ping-route-selector">
                 {allRoutes.map((r) => (

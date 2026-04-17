@@ -150,6 +150,9 @@ public class CreatePingDto
     public string Type { get; set; } = string.Empty; // "SOS", "Supply", "Shelter"
 
     public string? Details { get; set; }
+
+    /// <summary>SOS category tag: evacuate, food, medical, shelter, other. Only used for SOS type pings.</summary>
+    public string? SOSCategory { get; set; }
 }
 
 public class PingResponseDto
@@ -161,6 +164,7 @@ public class PingResponseDto
     public string Status { get; set; } = string.Empty;
     public int PriorityLevel { get; set; }
     public string? Details { get; set; }
+    public string? SOSCategory { get; set; }
     public DateTime CreatedAt { get; set; }
     public string UserId { get; set; } = string.Empty;
     public string? UserName { get; set; }
@@ -655,6 +659,17 @@ public class HiddenCommentDto
     public string UserName { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; }
     public DateTime? HiddenAt { get; set; }
+    public DateTime? HiddenUntil { get; set; }
     public string? HiddenByAdminName { get; set; }
-    public int DaysRemaining { get; set; }
+    public string? HiddenReason { get; set; }
+    public bool UserWasNotified { get; set; }
+    public bool IsIndefinite { get; set; }
+    public int? DaysRemaining { get; set; }
+}
+
+public class HideCommentRequestDto
+{
+    public int? DurationDays { get; set; }
+    public string Reason { get; set; } = string.Empty;
+    public bool NotifyUser { get; set; }
 }

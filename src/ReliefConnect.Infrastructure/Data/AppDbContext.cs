@@ -29,6 +29,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<SystemAnnouncement> SystemAnnouncements => Set<SystemAnnouncement>();
     public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
     public DbSet<BlacklistedToken> BlacklistedTokens => Set<BlacklistedToken>();
+    public DbSet<ContentViolation> ContentViolations => Set<ContentViolation>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -55,6 +56,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             entity.Property(p => p.Type).HasConversion<int>();
             entity.Property(p => p.Status).HasConversion<int>();
             entity.Property(p => p.Details).HasMaxLength(2000);
+            entity.Property(p => p.SOSCategory).HasConversion<int?>();
 
             // B-tree index on coordinates (for equality queries)
             entity.HasIndex(p => new { p.CoordinatesLat, p.CoordinatesLong });
@@ -151,12 +153,14 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
         {
             entity.HasKey(c => c.Id);
             entity.Property(c => c.Content).HasMaxLength(2000).IsRequired();
+            entity.Property(c => c.HiddenReason).HasMaxLength(500);
 
             entity.HasIndex(c => c.PostId);
             entity.HasIndex(c => c.UserId);
             // Soft-delete: index for hidden comment cleanup
             entity.HasIndex(c => c.IsHidden);
             entity.HasIndex(c => c.HiddenAt);
+            entity.HasIndex(c => c.HiddenUntil);
             // Index for chronological ordering (newest comments first)
             entity.HasIndex(c => c.CreatedAt).IsDescending();
 
@@ -359,6 +363,26 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
         {
             entity.HasIndex(t => t.Jti).IsUnique();
             entity.HasIndex(t => t.Expiry);
+        });
+
+        // ═══════ CONTENT VIOLATION ═══════
+        builder.Entity<ContentViolation>(entity =>
+        {
+            entity.HasKey(v => v.Id);
+            entity.Property(v => v.Content).HasMaxLength(2000);
+            entity.Property(v => v.Reason).HasMaxLength(200);
+            entity.HasIndex(v => v.UserId);
+            entity.HasIndex(v => v.CreatedAt).IsDescending();
+
+            entity.HasOne(v => v.User)
+                  .WithMany()
+                  .HasForeignKey(v => v.UserId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(v => v.Comment)
+                  .WithMany()
+                  .HasForeignKey(v => v.CommentId)
+                  .OnDelete(DeleteBehavior.SetNull);
         });
     }
 }

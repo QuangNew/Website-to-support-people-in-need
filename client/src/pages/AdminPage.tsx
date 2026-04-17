@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Users, Shield, FileText, Flag, ScrollText, Megaphone, BarChart3,
   ChevronDown, ChevronRight, RefreshCw, Download, Trash2, Pin, Ban,
@@ -1146,8 +1147,8 @@ function LogsPanel() {
         </div>
       )}
 
-      {/* Log detail overlay — enhanced with batch children */}
-      {detailLog && (
+      {/* Log detail overlay — portal to body to escape ancestor transform stacking context */}
+      {detailLog && createPortal(
         <div
           style={{
             position: 'fixed', inset: 0, zIndex: 1000,
@@ -1239,7 +1240,8 @@ function LogsPanel() {
               )}
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
@@ -1410,7 +1412,8 @@ function RestorePanel() {
                     <th>Post</th>
                     <th>{t('admin.user')}</th>
                     <th>{t('admin.hiddenBy')}</th>
-                    <th>{t('admin.daysRemaining')}</th>
+                    <th>{t('admin.reason')}</th>
+                    <th>{t('admin.hiddenPeriod')}</th>
                     <th>{t('admin.action')}</th>
                   </tr>
                 </thead>
@@ -1422,10 +1425,16 @@ function RestorePanel() {
                       <td>#{c.postId}</td>
                       <td>{c.userName}</td>
                       <td>{c.hiddenByAdminName || '-'}</td>
+                      <td className="admin-td-content">{c.hiddenReason || '-'}</td>
                       <td>
-                        <span className={`admin-badge ${c.daysRemaining <= 5 ? 'admin-badge--danger' : 'admin-badge--info'}`}>
-                          {c.daysRemaining} {t('admin.daysRemaining')}
+                        <span className={`admin-badge ${c.isIndefinite ? 'admin-badge--info' : (c.daysRemaining ?? 0) <= 5 ? 'admin-badge--danger' : 'admin-badge--info'}`}>
+                          {c.isIndefinite
+                            ? t('admin.indefinite')
+                            : `${c.daysRemaining} ${t('admin.daysRemaining')}`}
                         </span>
+                        {!c.isIndefinite && c.hiddenUntil && (
+                          <div className="admin-td-date">{new Date(c.hiddenUntil).toLocaleString()}</div>
+                        )}
                       </td>
                       <td>
                         <button
