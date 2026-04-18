@@ -71,4 +71,5 @@ public class ApplicationUser : IdentityUser
     public ICollection<Reaction> Reactions { get; set; } = new List<Reaction>();
     public ICollection<Conversation> Conversations { get; set; } = new List<Conversation>();
     public ICollection<Notification> Notifications { get; set; } = new List<Notification>();
+    public ICollection<VerificationHistory> VerificationHistories { get; set; } = new List<VerificationHistory>();
 }

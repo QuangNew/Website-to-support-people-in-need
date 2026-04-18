@@ -120,7 +120,7 @@ export default function Sidebar() {
         <button className="sidebar-toggle" onClick={toggleSidebar} aria-label="Toggle sidebar">
           <Menu size={20} />
         </button>
-        {sidebarExpanded && <span className="sidebar-brand-text">ReliefConnect</span>}
+        {sidebarExpanded && <span className="sidebar-brand-text">{t('sidebar.brandName')}</span>}
       </div>
 
       {/* ═══ Top: Main navigation ═══ */}

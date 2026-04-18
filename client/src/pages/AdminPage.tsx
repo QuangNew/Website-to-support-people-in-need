@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { Fragment, useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Users, Shield, FileText, Flag, ScrollText, Megaphone, BarChart3,
@@ -10,14 +10,14 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
-import { adminApi } from '../services/api';
+import { adminApi, getImageUrl, mapApi, supplyApi } from '../services/api';
 import { VIETNAM_PROVINCES } from '../utils/vietnamProvinces';
-import { mapApi, supplyApi } from '../services/api';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuthStore } from '../stores/authStore';
 import { useBatchStore } from '../stores/batchStore';
 import type {
   AdminUser,
+  AdminUserDetail,
   AdminPost,
   SystemLog,
   Report,
@@ -26,6 +26,7 @@ import type {
   PagedResponse,
   DeletedPost,
   HiddenComment,
+  VerificationHistoryItem,
 } from '../types/admin';
 
 // ─── Debounce utility ───
@@ -62,6 +63,36 @@ function downloadBlob(blob: Blob, filename: string) {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+function VerificationImageGallery({
+  imageUrls,
+  emptyLabel,
+  altPrefix,
+}: {
+  imageUrls: string[];
+  emptyLabel: string;
+  altPrefix: string;
+}) {
+  if (imageUrls.length === 0) {
+    return <div className="admin-verification-empty-media">{emptyLabel}</div>;
+  }
+
+  return (
+    <div className="admin-verification-gallery">
+      {imageUrls.map((imageUrl, index) => (
+        <a
+          key={`${imageUrl}-${index}`}
+          href={getImageUrl(imageUrl)}
+          target="_blank"
+          rel="noreferrer"
+          className="admin-verification-gallery__item"
+        >
+          <img src={getImageUrl(imageUrl)} alt={`${altPrefix} ${index + 1}`} />
+        </a>
+      ))}
+    </div>
+  );
 }
 
 type Tab = 'stats' | 'verifications' | 'users' | 'posts' | 'reports' | 'logs' | 'restore' | 'announcements' | 'zones' | 'supply' | 'apikeys';
@@ -102,7 +133,7 @@ export default function AdminPage() {
       <aside className="admin-sidebar">
         <div className="admin-sidebar__header">
           <Heart size={24} className="text-primary" />
-          <span className="admin-sidebar__brand">ReliefConnect</span>
+          <span className="admin-sidebar__brand">{t('sidebar.brandName')}</span>
         </div>
 
         <nav className="admin-sidebar__nav">
@@ -275,10 +306,11 @@ function StatsPanel() {
 
 function VerificationsPanel() {
   const { t } = useLanguage();
-  const { ops, enqueue } = useBatchStore();
   const [serverItems, setServerItems] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [processingUserId, setProcessingUserId] = useState<string | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -288,53 +320,56 @@ function VerificationsPanel() {
       .finally(() => setLoading(false));
   }, [t]);
 
-  const silentRefresh = useCallback(() => {
-    adminApi.getVerifications()
-      .then((res) => { setServerItems(res.data); setLastUpdated(new Date()); })
-      .catch(() => {});
-  }, []);
-
   useEffect(() => { load(); }, [load]);
-  useEffect(() => {
-    window.addEventListener('batch-flush-done', silentRefresh);
-    return () => window.removeEventListener('batch-flush-done', silentRefresh);
-  }, [silentRefresh]);
-  useAutoRefresh(silentRefresh, 60_000);
+  useAutoRefresh(load, 60_000);
 
-  const queuedUserIds = new Set(
-    ops
-      .filter((o) => o.type === 'approveRole' || o.type === 'rejectVerification')
-      .map((o) => o.userId!)
-  );
-  const visibleItems = serverItems.filter((u) => !queuedUserIds.has(u.id));
-
-  const handleApprove = (user: AdminUser) => {
-    const role = user.requestedRole || 'PersonInNeed';
-    enqueue({
-      type: 'approveRole',
-      userId: user.id,
-      role,
-      rollbackLabel: `Approve ${user.fullName} → ${role}`,
+  const toggleExpand = (userId: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(userId)) next.delete(userId);
+      else next.add(userId);
+      return next;
     });
-    toast(`⏳ Queued: approve ${user.fullName}`, { duration: 2000 });
   };
 
-  const handleReject = (user: AdminUser) => {
-    enqueue({
-      type: 'rejectVerification',
-      userId: user.id,
-      rollbackLabel: `Reject ${user.fullName}`,
-    });
-    toast(`⏳ Queued: reject ${user.fullName}`, { duration: 2000 });
+  const handleApprove = async (user: AdminUser) => {
+    const role = user.requestedRole || 'PersonInNeed';
+    setProcessingUserId(user.id);
+    try {
+      await adminApi.approveRole(user.id, { role });
+      toast.success(t('admin.approved'));
+      await load();
+      window.dispatchEvent(new CustomEvent('admin-users-refresh'));
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error(msg || t('common.error'));
+    } finally {
+      setProcessingUserId(null);
+    }
+  };
+
+  const handleReject = async (user: AdminUser) => {
+    setProcessingUserId(user.id);
+    try {
+      await adminApi.rejectVerification(user.id);
+      toast.success(t('admin.rejected'));
+      await load();
+      window.dispatchEvent(new CustomEvent('admin-users-refresh'));
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error(msg || t('common.error'));
+    } finally {
+      setProcessingUserId(null);
+    }
   };
 
   if (loading) return <div className="admin-loading"><span className="spinner" /></div>;
 
-  if (visibleItems.length === 0) {
+  if (serverItems.length === 0) {
     return (
       <div className="admin-empty animate-fade-in-up">
         <ShieldCheck size={48} strokeWidth={1.5} />
-        <p>{ops.length > 0 ? t('admin.queuedAll') : t('admin.noPending')}</p>
+        <p>{t('admin.noPending')}</p>
         {lastUpdated && (
           <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: 'var(--sp-1)' }}>
             {t('admin.lastUpdated')} {lastUpdated.toLocaleTimeString()}
@@ -348,7 +383,7 @@ function VerificationsPanel() {
     <div className="animate-fade-in-up">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--sp-3)' }}>
         <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text-primary)' }}>
-          {visibleItems.length} {t('admin.pendingRequests')}
+          {serverItems.length} {t('admin.pendingRequests')}
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
           {lastUpdated && (
@@ -365,6 +400,7 @@ function VerificationsPanel() {
         <table className="admin-table">
           <thead>
             <tr>
+              <th style={{ width: 40 }}></th>
               <th>{t('admin.user')}</th>
               <th>Email</th>
               <th>{t('admin.requestedRole')}</th>
@@ -373,36 +409,92 @@ function VerificationsPanel() {
             </tr>
           </thead>
           <tbody>
-            {visibleItems.map((v) => (
-              <tr key={v.id}>
-                <td>
-                  <div className="admin-user-cell">
-                    <div className="admin-avatar" style={{ background: 'var(--bg-subtle)' }}>
-                      {v.avatarUrl
-                        ? <img src={v.avatarUrl} alt="" />
-                        : <span>{v.fullName.charAt(0)}</span>}
-                    </div>
-                    <div>
-                      <div className="admin-user-name">{v.fullName}</div>
-                      <div className="admin-user-sub">@{v.userName}</div>
-                    </div>
-                  </div>
-                </td>
-                <td>{v.email}</td>
-                <td><span className="admin-badge admin-badge--info">{v.requestedRole}</span></td>
-                <td className="admin-td-reason">{v.verificationReason || '-'}</td>
-                <td>
-                  <div className="admin-action-btns">
-                    <button className="btn btn-sm btn-primary" onClick={() => handleApprove(v)}>
-                      <CheckCircle2 size={14} /> {t('admin.approve')}
-                    </button>
-                    <button className="btn btn-sm btn-danger" onClick={() => handleReject(v)}>
-                      <XCircle size={14} /> {t('admin.reject')}
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
+            {serverItems.map((v) => {
+              const isExpanded = expandedIds.has(v.id);
+              const isProcessing = processingUserId === v.id;
+
+              return (
+                <Fragment key={v.id}>
+                  <tr>
+                    <td>
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        style={{ padding: '2px 4px' }}
+                        onClick={() => toggleExpand(v.id)}
+                        title={isExpanded ? t('admin.collapseDetails') : t('admin.expandDetails')}
+                      >
+                        {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                      </button>
+                    </td>
+                    <td>
+                      <div className="admin-user-cell">
+                        <div className="admin-avatar" style={{ background: 'var(--bg-subtle)' }}>
+                          {v.avatarUrl
+                            ? <img src={v.avatarUrl} alt="" />
+                            : <span>{v.fullName.charAt(0)}</span>}
+                        </div>
+                        <div>
+                          <div className="admin-user-name">{v.fullName}</div>
+                          <div className="admin-user-sub">@{v.userName}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td>{v.email}</td>
+                    <td><span className="admin-badge admin-badge--info">{v.requestedRole}</span></td>
+                    <td className="admin-td-reason">{v.verificationReason || '-'}</td>
+                    <td>
+                      <div className="admin-action-btns">
+                        <button className="btn btn-sm btn-primary" onClick={() => handleApprove(v)} disabled={isProcessing}>
+                          <CheckCircle2 size={14} /> {t('admin.approve')}
+                        </button>
+                        <button className="btn btn-sm btn-danger" onClick={() => handleReject(v)} disabled={isProcessing}>
+                          <XCircle size={14} /> {t('admin.reject')}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                  {isExpanded && (
+                    <tr className="admin-expand-row">
+                      <td></td>
+                      <td colSpan={5}>
+                        <div className="admin-verification-detail">
+                          <div className="admin-verification-detail__grid">
+                            <div className="admin-verification-card">
+                              <span className="admin-verification-card__label">{t('admin.requestedRole')}</span>
+                              <strong>{v.requestedRole || '-'}</strong>
+                            </div>
+                            <div className="admin-verification-card">
+                              <span className="admin-verification-card__label">{t('admin.phoneNumber')}</span>
+                              <strong>{v.phoneNumber || '-'}</strong>
+                            </div>
+                            <div className="admin-verification-card admin-verification-card--wide">
+                              <span className="admin-verification-card__label">{t('admin.addressLabel')}</span>
+                              <strong>{v.address || '-'}</strong>
+                            </div>
+                            <div className="admin-verification-card admin-verification-card--wide">
+                              <span className="admin-verification-card__label">{t('admin.reason')}</span>
+                              <p>{v.verificationReason || '-'}</p>
+                            </div>
+                          </div>
+
+                          <div className="admin-verification-media-block">
+                            <div className="admin-verification-media-block__header">
+                              <span>{t('admin.verificationImages')}</span>
+                              <span>{v.verificationImageUrls.length}</span>
+                            </div>
+                            <VerificationImageGallery
+                              imageUrls={v.verificationImageUrls}
+                              emptyLabel={t('admin.noVerificationImages')}
+                              altPrefix={v.fullName}
+                            />
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -423,6 +515,9 @@ function UsersPanel() {
   const [roleFilter, setRoleFilter] = useState('');
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null);
+  const [detailUser, setDetailUser] = useState<AdminUserDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
 
   const debouncedSetSearch = useCallback(
     debounce((value: string) => {
@@ -445,6 +540,31 @@ function UsersPanel() {
   }, [debouncedSearch, roleFilter, page, t]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const refresh = () => load();
+    window.addEventListener('admin-users-refresh', refresh);
+    return () => window.removeEventListener('admin-users-refresh', refresh);
+  }, [load]);
+
+  const openUserDetail = async (user: AdminUser) => {
+    setSelectedUser(user);
+    setDetailUser(null);
+    setDetailLoading(true);
+    try {
+      const res = await adminApi.getUserDetail(user.id);
+      setDetailUser(res.data);
+    } catch {
+      toast.error(t('common.error'));
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  const closeUserDetail = () => {
+    setSelectedUser(null);
+    setDetailUser(null);
+    setDetailLoading(false);
+  };
 
   const handleSuspend = async (userId: string, fullName: string) => {
     const reason = prompt(`Suspend reason for ${fullName}:`);
@@ -547,20 +667,22 @@ function UsersPanel() {
                 {users.map((u) => (
                   <tr key={u.id} style={u.isSuspended ? { opacity: 0.7 } : undefined}>
                     <td>
-                      <div className="admin-user-cell">
-                        <div className="admin-avatar" style={{ background: 'var(--bg-subtle)' }}>
-                          {u.avatarUrl
-                            ? <img src={u.avatarUrl} alt="" />
-                            : <span>{u.fullName.charAt(0)}</span>}
+                      <button className="admin-user-trigger" onClick={() => openUserDetail(u)}>
+                        <div className="admin-user-cell">
+                          <div className="admin-avatar" style={{ background: 'var(--bg-subtle)' }}>
+                            {u.avatarUrl
+                              ? <img src={u.avatarUrl} alt="" />
+                              : <span>{u.fullName.charAt(0)}</span>}
+                          </div>
+                          <div>
+                            <div className="admin-user-name">{u.fullName}</div>
+                            <div className="admin-user-sub">@{u.userName}</div>
+                            {u.isSuspended && (
+                              <span className="admin-badge admin-badge--danger" style={{ fontSize: '10px' }}>Suspended</span>
+                            )}
+                          </div>
                         </div>
-                        <div>
-                          <div className="admin-user-name">{u.fullName}</div>
-                          <div className="admin-user-sub">@{u.userName}</div>
-                          {u.isSuspended && (
-                            <span className="admin-badge admin-badge--danger" style={{ fontSize: '10px' }}>Suspended</span>
-                          )}
-                        </div>
-                      </div>
+                      </button>
                     </td>
                     <td>{u.email}</td>
                     <td>
@@ -583,7 +705,14 @@ function UsersPanel() {
                     </td>
                     <td className="admin-td-date">{new Date(u.createdAt).toLocaleDateString()}</td>
                     <td>
-                      <div className="admin-action-btns" style={{ flexWrap: 'wrap' }}>
+                      <div className="admin-action-btns admin-action-btns--compact">
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          title={t('admin.viewUserDetails')}
+                          onClick={() => openUserDetail(u)}
+                        >
+                          <Eye size={14} />
+                        </button>
                         {u.isSuspended ? (
                           <button
                             className="btn btn-ghost btn-sm"
@@ -632,6 +761,125 @@ function UsersPanel() {
               <span className="admin-page-info">{page} / {totalPages}</span>
               <button className="btn btn-ghost btn-sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>Next →</button>
             </div>
+          )}
+
+          {selectedUser && createPortal(
+            <div className="admin-modal-backdrop" onClick={closeUserDetail}>
+              <div className="admin-user-modal glass-card animate-fade-in" onClick={(e) => e.stopPropagation()}>
+                <div className="admin-user-modal__header">
+                  <div>
+                    <h4>{detailUser?.fullName || selectedUser.fullName}</h4>
+                    <p>@{detailUser?.userName || selectedUser.userName}</p>
+                  </div>
+                  <button className="btn btn-ghost btn-sm" onClick={closeUserDetail}>
+                    <X size={16} />
+                  </button>
+                </div>
+
+                {detailLoading && (
+                  <div className="admin-loading"><span className="spinner" /></div>
+                )}
+
+                {!detailLoading && detailUser && (
+                  <div className="admin-user-modal__body">
+                    <div className="admin-user-summary-grid">
+                      <div className="admin-verification-card">
+                        <span className="admin-verification-card__label">{t('profile.role')}</span>
+                        <strong>{detailUser.role}</strong>
+                      </div>
+                      <div className="admin-verification-card">
+                        <span className="admin-verification-card__label">{t('profile.status')}</span>
+                        <strong>
+                          <span className={`admin-badge admin-badge--${detailUser.verificationStatus.toLowerCase()}`}>
+                            {detailUser.verificationStatus}
+                          </span>
+                        </strong>
+                      </div>
+                      <div className="admin-verification-card">
+                        <span className="admin-verification-card__label">{t('admin.phoneNumber')}</span>
+                        <strong>{detailUser.phoneNumber || '-'}</strong>
+                      </div>
+                      <div className="admin-verification-card admin-verification-card--wide">
+                        <span className="admin-verification-card__label">{t('admin.addressLabel')}</span>
+                        <strong>{detailUser.address || '-'}</strong>
+                      </div>
+                    </div>
+
+                    <div className="admin-user-stats-row">
+                      <div className="admin-user-stat-pill">
+                        <span>{t('admin.posts')}</span>
+                        <strong>{detailUser.postCount}</strong>
+                      </div>
+                      <div className="admin-user-stat-pill">
+                        <span>{t('admin.commentsCount')}</span>
+                        <strong>{detailUser.commentCount}</strong>
+                      </div>
+                      <div className="admin-user-stat-pill">
+                        <span>{t('admin.pingsCount')}</span>
+                        <strong>{detailUser.pingCount}</strong>
+                      </div>
+                    </div>
+
+                    <div className="admin-user-history">
+                      <div className="admin-user-history__header">
+                        <div>
+                          <h5>{t('admin.verificationHistory')}</h5>
+                          <p>{detailUser.verificationHistory.length} {t('admin.historyEntries')}</p>
+                        </div>
+                      </div>
+
+                      {detailUser.verificationHistory.length === 0 ? (
+                        <div className="admin-empty admin-empty--inline">{t('admin.noVerificationHistory')}</div>
+                      ) : (
+                        <div className="admin-history-list">
+                          {detailUser.verificationHistory.map((entry: VerificationHistoryItem) => (
+                            <div key={entry.id} className="admin-history-item">
+                              <div className="admin-history-item__head">
+                                <div>
+                                  <span className={`admin-badge admin-badge--${entry.status.toLowerCase()}`}>{entry.status}</span>
+                                  <strong>{entry.requestedRole}</strong>
+                                </div>
+                                <span>{new Date(entry.submittedAt).toLocaleString()}</span>
+                              </div>
+
+                              <div className="admin-history-item__meta">
+                                <span>{t('admin.submittedAt')}: {new Date(entry.submittedAt).toLocaleString()}</span>
+                                <span>{t('admin.reviewedAt')}: {entry.reviewedAt ? new Date(entry.reviewedAt).toLocaleString() : '-'}</span>
+                                <span>{t('admin.reviewedBy')}: {entry.reviewedByAdminName || '-'}</span>
+                              </div>
+
+                              <div className="admin-history-item__body">
+                                <div className="admin-verification-detail__grid admin-verification-detail__grid--history">
+                                  <div className="admin-verification-card">
+                                    <span className="admin-verification-card__label">{t('admin.phoneNumber')}</span>
+                                    <strong>{entry.phoneNumber || '-'}</strong>
+                                  </div>
+                                  <div className="admin-verification-card admin-verification-card--wide">
+                                    <span className="admin-verification-card__label">{t('admin.addressLabel')}</span>
+                                    <strong>{entry.address || '-'}</strong>
+                                  </div>
+                                  <div className="admin-verification-card admin-verification-card--wide">
+                                    <span className="admin-verification-card__label">{t('admin.reason')}</span>
+                                    <p>{entry.verificationReason || '-'}</p>
+                                  </div>
+                                </div>
+
+                                <VerificationImageGallery
+                                  imageUrls={entry.verificationImageUrls}
+                                  emptyLabel={t('admin.noVerificationImages')}
+                                  altPrefix={detailUser.fullName}
+                                />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>,
+            document.body
           )}
         </>
       )}

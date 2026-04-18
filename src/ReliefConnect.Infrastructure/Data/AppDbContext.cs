@@ -30,6 +30,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
     public DbSet<BlacklistedToken> BlacklistedTokens => Set<BlacklistedToken>();
     public DbSet<ContentViolation> ContentViolations => Set<ContentViolation>();
+    public DbSet<VerificationHistory> VerificationHistories => Set<VerificationHistory>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -47,6 +48,27 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             entity.HasIndex(u => u.VerificationStatus);
             entity.HasIndex(u => u.GoogleId);
             entity.HasIndex(u => u.Role);
+        });
+
+        // ═══════ VERIFICATION HISTORY ═══════
+        builder.Entity<VerificationHistory>(entity =>
+        {
+            entity.HasKey(v => v.Id);
+            entity.Property(v => v.RequestedRole).HasMaxLength(50).IsRequired();
+            entity.Property(v => v.VerificationReason).HasMaxLength(1000);
+            entity.Property(v => v.VerificationImageUrls).HasMaxLength(3000);
+            entity.Property(v => v.PhoneNumber).HasMaxLength(32);
+            entity.Property(v => v.Address).HasMaxLength(500);
+            entity.Property(v => v.ReviewedByAdminName).HasMaxLength(100);
+            entity.Property(v => v.Status).HasConversion<int>();
+
+            entity.HasIndex(v => new { v.UserId, v.SubmittedAt }).IsDescending();
+            entity.HasIndex(v => new { v.UserId, v.Status });
+
+            entity.HasOne(v => v.User)
+                  .WithMany(u => u.VerificationHistories)
+                  .HasForeignKey(v => v.UserId)
+                  .OnDelete(DeleteBehavior.Cascade);
         });
 
         // ═══════ PING (Map Item) ═══════

@@ -11,16 +11,33 @@ export interface AdminUser {
   verificationReason?: string;
   emailVerified: boolean;
   avatarUrl?: string;
+  phoneNumber?: string;
+  address?: string;
+  verificationImageUrls: string[];
   createdAt: string;
   isSuspended: boolean;
   suspendedUntil?: string;
   banReason?: string;
 }
 
+export interface VerificationHistoryItem {
+  id: number;
+  requestedRole: string;
+  verificationReason?: string;
+  verificationImageUrls: string[];
+  phoneNumber?: string;
+  address?: string;
+  status: string;
+  submittedAt: string;
+  reviewedAt?: string;
+  reviewedByAdminName?: string;
+}
+
 export interface AdminUserDetail extends AdminUser {
   postCount: number;
   commentCount: number;
   pingCount: number;
+  verificationHistory: VerificationHistoryItem[];
 }
 
 export interface AdminPost {

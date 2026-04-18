@@ -12,6 +12,7 @@ using ReliefConnect.Core.DTOs;
 using ReliefConnect.Core.Entities;
 using ReliefConnect.Core.Enums;
 using ReliefConnect.Core.Interfaces;
+using ReliefConnect.Infrastructure.Data;
 
 namespace ReliefConnect.API.Controllers;
 
@@ -25,6 +26,7 @@ public class AuthController : ControllerBase
     private readonly ILogger<AuthController> _logger;
     private readonly IEmailService _emailService;
     private readonly ITokenBlacklistService _tokenBlacklist;
+    private readonly AppDbContext _db;
 
     public AuthController(
         UserManager<ApplicationUser> userManager,
@@ -32,7 +34,8 @@ public class AuthController : ControllerBase
         IConfiguration config,
         ILogger<AuthController> logger,
         IEmailService emailService,
-        ITokenBlacklistService tokenBlacklist)
+        ITokenBlacklistService tokenBlacklist,
+        AppDbContext db)
     {
         _userManager = userManager;
         _signInManager = signInManager;
@@ -40,6 +43,7 @@ public class AuthController : ControllerBase
         _logger = logger;
         _emailService = emailService;
         _tokenBlacklist = tokenBlacklist;
+        _db = db;
     }
 
     // ═══════════════════════════════════════════
@@ -541,6 +545,19 @@ public class AuthController : ControllerBase
             : null;
         user.RequestedRoleExpiry = DateTime.UtcNow.AddYears(1).AddMonths(6);
         await _userManager.UpdateAsync(user);
+
+        _db.VerificationHistories.Add(new VerificationHistory
+        {
+            UserId = user.Id,
+            RequestedRole = dto.RequestedRole,
+            VerificationReason = dto.Reason,
+            VerificationImageUrls = user.VerificationImageUrls,
+            PhoneNumber = dto.PhoneNumber,
+            Address = dto.Address,
+            Status = VerificationStatus.Pending,
+            SubmittedAt = DateTime.UtcNow,
+        });
+        await _db.SaveChangesAsync();
 
         _logger.LogInformation("Verification requested: {Username} → {Role}", user.UserName, dto.RequestedRole);
 

@@ -319,10 +319,25 @@ public class AdminUserDto
     public string? AvatarUrl { get; set; }
     public string? PhoneNumber { get; set; }
     public string? Address { get; set; }
+    public List<string> VerificationImageUrls { get; set; } = [];
     public DateTime CreatedAt { get; set; }
     public bool IsSuspended { get; set; }
     public DateTime? SuspendedUntil { get; set; }
     public string? BanReason { get; set; }
+}
+
+public class VerificationHistoryDto
+{
+    public int Id { get; set; }
+    public string RequestedRole { get; set; } = string.Empty;
+    public string? VerificationReason { get; set; }
+    public List<string> VerificationImageUrls { get; set; } = [];
+    public string? PhoneNumber { get; set; }
+    public string? Address { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public DateTime SubmittedAt { get; set; }
+    public DateTime? ReviewedAt { get; set; }
+    public string? ReviewedByAdminName { get; set; }
 }
 
 /// <summary>
@@ -467,6 +482,7 @@ public class AdminUserDetailDto : AdminUserDto
     public int PostCount { get; set; }
     public int CommentCount { get; set; }
     public int PingCount { get; set; }
+    public List<VerificationHistoryDto> VerificationHistory { get; set; } = [];
 }
 
 public class CompleteTaskDto

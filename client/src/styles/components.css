@@ -69,12 +69,26 @@
   position: relative;
   overflow: hidden;
   letter-spacing: var(--tracking-wide);
+  will-change: transform;
 }
 
 .btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
   pointer-events: none;
+}
+
+.btn svg {
+  transition: transform 0.22s ease, filter 0.22s ease;
+}
+
+.btn:hover:not(:disabled) svg {
+  transform: translateY(-1px) scale(1.06);
+  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.12));
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(1px) scale(0.985);
 }
 
 .btn-primary {
@@ -89,7 +103,7 @@
 }
 
 .btn-primary:active:not(:disabled) {
-  transform: translateY(0);
+  transform: translateY(1px) scale(0.985);
 }
 
 .btn-accent {
@@ -138,6 +152,19 @@
 .btn-danger:hover:not(:disabled) {
   transform: translateY(-1px);
   box-shadow: var(--shadow-md), 0 0 36px rgba(239, 48, 48, 0.4);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn,
+  .btn svg {
+    transition: none;
+  }
+
+  .btn:hover:not(:disabled) svg,
+  .btn:active:not(:disabled) {
+    transform: none;
+    filter: none;
+  }
 }
 
 .btn-sos {

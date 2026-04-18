@@ -45,6 +45,62 @@ public class AdminController : ControllerBase
 
     private sealed class CountRow { public string Type { get; set; } = ""; public int Count { get; set; } }
 
+    private static List<string> SplitCsv(string? csv)
+    {
+        return string.IsNullOrWhiteSpace(csv)
+            ? []
+            : csv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+    }
+
+    private static AdminUserDto MapAdminUserDto(ApplicationUser user)
+    {
+        return new AdminUserDto
+        {
+            Id = user.Id,
+            UserName = user.UserName!,
+            Email = user.Email!,
+            FullName = user.FullName,
+            Role = user.Role.ToString(),
+            VerificationStatus = user.VerificationStatus.ToString(),
+            RequestedRole = user.RequestedRole,
+            VerificationReason = user.VerificationReason,
+            EmailVerified = user.EmailConfirmed,
+            AvatarUrl = user.AvatarUrl,
+            PhoneNumber = user.PhoneNumber,
+            Address = user.Address,
+            VerificationImageUrls = SplitCsv(user.VerificationImageUrls),
+            CreatedAt = user.CreatedAt,
+            IsSuspended = user.IsSuspended,
+            SuspendedUntil = user.SuspendedUntil,
+            BanReason = user.BanReason,
+        };
+    }
+
+    private static VerificationHistoryDto MapVerificationHistoryDto(VerificationHistory history)
+    {
+        return new VerificationHistoryDto
+        {
+            Id = history.Id,
+            RequestedRole = history.RequestedRole,
+            VerificationReason = history.VerificationReason,
+            VerificationImageUrls = SplitCsv(history.VerificationImageUrls),
+            PhoneNumber = history.PhoneNumber,
+            Address = history.Address,
+            Status = history.Status.ToString(),
+            SubmittedAt = history.SubmittedAt,
+            ReviewedAt = history.ReviewedAt,
+            ReviewedByAdminName = history.ReviewedByAdminName,
+        };
+    }
+
+    private async Task<VerificationHistory?> GetLatestPendingVerificationHistory(string userId)
+    {
+        return await _db.VerificationHistories
+            .Where(v => v.UserId == userId && v.Status == VerificationStatus.Pending)
+            .OrderByDescending(v => v.SubmittedAt)
+            .FirstOrDefaultAsync();
+    }
+
     // ═══════════════════════════════════════════
     //  USERS — List, search, filter
     // ═══════════════════════════════════════════
@@ -91,30 +147,11 @@ public class AdminController : ControllerBase
             .OrderByDescending(u => u.CreatedAt)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(u => new AdminUserDto
-            {
-                Id = u.Id,
-                UserName = u.UserName!,
-                Email = u.Email!,
-                FullName = u.FullName,
-                Role = u.Role.ToString(),
-                VerificationStatus = u.VerificationStatus.ToString(),
-                RequestedRole = u.RequestedRole,
-                VerificationReason = u.VerificationReason,
-                EmailVerified = u.EmailConfirmed,
-                AvatarUrl = u.AvatarUrl,
-                PhoneNumber = u.PhoneNumber,
-                Address = u.Address,
-                CreatedAt = u.CreatedAt,
-                IsSuspended = u.IsSuspended,
-                SuspendedUntil = u.SuspendedUntil,
-                BanReason = u.BanReason
-            })
             .ToListAsync();
 
         return Ok(new
         {
-            items = users,
+            items = users.Select(MapAdminUserDto),
             total,
             page,
             pageSize,
@@ -153,27 +190,36 @@ public class AdminController : ControllerBase
         var commentCount = countRows.FirstOrDefault(r => r.Type == "comment")?.Count ?? 0;
         var pingCount    = countRows.FirstOrDefault(r => r.Type == "ping")?.Count ?? 0;
 
+        var history = await _db.VerificationHistories
+            .AsNoTracking()
+            .Where(v => v.UserId == userId)
+            .OrderByDescending(v => v.SubmittedAt)
+            .ToListAsync();
+
+        var baseDto = MapAdminUserDto(user);
         var dto = new AdminUserDetailDto
         {
-            Id                 = user.Id,
-            UserName           = user.UserName!,
-            Email              = user.Email!,
-            FullName           = user.FullName,
-            Role               = user.Role.ToString(),
-            VerificationStatus = user.VerificationStatus.ToString(),
-            RequestedRole      = user.RequestedRole,
-            VerificationReason = user.VerificationReason,
-            EmailVerified      = user.EmailConfirmed,
-            AvatarUrl          = user.AvatarUrl,
-            PhoneNumber        = user.PhoneNumber,
-            Address            = user.Address,
-            CreatedAt          = user.CreatedAt,
-            IsSuspended        = user.IsSuspended,
-            SuspendedUntil     = user.SuspendedUntil,
-            BanReason          = user.BanReason,
-            PostCount          = postCount,
-            CommentCount       = commentCount,
-            PingCount          = pingCount
+            Id = baseDto.Id,
+            UserName = baseDto.UserName,
+            Email = baseDto.Email,
+            FullName = baseDto.FullName,
+            Role = baseDto.Role,
+            VerificationStatus = baseDto.VerificationStatus,
+            RequestedRole = baseDto.RequestedRole,
+            VerificationReason = baseDto.VerificationReason,
+            EmailVerified = baseDto.EmailVerified,
+            AvatarUrl = baseDto.AvatarUrl,
+            PhoneNumber = baseDto.PhoneNumber,
+            Address = baseDto.Address,
+            VerificationImageUrls = baseDto.VerificationImageUrls,
+            CreatedAt = baseDto.CreatedAt,
+            IsSuspended = baseDto.IsSuspended,
+            SuspendedUntil = baseDto.SuspendedUntil,
+            BanReason = baseDto.BanReason,
+            PostCount = postCount,
+            CommentCount = commentCount,
+            PingCount = pingCount,
+            VerificationHistory = history.Select(MapVerificationHistoryDto).ToList(),
         };
 
         return Ok(dto);
@@ -200,7 +246,22 @@ public class AdminController : ControllerBase
         user.VerificationStatus = VerificationStatus.Approved;
         user.RequestedRole = null;
         user.VerificationReason = null;
+        user.VerificationImageUrls = null;
+
+        var pendingHistory = await GetLatestPendingVerificationHistory(userId);
+        if (pendingHistory != null)
+        {
+            pendingHistory.Status = VerificationStatus.Approved;
+            pendingHistory.ReviewedAt = DateTime.UtcNow;
+            pendingHistory.ReviewedByAdminId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            pendingHistory.ReviewedByAdminName = User.FindFirstValue(ClaimTypes.Name);
+        }
+
         await _userManager.UpdateAsync(user);
+        if (pendingHistory != null)
+        {
+            await _db.SaveChangesAsync();
+        }
 
         // Invalidate caches immediately
         _cache.Remove("admin:stats");
@@ -230,29 +291,12 @@ public class AdminController : ControllerBase
             .AsNoTracking()
             .Where(u => u.VerificationStatus == VerificationStatus.Pending)
             .OrderBy(u => u.CreatedAt)
-            .Select(u => new AdminUserDto
-            {
-                Id = u.Id,
-                UserName = u.UserName!,
-                Email = u.Email!,
-                FullName = u.FullName,
-                Role = u.Role.ToString(),
-                VerificationStatus = u.VerificationStatus.ToString(),
-                RequestedRole = u.RequestedRole,
-                VerificationReason = u.VerificationReason,
-                EmailVerified = u.EmailConfirmed,
-                AvatarUrl = u.AvatarUrl,
-                PhoneNumber = u.PhoneNumber,
-                Address = u.Address,
-                CreatedAt = u.CreatedAt,
-                IsSuspended = u.IsSuspended,
-                SuspendedUntil = u.SuspendedUntil,
-                BanReason = u.BanReason
-            })
             .ToListAsync();
 
-        cache.Set(cacheKey, pending, TimeSpan.FromSeconds(20));
-        return Ok(pending);
+        var pendingDtos = pending.Select(MapAdminUserDto).ToList();
+
+        cache.Set(cacheKey, pendingDtos, TimeSpan.FromSeconds(20));
+        return Ok(pendingDtos);
     }
 
     /// <summary>
@@ -268,7 +312,21 @@ public class AdminController : ControllerBase
             return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Người dùng không có yêu cầu đang chờ duyệt." });
 
         user.VerificationStatus = VerificationStatus.Rejected;
+
+        var pendingHistory = await GetLatestPendingVerificationHistory(userId);
+        if (pendingHistory != null)
+        {
+            pendingHistory.Status = VerificationStatus.Rejected;
+            pendingHistory.ReviewedAt = DateTime.UtcNow;
+            pendingHistory.ReviewedByAdminId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            pendingHistory.ReviewedByAdminName = User.FindFirstValue(ClaimTypes.Name);
+        }
+
         await _userManager.UpdateAsync(user);
+        if (pendingHistory != null)
+        {
+            await _db.SaveChangesAsync();
+        }
 
         _cache.Remove("admin:verifications");
         await this.LogAdminAction(_db, "VerificationRejected", $"Rejected verification for {user.UserName}");
@@ -380,6 +438,7 @@ public class AdminController : ControllerBase
         user.VerificationStatus = VerificationStatus.None;
         user.RequestedRole = null;
         user.VerificationReason = null;
+        user.VerificationImageUrls = null;
         await _userManager.UpdateAsync(user);
 
         _cache.Remove("admin:verifications");
@@ -463,7 +522,19 @@ public class AdminController : ControllerBase
                 user.VerificationStatus = VerificationStatus.Approved;
                 user.RequestedRole = null;
                 user.VerificationReason = null;
+                user.VerificationImageUrls = null;
                 await _userManager.UpdateAsync(user);
+
+                var pendingHistory = await GetLatestPendingVerificationHistory(op.UserId);
+                if (pendingHistory != null)
+                {
+                    pendingHistory.Status = VerificationStatus.Approved;
+                    pendingHistory.ReviewedAt = DateTime.UtcNow;
+                    pendingHistory.ReviewedByAdminId = adminId;
+                    pendingHistory.ReviewedByAdminName = adminName;
+                    await _db.SaveChangesAsync();
+                }
+
                 results.Add(new BatchResultItem { OpType = "approveRole", Key = op.UserId, Success = true });
                 CollectChildLog(childLogs, "approveRole", op.UserId, true, $"{user.UserName}: {oldRole}→{newRole}", batchId, parentLogId, adminId, adminName);
                 _logger.LogInformation("[Batch] ApproveRole: {Username} {Old}→{New}", user.UserName, oldRole, newRole);
@@ -489,6 +560,17 @@ public class AdminController : ControllerBase
                 }
                 user.VerificationStatus = VerificationStatus.Rejected;
                 await _userManager.UpdateAsync(user);
+
+                var pendingHistory = await GetLatestPendingVerificationHistory(userId);
+                if (pendingHistory != null)
+                {
+                    pendingHistory.Status = VerificationStatus.Rejected;
+                    pendingHistory.ReviewedAt = DateTime.UtcNow;
+                    pendingHistory.ReviewedByAdminId = adminId;
+                    pendingHistory.ReviewedByAdminName = adminName;
+                    await _db.SaveChangesAsync();
+                }
+
                 results.Add(new BatchResultItem { OpType = "rejectVerification", Key = userId, Success = true });
                 CollectChildLog(childLogs, "rejectVerification", userId, true, $"Rejected: {user.UserName}", batchId, parentLogId, adminId, adminName);
                 _logger.LogInformation("[Batch] RejectVerification: {Username}", user.UserName);
