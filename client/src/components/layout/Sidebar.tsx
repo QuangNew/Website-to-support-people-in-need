@@ -2,6 +2,7 @@ import {
   ClipboardList,
   Users,
   MessageCircle,
+  Mail,
   User,
   Shield,
   UserCheck,
@@ -20,6 +21,7 @@ import {
 } from 'lucide-react';
 import { useMapStore, type PanelType } from '../../stores/mapStore';
 import { useAuthStore } from '../../stores/authStore';
+import { useMessageStore } from '../../stores/messageStore';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 
@@ -34,11 +36,12 @@ interface NavItem {
 export default function Sidebar() {
   const { activePanel, setActivePanel, sidebarExpanded, setSidebarExpanded, setAuthModal } = useMapStore();
   const { isAuthenticated, user, logout } = useAuthStore();
+  const { totalUnread } = useMessageStore();
   const { toggleTheme, isDark } = useTheme();
   const { t, locale, toggleLocale } = useLanguage();
 
   const handleNav = (panel: PanelType) => {
-    if ((panel === 'profile' || panel === 'verify' || panel === 'my-sos' || panel === 'volunteer' || panel === 'sponsor') && !isAuthenticated) {
+    if ((panel === 'profile' || panel === 'verify' || panel === 'my-sos' || panel === 'volunteer' || panel === 'sponsor' || panel === 'messages') && !isAuthenticated) {
       setAuthModal('login');
       return;
     }
@@ -51,6 +54,7 @@ export default function Sidebar() {
   const topItems: NavItem[] = [
     { id: 'list', icon: ClipboardList, labelKey: 'sidebar.list' },
     { id: 'social', icon: Users, labelKey: 'sidebar.social' },
+    { id: 'messages', icon: Mail, labelKey: 'sidebar.messages' },
     { id: 'chat', icon: MessageCircle, labelKey: 'sidebar.chat' },
     { id: 'profile', icon: User, labelKey: 'sidebar.profile' },
   ];
@@ -94,7 +98,7 @@ export default function Sidebar() {
     }
 
     // Panel items (list, social, chat, profile, verify, guide, admin)
-    if (['list', 'social', 'chat', 'profile', 'verify', 'guide', 'admin', 'my-sos', 'volunteer', 'sponsor'].includes(item.id as string)) {
+    if (['list', 'social', 'chat', 'profile', 'verify', 'guide', 'admin', 'my-sos', 'volunteer', 'sponsor', 'messages'].includes(item.id as string)) {
       const panelId = item.id as PanelType;
       return (
         <button
@@ -102,10 +106,17 @@ export default function Sidebar() {
           className={`sidebar-nav-item ${isActive ? 'active' : ''}`}
           onClick={() => handleNav(panelId)}
           title={!sidebarExpanded ? t(item.labelKey) : undefined}
+          style={{ position: 'relative' }}
         >
           <item.icon size={iconSize} strokeWidth={isActive ? 2.5 : 2} />
           {sidebarExpanded && <span className="sidebar-nav-label">{t(item.labelKey)}</span>}
           {sidebarExpanded && isActive && <ChevronRight size={14} className="sidebar-nav-indicator" />}
+          {item.id === 'messages' && totalUnread > 0 && !sidebarExpanded && (
+            <span className="sidebar-msg-badge">{totalUnread > 99 ? '99+' : totalUnread}</span>
+          )}
+          {item.id === 'messages' && totalUnread > 0 && sidebarExpanded && (
+            <span className="messaging-unread-badge" style={{ marginLeft: 'auto' }}>{totalUnread > 99 ? '99+' : totalUnread}</span>
+          )}
         </button>
       );
     }

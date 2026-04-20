@@ -9,6 +9,9 @@ import {
   X,
   Camera,
   Loader2,
+  Phone,
+  Facebook,
+  Send,
 } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
 import { useLanguage } from '../../contexts/LanguageContext';
@@ -30,6 +33,9 @@ export default function ProfilePanel() {
   // Edit profile state
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState('');
+  const [editPhone, setEditPhone] = useState('');
+  const [editFacebook, setEditFacebook] = useState('');
+  const [editTelegram, setEditTelegram] = useState('');
   const [editLoading, setEditLoading] = useState(false);
   const [editError, setEditError] = useState('');
   const [avatarLoading, setAvatarLoading] = useState(false);
@@ -43,6 +49,9 @@ export default function ProfilePanel() {
   // ─── Edit Profile ───
   const startEdit = () => {
     setEditName(user.fullName);
+    setEditPhone(user.phoneNumber || '');
+    setEditFacebook(user.facebookUrl || '');
+    setEditTelegram(user.telegramUrl || '');
     setIsEditing(true);
     setEditError('');
   };
@@ -57,12 +66,18 @@ export default function ProfilePanel() {
     setEditLoading(true);
     setEditError('');
     try {
-      const res = await authApi.updateProfile({ fullName: editName.trim() });
+      const payload: Record<string, string> = { fullName: editName.trim() };
+      // Only send changed fields
+      if (editPhone !== (user.phoneNumber || '')) payload.phoneNumber = editPhone.trim();
+      if (editFacebook !== (user.facebookUrl || '')) payload.facebookUrl = editFacebook.trim();
+      if (editTelegram !== (user.telegramUrl || '')) payload.telegramUrl = editTelegram.trim();
+      const res = await authApi.updateProfile(payload);
       setUser(res.data);
       setIsEditing(false);
+      toast.success(t('profile.saved'));
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { message?: string } } };
-      setEditError(axiosErr?.response?.data?.message || (isVi ? 'Cập nhật thất bại' : 'Update failed'));
+      setEditError(axiosErr?.response?.data?.message || t('profile.saveFailed'));
     } finally {
       setEditLoading(false);
     }
@@ -171,6 +186,65 @@ export default function ProfilePanel() {
             <div>
               <span className="profile-info-label">{t('profile.email')}</span>
               <span className="profile-info-value">{user.email}</span>
+            </div>
+          </div>
+
+          <div className="profile-info-item">
+            <Phone size={16} />
+            <div>
+              <span className="profile-info-label">{t('profile.phoneNumber')}</span>
+              {isEditing ? (
+                <input
+                  className="input input-sm"
+                  value={editPhone}
+                  onChange={(e) => setEditPhone(e.target.value)}
+                  placeholder={t('profile.phonePlaceholder')}
+                />
+              ) : (
+                <span className="profile-info-value">{user.phoneNumber || '—'}</span>
+              )}
+            </div>
+          </div>
+
+          <div className="profile-info-item">
+            <Facebook size={16} />
+            <div>
+              <span className="profile-info-label">{t('profile.facebookUrl')}</span>
+              {isEditing ? (
+                <input
+                  className="input input-sm"
+                  value={editFacebook}
+                  onChange={(e) => setEditFacebook(e.target.value)}
+                  placeholder={t('profile.facebookPlaceholder')}
+                />
+              ) : (
+                user.facebookUrl ? (
+                  <a href={user.facebookUrl} target="_blank" rel="noopener noreferrer" className="profile-info-value profile-info-link">{user.facebookUrl}</a>
+                ) : (
+                  <span className="profile-info-value">—</span>
+                )
+              )}
+            </div>
+          </div>
+
+          <div className="profile-info-item">
+            <Send size={16} />
+            <div>
+              <span className="profile-info-label">{t('profile.telegramUrl')}</span>
+              {isEditing ? (
+                <input
+                  className="input input-sm"
+                  value={editTelegram}
+                  onChange={(e) => setEditTelegram(e.target.value)}
+                  placeholder={t('profile.telegramPlaceholder')}
+                />
+              ) : (
+                user.telegramUrl ? (
+                  <a href={user.telegramUrl.startsWith('http') ? user.telegramUrl : `https://t.me/${user.telegramUrl.replace('@', '')}`} target="_blank" rel="noopener noreferrer" className="profile-info-value profile-info-link">{user.telegramUrl}</a>
+                ) : (
+                  <span className="profile-info-value">—</span>
+                )
+              )}
             </div>
           </div>
 

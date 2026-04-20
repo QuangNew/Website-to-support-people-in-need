@@ -100,7 +100,7 @@ export const authApi = {
   getMe: () =>
     api.get('/auth/me'),
 
-  updateProfile: (data: { fullName?: string; avatarUrl?: string }) =>
+  updateProfile: (data: { fullName?: string; avatarUrl?: string; phoneNumber?: string; facebookUrl?: string; telegramUrl?: string }) =>
     api.put('/auth/profile', data),
 
   uploadAvatar: async (file: File): Promise<string | null> => {
@@ -464,6 +464,37 @@ export const sponsorApi = {
 export const announcementApi = {
   getActive: (limit?: number) =>
     api.get('/announcements/active', { params: { limit } }),
+};
+
+// ═══════════════════════════════════════════
+//  MESSAGE API
+// ═══════════════════════════════════════════
+export interface SendDirectMessagePayload {
+  content: string;
+  clientMessageId?: string;
+}
+
+export const messageApi = {
+  getConversations: () =>
+    api.get('/messages/conversations'),
+
+  getMessages: (conversationId: number, params?: { before?: number; limit?: number }) =>
+    api.get(`/messages/conversations/${conversationId}/messages`, { params }),
+
+  startConversation: (targetUserId: string) =>
+    api.post('/messages/conversations', { targetUserId }),
+
+  sendMessage: (conversationId: number, payload: SendDirectMessagePayload) =>
+    api.post(`/messages/conversations/${conversationId}/messages`, payload),
+
+  markRead: (conversationId: number) =>
+    api.put(`/messages/conversations/${conversationId}/read`),
+
+  getUnreadCount: () =>
+    api.get('/messages/unread-count'),
+
+  searchUsers: (q: string) =>
+    api.get('/messages/search-users', { params: { q } }),
 };
 
 export default api;

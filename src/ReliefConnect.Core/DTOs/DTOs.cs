@@ -55,6 +55,8 @@ public class UserProfileDto
     public string? AvatarUrl { get; set; }
     public string? PhoneNumber { get; set; }
     public string? Address { get; set; }
+    public string? FacebookUrl { get; set; }
+    public string? TelegramUrl { get; set; }
     public DateTime CreatedAt { get; set; }
 }
 
@@ -62,6 +64,13 @@ public class UpdateProfileDto
 {
     public string? FullName { get; set; }
     public string? AvatarUrl { get; set; }
+    [Phone]
+    [StringLength(20)]
+    public string? PhoneNumber { get; set; }
+    [Url]
+    public string? FacebookUrl { get; set; }
+    [StringLength(200)]
+    public string? TelegramUrl { get; set; }
 }
 
 public class VerifyRoleDto
@@ -324,6 +333,8 @@ public class AdminUserDto
     public bool IsSuspended { get; set; }
     public DateTime? SuspendedUntil { get; set; }
     public string? BanReason { get; set; }
+    public string? FacebookUrl { get; set; }
+    public string? TelegramUrl { get; set; }
 }
 
 public class VerificationHistoryDto
@@ -723,6 +734,8 @@ public class ContactInfoDto
     public string Email { get; set; } = string.Empty;
     public string? PhoneNumber { get; set; }
     public string? AvatarUrl { get; set; }
+    public string? FacebookUrl { get; set; }
+    public string? TelegramUrl { get; set; }
 }
 
 // ═══════════════════════════════════════════
@@ -764,4 +777,54 @@ public class HideCommentRequestDto
     public int? DurationDays { get; set; }
     public string Reason { get; set; } = string.Empty;
     public bool NotifyUser { get; set; }
+}
+
+// ═══════════════════════════════════════════
+//  DIRECT MESSAGING DTOs
+// ═══════════════════════════════════════════
+
+public class StartConversationDto
+{
+    [Required]
+    public string TargetUserId { get; set; } = string.Empty;
+}
+
+public class SendDirectMessageDto
+{
+    [Required, StringLength(2000)]
+    public string Content { get; set; } = string.Empty;
+
+    [StringLength(64)]
+    public string? ClientMessageId { get; set; }
+}
+
+public class DirectConversationDto
+{
+    public int Id { get; set; }
+    public string PartnerId { get; set; } = string.Empty;
+    public string PartnerName { get; set; } = string.Empty;
+    public string? PartnerAvatar { get; set; }
+    public string? LastMessage { get; set; }
+    public DateTime? LastMessageAt { get; set; }
+    public int UnreadCount { get; set; }
+}
+
+public class DirectMessageResponseDto
+{
+    public int Id { get; set; }
+    public string SenderId { get; set; } = string.Empty;
+    public string SenderName { get; set; } = string.Empty;
+    public string Content { get; set; } = string.Empty;
+    public DateTime SentAt { get; set; }
+    public bool IsRead { get; set; }
+    public bool IsMine { get; set; }
+    public string? ClientMessageId { get; set; }
+}
+
+public class SearchUserDto
+{
+    public string Id { get; set; } = string.Empty;
+    public string FullName { get; set; } = string.Empty;
+    public string? AvatarUrl { get; set; }
+    public string Role { get; set; } = string.Empty;
 }

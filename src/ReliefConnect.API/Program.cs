@@ -37,16 +37,24 @@ builder.Host.UseSerilog();
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
     ?? throw new InvalidOperationException("ConnectionStrings:DefaultConnection must be configured");
 
+var appConnectionString = BuildAppConnectionString(connectionString);
+var appUsesSupabasePooler = IsSupabasePoolerConnection(appConnectionString);
+
+if (appUsesSupabasePooler)
+{
+    Log.Warning("DefaultConnection is using a Supabase pooler connection. EF MaxBatchSize=1 to avoid ObjectDisposedException with PgBouncer.");
+}
+
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(
-        connectionString,
+        appConnectionString,
         npgsqlOptions =>
         {
             npgsqlOptions.EnableRetryOnFailure(
                 maxRetryCount: 3,
                 maxRetryDelay: TimeSpan.FromSeconds(5),
                 errorCodesToAdd: null);
-            npgsqlOptions.MaxBatchSize(100);
+            npgsqlOptions.MaxBatchSize(appUsesSupabasePooler ? 1 : 100);
             npgsqlOptions.CommandTimeout(30); // 30s query timeout (production-safe default)
         })
     .EnableSensitiveDataLogging(builder.Environment.IsDevelopment())
@@ -104,7 +112,20 @@ builder.Services.AddAuthentication(options =>
         OnMessageReceived = context =>
         {
             if (context.Request.Cookies.TryGetValue("auth_token", out var token))
+                {
                 context.Token = token;
+                    return Task.CompletedTask;
+                }
+
+                var path = context.HttpContext.Request.Path;
+                var accessToken = context.Request.Query["access_token"];
+
+                if (!string.IsNullOrWhiteSpace(accessToken)
+                    && path.StartsWithSegments("/hubs", StringComparison.OrdinalIgnoreCase))
+                {
+                    context.Token = accessToken;
+                }
+
             return Task.CompletedTask;
         },
         OnTokenValidated = context =>
@@ -235,6 +256,7 @@ else
 builder.Services.AddHostedService<ReliefConnect.API.BackgroundServices.PingFlagMonitorService>();
 builder.Services.AddHostedService<ReliefConnect.API.BackgroundServices.SoftDeleteCleanupService>();
 builder.Services.AddHostedService<ReliefConnect.API.BackgroundServices.TokenCleanupService>();
+builder.Services.AddHostedService<ReliefConnect.API.BackgroundServices.MessageCleanupService>();
 
 var app = builder.Build();
 
@@ -276,6 +298,7 @@ app.UseSerilogRequestLogging();
 
 app.MapControllers();
 app.MapHub<SOSAlertHub>("/hubs/sos-alerts");
+app.MapHub<DirectMessageHub>("/hubs/direct-messages");
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }));
 if (hangfireEnabled)
 {
@@ -361,11 +384,31 @@ static string BuildHangfireConnectionString(IConfiguration configuration, string
     return builder.ConnectionString;
 }
 
-static bool ShouldEnableHangfire(string connectionString)
+static string BuildAppConnectionString(string connectionString)
+{
+    var builder = new Npgsql.NpgsqlConnectionStringBuilder(connectionString);
+
+    if (IsSupabasePoolerConnection(connectionString))
+    {
+        // Npgsql local pooling stays ENABLED (default) — reuses TCP connections locally.
+        // PgBouncer handles server-side pooling; Npgsql pooling on top is fine and critical for performance.
+        builder.Enlist = false;          // No distributed transactions (PgBouncer incompatible)
+        builder.NoResetOnClose = true;   // Skip DISCARD ALL — PgBouncer handles session cleanup
+    }
+
+    return builder.ConnectionString;
+}
+
+static bool IsSupabasePoolerConnection(string connectionString)
 {
     var builder = new Npgsql.NpgsqlConnectionStringBuilder(connectionString);
     var host = builder.Host ?? string.Empty;
-    return !host.EndsWith(".pooler.supabase.com", StringComparison.OrdinalIgnoreCase);
+    return host.EndsWith(".pooler.supabase.com", StringComparison.OrdinalIgnoreCase);
+}
+
+static bool ShouldEnableHangfire(string connectionString)
+{
+    return !IsSupabasePoolerConnection(connectionString);
 }
 
 static async Task SeedDevelopmentAdminAsync(WebApplication app)

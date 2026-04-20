@@ -472,6 +472,8 @@ public class AuthController : ControllerBase
             AvatarUrl = user.AvatarUrl,
             PhoneNumber = user.PhoneNumber,
             Address = user.Address,
+            FacebookUrl = user.FacebookUrl,
+            TelegramUrl = user.TelegramUrl,
             CreatedAt = user.CreatedAt
         });
     }
@@ -491,6 +493,9 @@ public class AuthController : ControllerBase
 
         if (dto.FullName != null) user.FullName = dto.FullName;
         if (dto.AvatarUrl != null) user.AvatarUrl = dto.AvatarUrl;
+        if (dto.PhoneNumber != null) user.PhoneNumber = dto.PhoneNumber;
+        if (dto.FacebookUrl != null) user.FacebookUrl = dto.FacebookUrl;
+        if (dto.TelegramUrl != null) user.TelegramUrl = dto.TelegramUrl;
 
         await _userManager.UpdateAsync(user);
         _logger.LogInformation("Profile updated: {Username}", user.UserName);
@@ -507,6 +512,8 @@ public class AuthController : ControllerBase
             AvatarUrl = user.AvatarUrl,
             PhoneNumber = user.PhoneNumber,
             Address = user.Address,
+            FacebookUrl = user.FacebookUrl,
+            TelegramUrl = user.TelegramUrl,
             CreatedAt = user.CreatedAt
         });
     }
@@ -599,7 +606,9 @@ public class AuthController : ControllerBase
             FullName = target.FullName,
             Email = target.Email!,
             PhoneNumber = target.PhoneNumber,
-            AvatarUrl = target.AvatarUrl
+            AvatarUrl = target.AvatarUrl,
+            FacebookUrl = target.FacebookUrl,
+            TelegramUrl = target.TelegramUrl
         });
     }
 

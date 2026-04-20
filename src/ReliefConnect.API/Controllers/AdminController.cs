@@ -73,6 +73,8 @@ public class AdminController : ControllerBase
             IsSuspended = user.IsSuspended,
             SuspendedUntil = user.SuspendedUntil,
             BanReason = user.BanReason,
+            FacebookUrl = user.FacebookUrl,
+            TelegramUrl = user.TelegramUrl,
         };
     }
 

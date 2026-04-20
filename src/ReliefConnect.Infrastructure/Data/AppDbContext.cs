@@ -31,6 +31,8 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<BlacklistedToken> BlacklistedTokens => Set<BlacklistedToken>();
     public DbSet<ContentViolation> ContentViolations => Set<ContentViolation>();
     public DbSet<VerificationHistory> VerificationHistories => Set<VerificationHistory>();
+    public DbSet<DirectConversation> DirectConversations => Set<DirectConversation>();
+    public DbSet<DirectMessage> DirectMessages => Set<DirectMessage>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -408,6 +410,71 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
                   .WithMany()
                   .HasForeignKey(v => v.CommentId)
                   .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // ═══════ APPLICATION USER (Social links) ═══════
+        builder.Entity<ApplicationUser>(entity =>
+        {
+            entity.Property(u => u.FacebookUrl).HasMaxLength(500);
+            entity.Property(u => u.TelegramUrl).HasMaxLength(200);
+        });
+
+        // ═══════ DIRECT CONVERSATION ═══════
+        builder.Entity<DirectConversation>(entity =>
+        {
+            entity.HasKey(c => c.Id);
+
+            // Normalized unique pair: User1Id < User2Id
+            entity.HasIndex(c => new { c.User1Id, c.User2Id }).IsUnique();
+            entity.HasIndex(c => c.User1Id);
+            entity.HasIndex(c => c.User2Id);
+            entity.HasIndex(c => c.LastMessageAt).IsDescending();
+
+            entity.ToTable(t =>
+            {
+                t.HasCheckConstraint("CK_DirectConversation_NoSelf", "\"User1Id\" <> \"User2Id\"");
+                t.HasCheckConstraint("CK_DirectConversation_UserOrder", "\"User1Id\" < \"User2Id\"");
+            });
+
+            entity.HasOne(c => c.User1)
+                  .WithMany(u => u.DirectConversationsAsUser1)
+                  .HasForeignKey(c => c.User1Id)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(c => c.User2)
+                  .WithMany(u => u.DirectConversationsAsUser2)
+                  .HasForeignKey(c => c.User2Id)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ═══════ DIRECT MESSAGE ═══════
+        builder.Entity<DirectMessage>(entity =>
+        {
+            entity.HasKey(m => m.Id);
+            entity.Property(m => m.Content).HasMaxLength(2000).IsRequired();
+
+            entity.HasIndex(m => new { m.ConversationId, m.SentAt }).IsDescending();
+            entity.HasIndex(m => m.SenderId);
+            entity.HasIndex(m => new { m.ConversationId, m.IsRead })
+                  .HasFilter("\"IsRead\" = false");
+            entity.HasIndex(m => m.SentAt)
+                  .HasFilter("\"DeletedAt\" IS NULL");
+
+            entity.ToTable(t =>
+            {
+                t.HasCheckConstraint("CK_DirectMessage_Content_NotBlank", "char_length(btrim(\"Content\")) > 0");
+                t.HasCheckConstraint("CK_DirectMessage_Content_MaxLen", "char_length(\"Content\") <= 2000");
+            });
+
+            entity.HasOne(m => m.Conversation)
+                  .WithMany(c => c.Messages)
+                  .HasForeignKey(m => m.ConversationId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(m => m.Sender)
+                  .WithMany()
+                  .HasForeignKey(m => m.SenderId)
+                  .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

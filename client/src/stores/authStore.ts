@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { authApi } from '../services/api';
+import { useMessageStore } from './messageStore';
 
 export interface User {
     id: string;
@@ -8,6 +9,8 @@ export interface User {
     fullName: string;
     phoneNumber?: string;
     address?: string;
+    facebookUrl?: string;
+    telegramUrl?: string;
     role: string;
     verificationStatus: string;
     emailVerified: boolean;
@@ -159,6 +162,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     logout: () => {
         clearPersistedAuth();
+        useMessageStore.getState().reset();
         set({ user: null, token: null, isAuthenticated: false, authResolved: true });
     },
 

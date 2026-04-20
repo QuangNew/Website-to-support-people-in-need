@@ -14,12 +14,16 @@ import GuidePanel from '../panels/GuidePanel';
 import PersonInNeedPanel from '../panels/PersonInNeedPanel';
 import VolunteerPanel from '../panels/VolunteerPanel';
 import SponsorPanel from '../panels/SponsorPanel';
+import MessagingPanel from '../panels/MessagingPanel';
 import LoginModal from '../auth/LoginModal';
 import RegisterModal from '../auth/RegisterModal';
 import ForgotPasswordModal from '../auth/ForgotPasswordModal';
 import ResetPasswordModal from '../auth/ResetPasswordModal';
 import WelcomeModal from '../auth/WelcomeModal';
 import { useMapStore, type PanelType } from '../../stores/mapStore';
+import { useAuthStore } from '../../stores/authStore';
+import { useMessageStore } from '../../stores/messageStore';
+import { startDirectMessageConnection, stopDirectMessageConnection } from '../../services/directMessageSignalR';
 
 const PANEL_COMPONENTS: Record<NonNullable<PanelType>, React.FC> = {
   list: ListPanel,
@@ -31,10 +35,13 @@ const PANEL_COMPONENTS: Record<NonNullable<PanelType>, React.FC> = {
   'my-sos': PersonInNeedPanel,
   volunteer: VolunteerPanel,
   sponsor: SponsorPanel,
+  messages: MessagingPanel,
 };
 
 export default function MapShell() {
   const { activePanel, setActivePanel, sidebarExpanded, fetchPings, fetchZones } = useMapStore();
+  const { isAuthenticated, token } = useAuthStore();
+  const fetchUnreadCount = useMessageStore((s) => s.fetchUnreadCount);
 
   // Fetch all recent pings + zones on mount
   // Initial fetchPings() loads 500 most recent (no bounds) for full overview;
@@ -44,6 +51,17 @@ export default function MapShell() {
     fetchZones();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Connect DirectMessage SignalR + fetch unread count when authenticated
+  useEffect(() => {
+    if (isAuthenticated && token) {
+      startDirectMessageConnection(token);
+      fetchUnreadCount();
+    } else {
+      stopDirectMessageConnection();
+    }
+    return () => stopDirectMessageConnection();
+  }, [isAuthenticated, token, fetchUnreadCount]);
 
   const PanelComponent = activePanel ? PANEL_COMPONENTS[activePanel] : null;
 

@@ -64,6 +64,12 @@ public class ApplicationUser : IdentityUser
     /// <summary>User's address (nullable, set during role verification).</summary>
     public string? Address { get; set; }
 
+    /// <summary>Optional Facebook profile URL.</summary>
+    public string? FacebookUrl { get; set; }
+
+    /// <summary>Optional Telegram URL or @username.</summary>
+    public string? TelegramUrl { get; set; }
+
     // Navigation properties
     public ICollection<Ping> Pings { get; set; } = new List<Ping>();
     public ICollection<Post> Posts { get; set; } = new List<Post>();
@@ -72,4 +78,6 @@ public class ApplicationUser : IdentityUser
     public ICollection<Conversation> Conversations { get; set; } = new List<Conversation>();
     public ICollection<Notification> Notifications { get; set; } = new List<Notification>();
     public ICollection<VerificationHistory> VerificationHistories { get; set; } = new List<VerificationHistory>();
+    public ICollection<DirectConversation> DirectConversationsAsUser1 { get; set; } = new List<DirectConversation>();
+    public ICollection<DirectConversation> DirectConversationsAsUser2 { get; set; } = new List<DirectConversation>();
 }

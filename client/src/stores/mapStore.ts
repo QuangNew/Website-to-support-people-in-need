@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { mapApi, supplyApi } from '../services/api';
 
 export type PingType = 'need_help' | 'offering' | 'received' | 'support_point';
-export type PanelType = 'list' | 'social' | 'chat' | 'profile' | 'verify' | 'guide' | 'my-sos' | 'volunteer' | 'sponsor' | null;
+export type PanelType = 'list' | 'social' | 'chat' | 'profile' | 'verify' | 'guide' | 'my-sos' | 'volunteer' | 'sponsor' | 'messages' | null;
 
 export interface PingData {
     id: string;
