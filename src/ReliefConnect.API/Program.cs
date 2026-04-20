@@ -8,6 +8,7 @@ using Microsoft.IdentityModel.Tokens;
 using ReliefConnect.API.Hubs;
 using ReliefConnect.API.Middleware;
 using ReliefConnect.Core.Entities;
+using ReliefConnect.Core.Enums;
 using ReliefConnect.Core.Interfaces;
 using ReliefConnect.Infrastructure.Data;
 using ReliefConnect.Infrastructure.Repositories;
@@ -133,7 +134,15 @@ builder.Services.AddAuthorizationBuilder()
 //  CORS (Frontend)
 // ═══════════════════════════════════════════
 var frontendUrls = builder.Configuration.GetSection("Frontend:Urls").Get<string[]>()
-    ?? new[] { "http://localhost:5173", "http://localhost:5174", "http://localhost:5175" };
+    ?? new[]
+    {
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://localhost:5175",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:5174",
+        "http://127.0.0.1:5175"
+    };
 
 builder.Services.AddCors(options =>
 {
@@ -232,6 +241,7 @@ var app = builder.Build();
 if (app.Environment.IsDevelopment())
 {
     FreeDevelopmentPort(5164);
+    await SeedDevelopmentAdminAsync(app);
     app.UseSwagger();
     app.UseSwaggerUI();
 }
@@ -356,4 +366,126 @@ static bool ShouldEnableHangfire(string connectionString)
     var builder = new Npgsql.NpgsqlConnectionStringBuilder(connectionString);
     var host = builder.Host ?? string.Empty;
     return !host.EndsWith(".pooler.supabase.com", StringComparison.OrdinalIgnoreCase);
+}
+
+static async Task SeedDevelopmentAdminAsync(WebApplication app)
+{
+    if (!app.Configuration.GetValue("DevelopmentAdmin:Enabled", true))
+    {
+        Log.Information("Development admin seeding is disabled by configuration.");
+        return;
+    }
+
+    using var scope = app.Services.CreateScope();
+    var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+    var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("DevelopmentAdminSeed");
+
+    var email = app.Configuration["DevelopmentAdmin:Email"] ?? "admin_test@reliefconnect.vn";
+    var userName = app.Configuration["DevelopmentAdmin:Username"] ?? "admin_test";
+    var password = app.Configuration["DevelopmentAdmin:Password"] ?? "Admin@123";
+    var fullName = app.Configuration["DevelopmentAdmin:FullName"] ?? "Development Admin";
+
+    try
+    {
+        var user = await userManager.FindByEmailAsync(email) ?? await userManager.FindByNameAsync(userName);
+        var created = false;
+
+        if (user == null)
+        {
+            user = new ApplicationUser
+            {
+                UserName = userName,
+                Email = email,
+                FullName = fullName,
+                Role = RoleEnum.Admin,
+                VerificationStatus = VerificationStatus.Approved,
+                EmailConfirmed = true,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            var createResult = await userManager.CreateAsync(user, password);
+            if (!createResult.Succeeded)
+            {
+                logger.LogWarning("Could not create development admin account {Email}: {Errors}", email, string.Join("; ", createResult.Errors.Select(e => e.Description)));
+                return;
+            }
+
+            created = true;
+        }
+
+        var needsUpdate = false;
+
+        if (!string.Equals(user.UserName, userName, StringComparison.Ordinal))
+        {
+            user.UserName = userName;
+            needsUpdate = true;
+        }
+
+        if (!string.Equals(user.Email, email, StringComparison.OrdinalIgnoreCase))
+        {
+            user.Email = email;
+            needsUpdate = true;
+        }
+
+        if (!string.Equals(user.FullName, fullName, StringComparison.Ordinal))
+        {
+            user.FullName = fullName;
+            needsUpdate = true;
+        }
+
+        if (!user.EmailConfirmed)
+        {
+            user.EmailConfirmed = true;
+            needsUpdate = true;
+        }
+
+        if (user.Role != RoleEnum.Admin)
+        {
+            user.Role = RoleEnum.Admin;
+            needsUpdate = true;
+        }
+
+        if (user.VerificationStatus != VerificationStatus.Approved)
+        {
+            user.VerificationStatus = VerificationStatus.Approved;
+            needsUpdate = true;
+        }
+
+        if (needsUpdate)
+        {
+            var updateResult = await userManager.UpdateAsync(user);
+            if (!updateResult.Succeeded)
+            {
+                logger.LogWarning("Could not update development admin account {Email}: {Errors}", email, string.Join("; ", updateResult.Errors.Select(e => e.Description)));
+                return;
+            }
+        }
+
+        if (!await userManager.CheckPasswordAsync(user, password))
+        {
+            IdentityResult passwordResult;
+
+            if (await userManager.HasPasswordAsync(user))
+            {
+                var resetToken = await userManager.GeneratePasswordResetTokenAsync(user);
+                passwordResult = await userManager.ResetPasswordAsync(user, resetToken, password);
+            }
+            else
+            {
+                passwordResult = await userManager.AddPasswordAsync(user, password);
+            }
+
+            if (!passwordResult.Succeeded)
+            {
+                logger.LogWarning("Could not normalize password for development admin account {Email}: {Errors}", email, string.Join("; ", passwordResult.Errors.Select(e => e.Description)));
+                return;
+            }
+        }
+
+        logger.LogInformation("Development admin account ready: {Email} (created: {Created})", email, created);
+    }
+    catch (Exception ex)
+    {
+        logger.LogWarning(ex, "Failed to seed development admin account {Email}", email);
+    }
 }

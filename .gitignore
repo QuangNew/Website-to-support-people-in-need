@@ -530,3 +530,4 @@ playwright.config.ts
 client/env
 src/ReliefConnect.API/appsettings.json
 .vscode/
+.artifacts/

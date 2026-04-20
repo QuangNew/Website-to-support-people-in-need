@@ -71,13 +71,21 @@ const SOS_CATEGORY_COLORS: Record<string, string> = {
   other: '#dc2626',    // dark red (default SOS)
 };
 
-/** Create a Leaflet DivIcon for a ping marker */
+/** DivIcon cache — keyed by type+category+selected+pulsing */
+const pingIconCache = new Map<string, L.DivIcon>();
+
+/** Create a Leaflet DivIcon for a ping marker (cached) */
 function createPingIcon(ping: PingData, isSelected: boolean): L.DivIcon {
+  const cat = ping.type === 'need_help' && ping.sosCategory ? ping.sosCategory.toLowerCase() : '';
+  const cacheKey = `${ping.type}|${cat}|${isSelected ? 1 : 0}|${ping.isBlinking ? 1 : 0}`;
+
+  let icon = pingIconCache.get(cacheKey);
+  if (icon) return icon;
+
   // Use category-specific icon and color for SOS (need_help) pings
   let color: string;
   let svg: string;
-  if (ping.type === 'need_help' && ping.sosCategory) {
-    const cat = ping.sosCategory.toLowerCase();
+  if (cat) {
     color = SOS_CATEGORY_COLORS[cat] || PING_COLORS[ping.type];
     svg = SOS_CATEGORY_SVGS[cat] || PING_SVGS[ping.type];
   } else {
@@ -85,23 +93,38 @@ function createPingIcon(ping: PingData, isSelected: boolean): L.DivIcon {
     svg = PING_SVGS[ping.type];
   }
   const isPulsing = ping.isBlinking === true;
-  return L.divIcon({
+  icon = L.divIcon({
     className: '', // no default leaflet icon styles
     iconSize: [36, 36],
     iconAnchor: [18, 18],
-    html: `<button class="map-marker ${isSelected ? 'map-marker-selected' : ''} ${isPulsing ? 'map-marker-pulse' : ''}" style="background-color:${color}" aria-label="${ping.title}">${svg}</button>`,
+    html: `<button class="map-marker ${isSelected ? 'map-marker-selected' : ''} ${isPulsing ? 'map-marker-pulse' : ''}" style="background-color:${color}" aria-label="${ping.type}">${svg}</button>`,
   });
+
+  pingIconCache.set(cacheKey, icon);
+  return icon;
 }
 
-/** Create a Leaflet DivIcon for a supply marker */
+/** Supply icon cache — keyed by hasStock boolean */
+const supplyIconCache = new Map<string, L.DivIcon>();
+
+/** Create a Leaflet DivIcon for a supply marker (cached) */
 function createSupplyIcon(supply: SupplyData): L.DivIcon {
-  const color = supply.quantity > 0 ? '#3b82f6' : '#6b7280';
-  return L.divIcon({
+  const hasStock = supply.quantity > 0;
+  const cacheKey = hasStock ? '1' : '0';
+
+  let icon = supplyIconCache.get(cacheKey);
+  if (icon) return icon;
+
+  const color = hasStock ? '#3b82f6' : '#6b7280';
+  icon = L.divIcon({
     className: '',
     iconSize: [32, 32],
     iconAnchor: [16, 16],
-    html: `<button class="map-marker" style="background-color:${color};width:32px;height:32px" aria-label="${supply.name}"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg></button>`,
+    html: `<button class="map-marker" style="background-color:${color};width:32px;height:32px" aria-label="supply"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg></button>`,
   });
+
+  supplyIconCache.set(cacheKey, icon);
+  return icon;
 }
 
 // ─── Zone risk level colors ───
@@ -224,6 +247,9 @@ export default function MapView() {
       supplyLayerRef.current = supplyLayer;
 
       setStatus('ready');
+
+      // Initial pings are loaded by MapShell (fetchPings — no bounds).
+      // Subsequent pan/zoom uses debouncedFetchInBounds for spatial filtering.
     } catch (err) {
       setStatus('error');
       setErrorMsg(String(err));
@@ -301,11 +327,20 @@ export default function MapView() {
   }, [sosDraftLocation]);
 
   // ─── Manage ping markers (with clustering) ───
+  // Track ping data by ID for fast lookup in selection effect
+  const pingDataRef = useRef<Map<string, PingData>>(new Map());
+  const prevSelectedRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (!mapRef.current || !clusterGroupRef.current || status !== 'ready') return;
     const clusterGroup = clusterGroupRef.current;
     const cur = markersRef.current;
     const activeIds = new Set(filteredPings.map((p) => p.id));
+
+    // Update ping data lookup
+    const dataMap = pingDataRef.current;
+    dataMap.clear();
+    for (const p of filteredPings) dataMap.set(p.id, p);
 
     // Remove stale markers
     const toRemove: string[] = [];
@@ -320,7 +355,7 @@ export default function MapView() {
       }
     }
 
-    // Add or update markers
+    // Add or update markers (non-selected state — selection handled separately)
     for (const ping of filteredPings) {
       const existing = cur.get(ping.id);
       const isSelected = selectedPingId === ping.id;
@@ -340,7 +375,34 @@ export default function MapView() {
         cur.set(ping.id, marker);
       }
     }
-  }, [filteredPings, selectedPingId, selectPing, status]);
+  }, [filteredPings, selectPing, status]); // Note: selectedPingId removed
+
+  // ─── Selection highlight (only updates 2 markers, not all) ───
+  useEffect(() => {
+    const cur = markersRef.current;
+    const dataMap = pingDataRef.current;
+    const prevId = prevSelectedRef.current;
+
+    // Deselect previously selected marker
+    if (prevId && prevId !== selectedPingId) {
+      const prevMarker = cur.get(prevId);
+      const prevPing = dataMap.get(prevId);
+      if (prevMarker && prevPing) {
+        prevMarker.setIcon(createPingIcon(prevPing, false));
+      }
+    }
+
+    // Select new marker
+    if (selectedPingId) {
+      const newMarker = cur.get(selectedPingId);
+      const newPing = dataMap.get(selectedPingId);
+      if (newMarker && newPing) {
+        newMarker.setIcon(createPingIcon(newPing, true));
+      }
+    }
+
+    prevSelectedRef.current = selectedPingId;
+  }, [selectedPingId]);
 
   // ─── Zone polygon rendering ───
   useEffect(() => {

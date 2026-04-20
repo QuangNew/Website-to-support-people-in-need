@@ -8,10 +8,13 @@ import {
   Save,
   X,
   Camera,
+  Loader2,
 } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { authApi, getImageUrl } from '../../services/api';
+import toast from 'react-hot-toast';
+import { deleteFromStorage } from '../../services/supabase';
 
 const VERIFICATION_CONFIG: Record<string, { color: string; labelVi: string; labelEn: string }> = {
   Verified: { color: 'var(--success-500)', labelVi: 'Đã xác minh', labelEn: 'Verified' },
@@ -29,6 +32,7 @@ export default function ProfilePanel() {
   const [editName, setEditName] = useState('');
   const [editLoading, setEditLoading] = useState(false);
   const [editError, setEditError] = useState('');
+  const [avatarLoading, setAvatarLoading] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
   if (!user) return null;
@@ -68,18 +72,34 @@ export default function ProfilePanel() {
     const file = e.target.files?.[0];
     if (!file) return;
     const allowed = ['image/jpeg', 'image/png', 'image/webp'];
-    if (!allowed.includes(file.type)) return;
-    if (file.size > 1024 * 1024) return; // 1MB limit for avatars
+    if (!allowed.includes(file.type)) {
+      toast.error(isVi ? 'Chỉ hỗ trợ JPEG, PNG, WebP' : 'Only JPEG, PNG, WebP supported');
+      return;
+    }
+    if (file.size > 1024 * 1024) {
+      toast.error(isVi ? 'Ảnh tối đa 1MB' : 'Image max 1MB');
+      return;
+    }
 
+    setAvatarLoading(true);
     try {
+      const oldAvatarUrl = user.avatarUrl;
       const url = await authApi.uploadAvatar(file);
-      if (url) {
-        const res = await authApi.updateProfile({ avatarUrl: url });
-        setUser(res.data);
+      if (!url) {
+        toast.error(isVi ? 'Tải ảnh lên thất bại' : 'Upload failed');
+        return;
       }
+      const res = await authApi.updateProfile({ avatarUrl: url });
+      setUser(res.data);
+      // Delete old avatar to free storage (best-effort)
+      if (oldAvatarUrl && oldAvatarUrl !== url) {
+        deleteFromStorage('avatars', oldAvatarUrl);
+      }
+      toast.success(isVi ? 'Đã cập nhật ảnh đại diện' : 'Avatar updated');
     } catch {
-      // ignore
+      toast.error(isVi ? 'Cập nhật ảnh thất bại' : 'Avatar update failed');
     } finally {
+      setAvatarLoading(false);
       if (avatarInputRef.current) avatarInputRef.current.value = '';
     }
   };
@@ -93,15 +113,19 @@ export default function ProfilePanel() {
       {/* Profile card */}
       <div className="profile-card glass-card">
         <div className="profile-avatar-section">
-          <div className="avatar avatar-lg profile-avatar-clickable" onClick={() => avatarInputRef.current?.click()}>
-            {user.avatarUrl ? (
+          <div className="avatar avatar-lg profile-avatar-clickable" onClick={() => !avatarLoading && avatarInputRef.current?.click()}>
+            {avatarLoading ? (
+              <Loader2 size={24} className="animate-spin" />
+            ) : user.avatarUrl ? (
               <img src={getImageUrl(user.avatarUrl)} alt={user.fullName} />
             ) : (
               <User size={32} />
             )}
-            <div className="profile-avatar-overlay">
-              <Camera size={16} color="white" />
-            </div>
+            {!avatarLoading && (
+              <div className="profile-avatar-overlay">
+                <Camera size={16} color="white" />
+              </div>
+            )}
             <input
               ref={avatarInputRef}
               type="file"

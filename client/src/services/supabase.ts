@@ -15,7 +15,7 @@ type Bucket = 'avatars' | 'post-images';
 
 /**
  * Upload a file to Supabase Storage and return its public URL.
- * Falls back to `null` when Supabase is not configured.
+ * Retries once on failure. Falls back to `null` when Supabase is not configured.
  */
 export async function uploadToStorage(
   bucket: Bucket,
@@ -24,18 +24,44 @@ export async function uploadToStorage(
   if (!supabase) return null;
 
   const ext = file.name.split('.').pop()?.toLowerCase() ?? 'jpg';
-  const path = `${crypto.randomUUID()}.${ext}`;
 
-  const { error } = await supabase.storage.from(bucket).upload(path, file, {
-    contentType: file.type,
-    upsert: false,
-  });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const path = `${crypto.randomUUID()}.${ext}`;
 
-  if (error) {
-    console.error(`Supabase upload error (${bucket}):`, error.message);
-    return null;
+    const { error } = await supabase.storage.from(bucket).upload(path, file, {
+      contentType: file.type,
+      upsert: false,
+    });
+
+    if (!error) {
+      const { data } = supabase.storage.from(bucket).getPublicUrl(path);
+      return data.publicUrl;
+    }
+
+    console.error(`Supabase upload error (${bucket}), attempt ${attempt + 1}:`, error.message);
   }
 
-  const { data } = supabase.storage.from(bucket).getPublicUrl(path);
-  return data.publicUrl;
+  return null;
+}
+
+/**
+ * Delete a file from Supabase Storage by its public URL.
+ * Silently ignores errors (best-effort cleanup).
+ */
+export async function deleteFromStorage(
+  bucket: Bucket,
+  publicUrl: string,
+): Promise<void> {
+  if (!supabase || !publicUrl) return;
+  try {
+    // Extract path from public URL: .../<bucket>/<path>
+    const marker = `/storage/v1/object/public/${bucket}/`;
+    const idx = publicUrl.indexOf(marker);
+    if (idx === -1) return;
+    const filePath = publicUrl.slice(idx + marker.length);
+    if (!filePath) return;
+    await supabase.storage.from(bucket).remove([filePath]);
+  } catch {
+    // best-effort; don't block the upload flow
+  }
 }

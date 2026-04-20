@@ -638,43 +638,47 @@
   position: fixed;
   bottom: calc(var(--sp-6) + 60px);
   right: var(--sp-6);
-  width: min(420px, calc(100vw - 32px));
+  width: min(380px, calc(100vw - 32px));
   z-index: var(--z-panel);
   background: var(--glass-bg-solid);
   backdrop-filter: blur(var(--glass-blur-lg));
   -webkit-backdrop-filter: blur(var(--glass-blur-lg));
   border: 1px solid var(--glass-border);
-  border-radius: 24px;
-  padding: var(--sp-4);
+  border-radius: 16px;
+  padding: var(--sp-3);
   box-shadow: var(--shadow-xl);
   max-height: calc(100vh - 144px);
   overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
-  gap: var(--sp-3);
+  gap: var(--sp-2);
 }
 
 .ping-detail-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
+  gap: var(--sp-2);
 }
 
 .ping-detail-type {
   display: flex;
   align-items: center;
-  gap: var(--sp-2);
+  gap: var(--sp-1-5);
   flex-wrap: wrap;
+  min-width: 0;
 }
 
 .ping-type-badge {
   display: inline-flex;
   align-items: center;
-  gap: var(--sp-1);
-  padding: var(--sp-1) var(--sp-2-5);
+  gap: 4px;
+  padding: 2px 8px;
   border-radius: var(--radius-full);
-  font-size: var(--text-xs);
+  font-size: var(--text-2xs);
   font-weight: 600;
+  white-space: nowrap;
 }
 
 .ping-type-badge.text-danger {
@@ -698,9 +702,9 @@
 }
 
 .ping-status-badge {
-  font-size: var(--text-2xs);
+  font-size: 10px;
   font-weight: 600;
-  padding: var(--sp-0-5) var(--sp-2);
+  padding: 1px 6px;
   border-radius: var(--radius-full);
   text-transform: capitalize;
 }
@@ -720,308 +724,92 @@
   color: var(--text-muted);
 }
 
-.ping-detail-title {
-  font-size: clamp(1.2rem, 1rem + 0.7vw, 1.55rem);
-  font-weight: 700;
-  margin: 0;
-  line-height: var(--leading-snug);
-}
-
-.ping-detail-hero {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-3);
-  padding: var(--sp-3-5);
-  border-radius: 20px;
-  background:
-    radial-gradient(circle at top left, rgba(239, 68, 68, 0.16), transparent 42%),
-    linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 82%, transparent), var(--bg-primary));
-  border: 1px solid color-mix(in srgb, var(--danger-500) 16%, var(--border-subtle));
-}
-
+/* ─── Reporter row (compact) ─── */
 .ping-detail-reporter {
   display: flex;
   align-items: center;
-  gap: var(--sp-3);
+  gap: var(--sp-2);
+  min-width: 0;
 }
 
 .ping-detail-avatar {
-  width: 48px;
-  height: 48px;
-  border-radius: 16px;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
   display: grid;
   place-items: center;
-  background: linear-gradient(135deg, rgba(239, 68, 68, 0.18), rgba(249, 115, 22, 0.18));
-  border: 1px solid color-mix(in srgb, var(--danger-500) 24%, transparent);
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(249, 115, 22, 0.15));
   color: var(--text-primary);
-  font-size: var(--text-sm);
+  font-size: 11px;
   font-weight: 800;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   flex-shrink: 0;
 }
 
 .ping-detail-reporter-copy {
   display: flex;
   flex-direction: column;
-  gap: 2px;
   min-width: 0;
 }
 
 .ping-detail-eyebrow {
-  font-size: var(--text-2xs);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-weight: 700;
-  color: var(--text-tertiary);
-}
-
-.ping-detail-subtitle {
-  margin: 0;
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-}
-
-.ping-detail-description {
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-  line-height: var(--leading-relaxed);
-  margin: 0;
-}
-
-.ping-detail-meta-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--sp-2);
-}
-
-.ping-detail-meta-card {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-1);
-  padding: var(--sp-3);
-  border-radius: 18px;
-  background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
-  border: 1px solid var(--border-subtle);
-}
-
-.ping-detail-meta-label {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--sp-1-5);
-  font-size: var(--text-2xs);
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--text-tertiary);
-}
-
-.ping-detail-meta-value {
-  font-size: var(--text-sm);
-  color: var(--text-primary);
-  font-weight: 600;
-  line-height: var(--leading-relaxed);
-}
-
-.ping-detail-card {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-2-5);
-  padding: var(--sp-3-5);
-  border-radius: 20px;
-  background: color-mix(in srgb, var(--bg-secondary) 90%, transparent);
-  border: 1px solid var(--border-subtle);
-}
-
-.ping-detail-card--visual {
-  overflow: hidden;
-}
-
-.ping-detail-card-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--sp-2);
-}
-
-.ping-detail-card-title {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--sp-1-5);
-  font-size: var(--text-xs);
+  font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--text-tertiary);
   font-weight: 700;
+  color: var(--text-tertiary);
 }
 
-.ping-detail-card-caption {
-  font-size: var(--text-2xs);
-  color: var(--text-muted);
+.ping-detail-name {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.ping-contact-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--sp-2);
-}
-
-.ping-contact-item {
+/* ─── Incident message (inline) ─── */
+.ping-detail-incident {
   display: flex;
   align-items: flex-start;
   gap: var(--sp-2);
-  padding: var(--sp-2-5);
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--bg-primary) 84%, transparent);
-  border: 1px solid color-mix(in srgb, var(--border-subtle) 78%, transparent);
-  color: var(--text-primary);
+  padding: var(--sp-2);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--danger-500) 6%, var(--bg-primary));
+  border-left: 2px solid var(--danger-400);
 }
 
-.ping-contact-item--link {
-  text-decoration: none;
-  transition: border-color 0.15s ease, transform 0.15s ease;
-}
-
-.ping-contact-item--link:hover {
-  border-color: color-mix(in srgb, var(--primary-400) 46%, transparent);
-  transform: translateY(-1px);
-}
-
-.ping-contact-item svg {
-  color: var(--text-muted);
+.ping-detail-incident-icon {
+  color: var(--danger-400);
   flex-shrink: 0;
   margin-top: 2px;
 }
 
-.ping-contact-item div {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.ping-contact-item strong {
-  font-size: var(--text-sm);
-  line-height: var(--leading-snug);
-}
-
-.ping-contact-label {
-  font-size: var(--text-2xs);
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.ping-detail-image {
-  width: 100%;
-  max-height: 220px;
-  object-fit: cover;
-  border-radius: 18px;
-  display: block;
-}
-
-.ping-detail-items {
-  margin: 0;
-}
-
-.ping-items-header {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-1-5);
-  font-size: var(--text-xs);
-  font-weight: 600;
-  color: var(--text-tertiary);
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-wider);
-  margin-bottom: var(--sp-2);
-}
-
-.ping-items-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--sp-1-5);
-}
-
-.ping-detail-actions {
-  display: flex;
-  justify-content: stretch;
-  flex-wrap: wrap;
-  gap: var(--sp-2);
-  padding-top: var(--sp-3);
-  border-top: 1px solid var(--border-subtle);
-}
-
-.ping-directions-btn {
-  min-width: 132px;
-  height: 40px;
-  box-shadow: 0 0 20px rgba(249, 115, 22, 0.4);
-}
-
-/* Incident highlight block */
-.ping-detail-incident {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--sp-3);
-  padding: var(--sp-3) var(--sp-3-5);
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--danger-500) 8%, var(--bg-primary));
-  border: 1px solid color-mix(in srgb, var(--danger-500) 20%, transparent);
-  border-left: 3px solid var(--danger-400);
-}
-
-.ping-detail-incident-icon-box {
-  width: 32px;
-  height: 32px;
-  border-radius: 10px;
-  display: grid;
-  place-items: center;
-  background: color-mix(in srgb, var(--danger-500) 16%, transparent);
-  color: var(--danger-400);
-  flex-shrink: 0;
-}
-
-.ping-detail-incident-content {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-
-.ping-detail-incident-label {
-  font-size: var(--text-2xs);
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--danger-400);
-}
-
 .ping-detail-incident-text {
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
   color: var(--text-primary);
-  font-weight: 500;
   line-height: var(--leading-relaxed);
   margin: 0;
-  font-style: italic;
+  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
-/* Compact info row (location + time) */
+/* ─── Info row (location + time) ─── */
 .ping-detail-info-row {
   display: flex;
   align-items: center;
-  gap: var(--sp-2);
-  padding: var(--sp-2-5) var(--sp-3);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
-  border: 1px solid var(--border-subtle);
+  gap: var(--sp-1-5);
   flex-wrap: wrap;
 }
 
 .ping-detail-info-item {
   display: inline-flex;
   align-items: center;
-  gap: var(--sp-1-5);
-  font-size: var(--text-xs);
+  gap: 4px;
+  font-size: 11px;
   color: var(--text-secondary);
-  font-weight: 500;
+  min-width: 0;
 }
 
 .ping-detail-info-item svg {
@@ -1031,15 +819,85 @@
 
 .ping-detail-info-sep {
   color: var(--text-muted);
-  font-size: var(--text-xs);
+  font-size: 11px;
 }
 
-/* CTA section */
+/* ─── Contact grid (flat) ─── */
+.ping-contact-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1-5);
+}
+
+.ping-contact-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-secondary) 80%, transparent);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  font-size: var(--text-xs);
+  text-decoration: none;
+  transition: border-color 0.15s ease;
+  min-width: 0;
+}
+
+.ping-contact-item:hover {
+  border-color: var(--primary-400);
+}
+
+.ping-contact-item svg {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.ping-contact-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ─── Image ─── */
+.ping-detail-image-wrapper {
+  width: 100%;
+  max-height: 240px;
+  overflow-y: auto;
+  border-radius: 10px;
+  overscroll-behavior: contain;
+}
+
+.ping-detail-image {
+  width: 100%;
+  display: block;
+  border-radius: 10px;
+}
+
+.ping-detail-image-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  padding: var(--sp-4);
+  border-radius: 10px;
+  background: var(--bg-subtle);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+/* ─── Items list (flat) ─── */
+.ping-items-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+}
+
+/* ─── CTA section ─── */
 .ping-detail-cta {
   display: flex;
-  flex-direction: column;
   gap: var(--sp-2);
-  padding-top: var(--sp-3);
+  padding-top: var(--sp-2);
   border-top: 1px solid var(--border-subtle);
   margin-top: auto;
 }
@@ -1048,16 +906,16 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: var(--sp-2);
-  padding: var(--sp-3) var(--sp-4);
-  border-radius: 14px;
-  font-size: var(--text-sm);
+  gap: 6px;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: 10px;
+  font-size: var(--text-xs);
   font-weight: 700;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.15s ease;
   border: none;
   text-decoration: none;
-  letter-spacing: 0.02em;
+  flex: 1;
 }
 
 .ping-cta-btn:disabled {
@@ -1068,61 +926,47 @@
 .ping-cta-btn--directions {
   background: linear-gradient(135deg, #f97316, #ea580c);
   color: #fff;
-  box-shadow: 0 4px 16px rgba(249, 115, 22, 0.35);
+  box-shadow: 0 2px 10px rgba(249, 115, 22, 0.3);
 }
 
 .ping-cta-btn--directions:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 6px 24px rgba(249, 115, 22, 0.45);
+  box-shadow: 0 4px 16px rgba(249, 115, 22, 0.4);
 }
 
 .ping-cta-btn--contact {
   background: transparent;
   color: var(--primary-400);
-  border: 1.5px solid color-mix(in srgb, var(--primary-400) 50%, transparent);
+  border: 1px solid color-mix(in srgb, var(--primary-400) 40%, transparent);
 }
 
 .ping-cta-btn--contact:hover {
-  background: color-mix(in srgb, var(--primary-400) 10%, transparent);
+  background: color-mix(in srgb, var(--primary-400) 8%, transparent);
   border-color: var(--primary-400);
-  transform: translateY(-1px);
 }
 
-.ping-cta-btn--support {
-  background: transparent;
-  color: var(--accent-400);
-  border: 1.5px solid color-mix(in srgb, var(--accent-400) 50%, transparent);
-}
-
-.ping-cta-btn--support:hover {
-  background: color-mix(in srgb, var(--accent-400) 10%, transparent);
-  border-color: var(--accent-400);
-  transform: translateY(-1px);
-}
-
-/* Admin section */
+/* ─── Admin ─── */
 .ping-detail-admin {
   display: flex;
   justify-content: flex-end;
-  padding-top: var(--sp-2);
+  padding-top: var(--sp-1);
 }
 
 /* ─── Route Info ─── */
 .ping-route-info {
-  background: var(--bg-hover);
-  border-radius: var(--radius-lg);
-  padding: var(--sp-3);
-  margin-bottom: var(--sp-3);
   display: flex;
   flex-direction: column;
   gap: var(--sp-1-5);
+  padding: var(--sp-2);
+  border-radius: 10px;
+  background: var(--bg-hover);
 }
 
 .ping-route-info-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
 }
 
 .ping-route-label {
@@ -1134,29 +978,25 @@
   color: var(--text-primary);
 }
 
-.ping-route-note {
-  margin: 0;
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-  line-height: var(--leading-relaxed);
-}
-
 .ping-route-grid {
   display: flex;
-  flex-direction: column;
-  gap: var(--sp-2);
+  gap: var(--sp-1);
+  margin-top: var(--sp-1);
 }
 
 .ping-route-card {
   display: flex;
-  flex-direction: column;
-  gap: var(--sp-1-5);
-  padding: var(--sp-2);
-  border-radius: var(--radius-md);
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  padding: 6px 8px;
+  border-radius: 8px;
   border: 1px solid var(--border-subtle);
   background: transparent;
   cursor: pointer;
   transition: all 0.15s ease;
+  font-size: 11px;
+  color: var(--text-secondary);
   text-align: left;
 }
 
@@ -1167,91 +1007,39 @@
 .ping-route-card--active {
   border-color: var(--primary-400);
   background: rgba(var(--primary-rgb, 59, 130, 246), 0.08);
-}
-
-.ping-route-card-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--sp-2);
-}
-
-.ping-route-card-title {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--sp-2);
-  font-size: var(--text-xs);
-  font-weight: 700;
   color: var(--text-primary);
 }
 
 .ping-route-dot {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
   border-radius: var(--radius-full);
   flex-shrink: 0;
 }
 
-.ping-route-card-stats {
-  display: flex;
-  justify-content: space-between;
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
-}
-
-.ping-route-selector {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-1);
-  padding-top: var(--sp-1-5);
-  border-top: 1px solid var(--border-subtle);
-}
-
-.ping-route-option {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: var(--sp-1-5) var(--sp-2);
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-subtle);
-  background: transparent;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
-}
-
-.ping-route-option:hover {
-  background: var(--bg-hover);
-}
-
-.ping-route-option--active {
-  border-color: var(--primary-400);
-  background: rgba(var(--primary-rgb, 59, 130, 246), 0.08);
-  color: var(--text-primary);
-}
-
-.ping-route-option-label {
+.ping-route-card-label {
   font-weight: 600;
+  white-space: nowrap;
 }
 
-.ping-route-option-info {
+.ping-route-card-stats {
   color: var(--text-muted);
+  white-space: nowrap;
+  margin-left: auto;
 }
 
 .ping-route-clear {
   align-self: flex-end;
-  font-size: var(--text-xs) !important;
+  font-size: 11px !important;
   margin-top: var(--sp-1);
 }
 
 .ping-route-error {
   background: rgba(239, 48, 48, 0.1);
   color: var(--danger-400);
-  border-radius: var(--radius-md);
-  padding: var(--sp-2) var(--sp-3);
-  font-size: var(--text-sm);
-  margin-bottom: var(--sp-3);
+  border-radius: 8px;
+  padding: var(--sp-2);
+  font-size: var(--text-xs);
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -2839,8 +2627,9 @@
 .sos-image-preview-card img {
   width: 100%;
   display: block;
-  max-height: 160px;
-  object-fit: cover;
+  max-height: 220px;
+  object-fit: contain;
+  background: var(--bg-secondary);
 }
 
 /* ─── Image Actions ─── */
@@ -3621,7 +3410,7 @@
 /* ─── Admin Action Buttons ─── */
 .admin-action-btns {
   display: flex;
-  gap: var(--sp-2);
+  gap: var(--sp-1);
   align-items: center;
 }
 
@@ -3630,10 +3419,19 @@
 }
 
 .admin-action-btns .btn {
-  display: flex;
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 4px;
   white-space: nowrap;
+  overflow: visible;
+  min-width: 28px;
+  min-height: 28px;
+  padding: var(--sp-1);
+}
+
+.admin-action-btns .btn svg {
+  flex-shrink: 0;
 }
 
 .btn-sm {

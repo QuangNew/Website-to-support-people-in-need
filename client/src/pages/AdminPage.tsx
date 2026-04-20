@@ -103,15 +103,59 @@ type Tab = 'stats' | 'verifications' | 'users' | 'posts' | 'reports' | 'logs' | 
 
 export default function AdminPage() {
   const { t } = useLanguage();
-  const { user } = useAuthStore();
+  const { user, token, authResolved, loadUser } = useAuthStore();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<Tab>('stats');
 
   useEffect(() => {
+    if (!authResolved) return;
+
+    if (!token) {
+      navigate('/');
+      return;
+    }
+
     if (user && user.role !== 'Admin') {
       navigate('/');
     }
-  }, [user, navigate]);
+  }, [authResolved, navigate, token, user]);
+
+  if (!authResolved) {
+    return (
+      <div className="admin-page">
+        <main className="admin-main">
+          <div className="admin-empty animate-fade-in-up">
+            <RefreshCw size={32} className="spin" />
+            <p>{t('common.loading')}</p>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  if (!token) {
+    return null;
+  }
+
+  if (!user) {
+    return (
+      <div className="admin-page">
+        <main className="admin-main">
+          <div className="admin-empty animate-fade-in-up">
+            <AlertTriangle size={48} strokeWidth={1.5} className="text-danger" />
+            <p>{t('common.error')}</p>
+            <button className="btn btn-secondary btn-sm" onClick={() => { void loadUser(); }} style={{ marginTop: 'var(--sp-3)' }}>
+              <RefreshCw size={14} /> Retry
+            </button>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  if (user.role !== 'Admin') {
+    return null;
+  }
 
   const tabs: { key: Tab; label: string; icon: typeof BarChart3 }[] = [
     { key: 'stats', label: t('admin.stats'), icon: BarChart3 },
@@ -711,7 +755,7 @@ function UsersPanel() {
                           title={t('admin.viewUserDetails')}
                           onClick={() => openUserDetail(u)}
                         >
-                          <Eye size={14} />
+                          <Eye size={16} />
                         </button>
                         {u.isSuspended ? (
                           <button
@@ -719,7 +763,7 @@ function UsersPanel() {
                             title="Unsuspend"
                             onClick={() => handleUnsuspend(u.id, u.fullName)}
                           >
-                            <CheckCircle2 size={14} />
+                            <CheckCircle2 size={16} />
                           </button>
                         ) : (
                           <button
@@ -727,7 +771,7 @@ function UsersPanel() {
                             title="Suspend"
                             onClick={() => handleSuspend(u.id, u.fullName)}
                           >
-                            <AlertTriangle size={14} />
+                            <AlertTriangle size={16} />
                           </button>
                         )}
                         <button
@@ -735,14 +779,14 @@ function UsersPanel() {
                           title="Ban"
                           onClick={() => handleBan(u.id, u.fullName)}
                         >
-                          <Ban size={14} />
+                          <Ban size={16} />
                         </button>
                         <button
                           className="btn btn-ghost btn-sm"
                           title="Force logout"
                           onClick={() => handleForceLogout(u.id, u.fullName)}
                         >
-                          <LogOut size={14} />
+                          <LogOut size={16} />
                         </button>
                       </div>
                     </td>
@@ -1673,7 +1717,12 @@ function RestorePanel() {
                       <td>#{c.postId}</td>
                       <td>{c.userName}</td>
                       <td>{c.hiddenByAdminName || '-'}</td>
-                      <td className="admin-td-content">{c.hiddenReason || '-'}</td>
+                      <td className="admin-td-content">
+                        <div>{c.hiddenReason || '-'}</div>
+                        <div className="admin-td-date">
+                          {c.userWasNotified ? t('admin.userNotified') : t('admin.userNotNotified')}
+                        </div>
+                      </td>
                       <td>
                         <span className={`admin-badge ${c.isIndefinite ? 'admin-badge--info' : (c.daysRemaining ?? 0) <= 5 ? 'admin-badge--danger' : 'admin-badge--info'}`}>
                           {c.isIndefinite
@@ -2411,12 +2460,16 @@ function ApiKeysPanel() {
   const [form, setForm] = useState(emptyKeyForm);
   const [saving, setSaving] = useState(false);
 
-  const load = useCallback(() => {
+  const load = useCallback(async () => {
     setLoading(true);
-    adminApi.getApiKeys()
-      .then((res) => setKeys(res.data as ApiKeyRow[]))
-      .catch(() => toast.error(t('common.error')))
-      .finally(() => setLoading(false));
+    try {
+      const res = await adminApi.getApiKeys();
+      setKeys(res.data as ApiKeyRow[]);
+    } catch {
+      toast.error(t('common.error'));
+    } finally {
+      setLoading(false);
+    }
   }, [t]);
 
   useEffect(() => { load(); }, [load]);
@@ -2456,7 +2509,7 @@ function ApiKeysPanel() {
       setShowForm(false);
       setForm(emptyKeyForm);
       setEditingId(null);
-      load();
+      await load();
     } catch {
       toast.error(t('common.error'));
     } finally {
@@ -2468,7 +2521,7 @@ function ApiKeysPanel() {
     try {
       await adminApi.updateApiKey(k.id, { isActive: !k.isActive });
       toast.success(k.isActive ? 'Key deactivated' : 'Key activated');
-      load();
+      await load();
     } catch {
       toast.error(t('common.error'));
     }
@@ -2479,7 +2532,7 @@ function ApiKeysPanel() {
     try {
       await adminApi.deleteApiKey(id);
       toast.success('API key deleted');
-      load();
+      await load();
     } catch {
       toast.error(t('common.error'));
     }

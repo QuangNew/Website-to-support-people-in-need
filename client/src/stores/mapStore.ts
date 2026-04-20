@@ -99,6 +99,7 @@ interface MapState {
     setShowWelcome: (show: boolean) => void;
     setSidebarExpanded: (expanded: boolean) => void;
     setPings: (pings: PingData[]) => void;
+    upsertPing: (ping: PingData) => void;
     removePing: (id: string) => void;
     toggleZones: () => void;
     fetchPings: () => Promise<void>;
@@ -197,7 +198,7 @@ function formatPingLocation(lat: number, lng: number): string {
     return `GPS ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
 }
 
-function mapBackendPing(payload: Record<string, unknown>): PingData {
+export function mapBackendPing(payload: Record<string, unknown>): PingData {
     const lat = typeof payload.lat === 'number' ? payload.lat : 0;
     const lng = typeof payload.lng === 'number' ? payload.lng : 0;
     const details = typeof payload.details === 'string' ? payload.details : '';
@@ -276,23 +277,27 @@ export const useMapStore = create<MapState>((set, get) => ({
     },
     setSidebarExpanded: (expanded) => set({ sidebarExpanded: expanded }),
     setPings: (pings) => set({ pings, pingsLoading: false }),
+    upsertPing: (ping) => set((state) => {
+        const existingIndex = state.pings.findIndex((item) => item.id === ping.id);
+        if (existingIndex === -1) {
+            return { pings: [ping, ...state.pings] };
+        }
+
+        const nextPings = [...state.pings];
+        nextPings[existingIndex] = { ...nextPings[existingIndex], ...ping };
+        return { pings: nextPings };
+    }),
     toggleZones: () => set((state) => ({ showZones: !state.showZones })),
     toggleSupplyPoints: () => set((state) => ({ showSupplyPoints: !state.showSupplyPoints })),
     fetchPings: async () => {
         set({ pingsLoading: true });
         try {
-            // Use current map center and a default radius for initial load
-            // This reduces payload by using server-side radius filtering
-            const res = await mapApi.getPings({
-                lat: useMapStore.getState().center.lat,
-                lng: useMapStore.getState().center.lng,
-                radius: 500, // 500km radius covers all of Vietnam
-            });
+            const res = await mapApi.getPings();
             const backendPings = (res.data as Array<Record<string, unknown>>).map(mapBackendPing);
             set({ pings: backendPings, pingsLoading: false });
         } catch {
-            console.warn('[MapStore] Backend unavailable, keeping mock pings');
-            set({ pingsLoading: false }); // keep MOCK_PINGS already in state
+            console.warn('[MapStore] Backend unavailable, keeping current pings');
+            set({ pingsLoading: false });
         }
     },
 
@@ -303,19 +308,16 @@ export const useMapStore = create<MapState>((set, get) => ({
             // Calculate center and radius from visible bounds
             const centerLat = (bounds.north + bounds.south) / 2;
             const centerLng = (bounds.east + bounds.west) / 2;
-            // Use Haversine-inspired calculation: diagonal / 2 gives proper radius
-            // One degree of latitude ≈ 111km, one degree of longitude varies by latitude
-            const latDiff = bounds.north - bounds.south;
-            const lngDiff = bounds.east - bounds.west;
-            // Take the larger dimension, add margin, divide by 2 for radius
-            const maxDiff = Math.max(latDiff, lngDiff);
-            // Add 20% margin, convert to km, use half for radius
-            const radiusKm = (maxDiff * 111 * 0.6); // 60% of full span as radius
+            // Proper half-diagonal distance with longitude correction
+            const latKm = (bounds.north - bounds.south) * 111;
+            const lngKm = (bounds.east - bounds.west) * 111 * Math.cos(centerLat * Math.PI / 180);
+            // Half-diagonal + 15% margin to cover viewport corners
+            const radiusKm = Math.sqrt(latKm * latKm + lngKm * lngKm) / 2 * 1.15;
 
             const res = await mapApi.getPings({
                 lat: centerLat,
                 lng: centerLng,
-                radius: Math.min(Math.max(radiusKm, 20), 500), // 20km minimum, 500km maximum
+                radiusKm: Math.max(radiusKm, 20), // 20km minimum; backend validates ≤10000km
             });
             const backendPings = (res.data as Array<Record<string, unknown>>).map(mapBackendPing);
             set({ pings: backendPings, pingsLoading: false });

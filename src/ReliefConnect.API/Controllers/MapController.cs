@@ -349,7 +349,7 @@ public class MapController : ControllerBase
         if (User.Identity?.IsAuthenticated != true)
             return null;
 
-        var roleValue = User.FindFirstValue(ClaimTypes.Role);
+        var roleValue = User.FindFirstValue("Role") ?? User.FindFirstValue(ClaimTypes.Role);
         return Enum.TryParse<RoleEnum>(roleValue, true, out var role)
             ? role
             : null;

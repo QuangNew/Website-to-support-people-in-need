@@ -20,6 +20,7 @@ interface AuthState {
     token: string | null;
     isAuthenticated: boolean;
     isLoading: boolean;
+    authResolved: boolean;
 
     login: (email: string, password: string) => Promise<void>;
     register: (data: { username: string; email: string; password: string; fullName: string }) => Promise<void>;
@@ -43,6 +44,16 @@ interface AuthResponse {
     emailVerified: boolean;
 }
 
+let pendingLoadUserPromise: Promise<void> | null = null;
+
+function clearPersistedAuth() {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    localStorage.removeItem('chatpanel_messages');
+    localStorage.removeItem('chatpanel_conversation_id');
+    localStorage.removeItem('chatbot_messages');
+}
+
 function applyAuthResponse(
     set: (partial: Partial<AuthState>) => void,
     data: AuthResponse,
@@ -52,6 +63,7 @@ function applyAuthResponse(
     set({
         token: data.token,
         isAuthenticated: true,
+        authResolved: true,
         user: {
             id: data.userId,
             userName: data.userName,
@@ -72,6 +84,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     token: localStorage.getItem('token'),
     isAuthenticated: false,
     isLoading: false,
+    authResolved: false,
 
     login: async (email, password) => {
         set({ isLoading: true });
@@ -145,30 +158,42 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     },
 
     logout: () => {
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-        localStorage.removeItem('chatpanel_messages');
-        localStorage.removeItem('chatpanel_conversation_id');
-        localStorage.removeItem('chatbot_messages');
-        set({ user: null, token: null, isAuthenticated: false });
+        clearPersistedAuth();
+        set({ user: null, token: null, isAuthenticated: false, authResolved: true });
     },
 
     loadUser: async () => {
         const token = localStorage.getItem('token');
-        if (!token) return;
-
-        try {
-            const res = await authApi.getMe();
-            set({ user: res.data, isAuthenticated: true, token });
-        } catch (err: unknown) {
-            // Only logout on a confirmed 401 (expired/invalid token).
-            // Network errors, timeouts, 500s → keep the token, stay logged in.
-            const axiosErr = err as { response?: { status?: number } };
-            if (axiosErr?.response?.status === 401) {
-                get().logout();
-            }
+        if (!token) {
+            clearPersistedAuth();
+            set({ user: null, token: null, isAuthenticated: false, authResolved: true });
+            return;
         }
+
+        if (pendingLoadUserPromise) {
+            return pendingLoadUserPromise;
+        }
+
+        pendingLoadUserPromise = (async () => {
+            try {
+                const res = await authApi.getMe();
+                set({ user: res.data, isAuthenticated: true, token, authResolved: true });
+            } catch (err: unknown) {
+                const axiosErr = err as { response?: { status?: number } };
+                if (axiosErr?.response?.status === 401) {
+                    clearPersistedAuth();
+                    set({ user: null, token: null, isAuthenticated: false, authResolved: true });
+                    return;
+                }
+
+                set({ token, authResolved: true });
+            } finally {
+                pendingLoadUserPromise = null;
+            }
+        })();
+
+        return pendingLoadUserPromise;
     },
 
-    setUser: (user) => set({ user }),
+    setUser: (user) => set({ user, isAuthenticated: true, authResolved: true }),
 }));

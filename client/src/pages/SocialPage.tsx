@@ -1,9 +1,11 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Heart, HandHeart, HandHelping, MessageCircle, Send, Image, Trash2, Filter, EyeOff } from 'lucide-react';
+import { Heart, HandHeart, HandHelping, MessageCircle, Send, Image, Trash2, Filter, EyeOff, Flag } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuthStore } from '../stores/authStore';
-import { socialApi, getImageUrl } from '../services/api';
+import HideCommentModal from '../components/ui/HideCommentModal';
+import ReportPostModal from '../components/ui/ReportPostModal';
+import { socialApi, getImageUrl, type HideCommentRequest } from '../services/api';
 
 interface PostDto {
     id: number;
@@ -29,6 +31,19 @@ interface CommentDto {
     userId: string;
     userName: string;
     userAvatar?: string;
+}
+
+interface HideCommentTarget {
+    postId: number;
+    commentId: number;
+    content: string;
+    userName: string;
+}
+
+interface ReportPostTarget {
+    postId: number;
+    content: string;
+    authorName: string;
 }
 
 const ROLE_BADGE_STYLES: Record<string, { bg: string; color: string }> = {
@@ -93,6 +108,10 @@ export default function SocialPage() {
     const [expandedComments, setExpandedComments] = useState<Record<number, CommentDto[]>>({});
     const [commentInputs, setCommentInputs] = useState<Record<number, string>>({});
     const [loadingComments, setLoadingComments] = useState<Record<number, boolean>>({});
+    const [hideCommentTarget, setHideCommentTarget] = useState<HideCommentTarget | null>(null);
+    const [hidingComment, setHidingComment] = useState(false);
+    const [reportPostTarget, setReportPostTarget] = useState<ReportPostTarget | null>(null);
+    const [reportingPost, setReportingPost] = useState(false);
     const observerRef = useRef<HTMLDivElement>(null);
 
     const fetchPosts = useCallback(async (cursor?: string) => {
@@ -211,22 +230,52 @@ export default function SocialPage() {
         } catch { /* ignore */ }
     };
 
-    const handleHideComment = async (postId: number, commentId: number) => {
-        if (!confirm(t('social.confirmHideComment'))) return;
+    const openReportPost = (post: PostDto) => {
+        if (!user) {
+            toast.error(t('social.reportLoginRequired'));
+            return;
+        }
+
+        setReportPostTarget({ postId: post.id, content: post.content, authorName: post.authorName });
+    };
+
+    const handleReportPost = async (reason: string) => {
+        if (!reportPostTarget) return;
+
+        setReportingPost(true);
         try {
-            await socialApi.hideComment(postId, commentId, {
-                durationDays: 30,
-                reason: 'Ẩn bởi quản trị viên do vi phạm tiêu chuẩn cộng đồng.',
-                notifyUser: false,
-            });
+            const res = await socialApi.reportPost(reportPostTarget.postId, { reason });
+            toast.success(res.data?.message || t('social.reportSubmitted'));
+            setReportPostTarget(null);
+        } catch (err: unknown) {
+            const axiosErr = err as { response?: { data?: { message?: string } } };
+            toast.error(axiosErr.response?.data?.message || t('common.error'));
+        } finally {
+            setReportingPost(false);
+        }
+    };
+
+    const handleHideComment = async (payload: HideCommentRequest) => {
+        if (!hideCommentTarget) return;
+
+        setHidingComment(true);
+        try {
+            const res = await socialApi.hideComment(hideCommentTarget.postId, hideCommentTarget.commentId, payload);
             setExpandedComments(prev => ({
                 ...prev,
-                [postId]: (prev[postId] || []).filter(c => c.id !== commentId),
+                [hideCommentTarget.postId]: (prev[hideCommentTarget.postId] || []).filter(c => c.id !== hideCommentTarget.commentId),
             }));
-            setPosts(prev => prev.map(p => p.id === postId ? { ...p, commentCount: Math.max(0, p.commentCount - 1) } : p));
-            toast.success(t('social.commentHidden'));
-        } catch {
-            toast.error(t('common.error'));
+            setPosts(prev => prev.map(p => p.id === hideCommentTarget.postId ? { ...p, commentCount: Math.max(0, p.commentCount - 1) } : p));
+            toast.success(res.data?.message || t('social.commentHidden'));
+            if (payload.notifyUser && res.data?.notificationRequested && !res.data?.notificationSent) {
+                toast.error(t('social.commentHiddenWithoutNotification'), { duration: 5000 });
+            }
+            setHideCommentTarget(null);
+        } catch (err: unknown) {
+            const axiosErr = err as { response?: { data?: { message?: string } } };
+            toast.error(axiosErr.response?.data?.message || t('common.error'));
+        } finally {
+            setHidingComment(false);
         }
     };
 
@@ -370,6 +419,11 @@ export default function SocialPage() {
                             <button className="btn btn-ghost btn-sm" onClick={() => toggleComments(post.id)}>
                                 <MessageCircle size={16} /> {post.commentCount || ''}
                             </button>
+                            {post.authorId !== user?.id && (
+                                <button className="btn btn-ghost btn-sm" onClick={() => openReportPost(post)}>
+                                    <Flag size={16} /> {t('social.reportPost')}
+                                </button>
+                            )}
                         </div>
 
                         {/* Comments */}
@@ -410,7 +464,7 @@ export default function SocialPage() {
                                                 className="btn btn-ghost btn-icon btn-sm"
                                                 style={{ color: 'var(--danger-400)', flexShrink: 0 }}
                                                 title={t('social.hideComment')}
-                                                onClick={() => handleHideComment(post.id, c.id)}
+                                                onClick={() => setHideCommentTarget({ postId: post.id, commentId: c.id, content: c.content, userName: c.userName })}
                                             >
                                                 <EyeOff size={14} />
                                             </button>
@@ -427,6 +481,22 @@ export default function SocialPage() {
             <div ref={observerRef} style={{ height: 40 }} />
             {!loading && posts.length === 0 && <p style={{ textAlign: 'center', color: 'var(--text-tertiary)' }}>{t('social.noPosts')}</p>}
             {!nextCursor && posts.length > 0 && <p style={{ textAlign: 'center', color: 'var(--text-tertiary)', margin: 'var(--sp-4) 0' }}>{t('social.noMore')}</p>}
+
+            <HideCommentModal
+                isOpen={!!hideCommentTarget}
+                commentPreview={hideCommentTarget ? `${hideCommentTarget.userName}: ${hideCommentTarget.content}` : undefined}
+                submitting={hidingComment}
+                onClose={() => !hidingComment && setHideCommentTarget(null)}
+                onConfirm={handleHideComment}
+            />
+
+            <ReportPostModal
+                isOpen={!!reportPostTarget}
+                postPreview={reportPostTarget ? `${reportPostTarget.authorName}: ${reportPostTarget.content}` : undefined}
+                submitting={reportingPost}
+                onClose={() => !reportingPost && setReportPostTarget(null)}
+                onConfirm={handleReportPost}
+            />
         </div>
     );
 }

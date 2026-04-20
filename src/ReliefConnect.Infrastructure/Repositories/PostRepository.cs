@@ -142,8 +142,8 @@ public class PostRepository : IPostRepository
         else if (sort == "recentComment")
         {
             postQuery = postQuery
-                .Where(p => p.Comments!.Any())
-                .OrderByDescending(p => p.Comments!.Max(c => c.CreatedAt))
+                .Where(p => p.Comments!.Any(c => !c.IsHidden))
+                .OrderByDescending(p => p.Comments!.Where(c => !c.IsHidden).Max(c => c.CreatedAt))
                 .ThenByDescending(p => p.Id);
         }
         else
@@ -206,7 +206,7 @@ public class PostRepository : IPostRepository
 
         var commentCounts = await _context.Comments
             .AsNoTracking()
-            .Where(c => postIds.Contains(c.PostId))
+            .Where(c => postIds.Contains(c.PostId) && !c.IsHidden)
             .GroupBy(c => c.PostId)
             .Select(g => new { PostId = g.Key, Count = g.Count() })
             .ToDictionaryAsync(x => x.PostId, x => x.Count);

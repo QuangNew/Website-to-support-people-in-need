@@ -292,8 +292,15 @@ export default function SOSCreationFlow() {
       let conditionImageUrl: string | undefined;
       if (conditionImageFile) {
         setIsUploadingImage(true);
-        const uploadRes = await socialApi.uploadImage(conditionImageFile);
-        conditionImageUrl = uploadRes.data.imageUrl;
+        try {
+          const uploadRes = await socialApi.uploadImage(conditionImageFile);
+          conditionImageUrl = uploadRes.data.imageUrl;
+        } catch {
+          // Image upload failed — still create SOS without the image
+          console.warn('Condition image upload failed, creating SOS without image');
+        } finally {
+          setIsUploadingImage(false);
+        }
       }
 
       await mapApi.createPing({

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   X,
   AlertCircle,
@@ -10,15 +10,14 @@ import {
   MapPin,
   Clock,
   Phone,
-  Package,
   Navigation,
   Loader2,
   Trash2,
   UtensilsCrossed,
   Mail,
-  Camera,
 } from 'lucide-react';
 import { useMapStore, type PingType } from '../../stores/mapStore';
+import { mapBackendPing } from '../../stores/mapStore';
 import { useAuthStore } from '../../stores/authStore';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { getImageUrl, mapApi } from '../../services/api';
@@ -45,16 +44,55 @@ function getSosCategoryConfig(sosCategory?: string) {
 }
 
 export default function PingDetailPanel() {
-  const { selectedPingId, pings, selectPing, fetchRoute, clearRoute, selectRouteIndex, route, isRouting, routeError, removePing } = useMapStore();
+  const { selectedPingId, pings, selectPing, fetchRoute, clearRoute, selectRouteIndex, route, isRouting, routeError, removePing, upsertPing } = useMapStore();
   const { user } = useAuthStore();
   const { t } = useLanguage();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [imgError, setImgError] = useState(false);
 
   const ping = useMemo(
     () => pings.find((p) => p.id === selectedPingId),
     [pings, selectedPingId]
   );
+
+  // Esc key: clear route if shown, otherwise close panel
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (route) {
+          clearRoute();
+        } else if (selectedPingId) {
+          selectPing(null);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [route, clearRoute, selectedPingId, selectPing]);
+
+  useEffect(() => {
+    if (!selectedPingId) {
+      return;
+    }
+    setImgError(false);
+
+    let cancelled = false;
+
+    mapApi.getPingById(Number(selectedPingId))
+      .then((response) => {
+        if (!cancelled) {
+          upsertPing(mapBackendPing(response.data as Record<string, unknown>));
+        }
+      })
+      .catch(() => {
+        // Keep the cached ping snapshot if the detail refresh fails.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedPingId, upsertPing, user?.role]);
 
   if (!ping) return null;
 
@@ -114,10 +152,11 @@ export default function PingDetailPanel() {
 
   return (
     <div className="ping-detail-panel animate-slide-in-up">
+      {/* Header: badges + close */}
       <div className="ping-detail-header">
         <div className="ping-detail-type">
           <span className={`ping-type-badge ${config.colorClass}`}>
-            <Icon size={14} />
+            <Icon size={13} />
             {t(config.label)}
           </span>
           {categoryConfig && (() => {
@@ -127,7 +166,7 @@ export default function PingDetailPanel() {
                 className="ping-type-badge"
                 style={{ background: `${categoryConfig.color}18`, color: categoryConfig.color }}
               >
-                <CategoryIcon size={14} />
+                <CategoryIcon size={13} />
                 {t(categoryConfig.label)}
               </span>
             );
@@ -141,114 +180,77 @@ export default function PingDetailPanel() {
         </button>
       </div>
 
-      <div className="ping-detail-hero">
-        <div className="ping-detail-reporter">
-          <div className="ping-detail-avatar">{initials || 'RC'}</div>
-          <div className="ping-detail-reporter-copy">
-            <span className="ping-detail-eyebrow">{t('ping.reportedBy')}</span>
-            <h3 className="ping-detail-title">{contactName}</h3>
-          </div>
+      {/* Reporter row — compact */}
+      <div className="ping-detail-reporter">
+        <div className="ping-detail-avatar">{initials || 'RC'}</div>
+        <div className="ping-detail-reporter-copy">
+          <span className="ping-detail-eyebrow">{t('ping.reportedBy')}</span>
+          <strong className="ping-detail-name">{contactName}</strong>
         </div>
       </div>
 
-      {/* Highlighted emergency message */}
+      {/* Emergency message — inline */}
       <div className="ping-detail-incident">
-        <div className="ping-detail-incident-icon-box">
-          <AlertCircle size={16} />
-        </div>
-        <div className="ping-detail-incident-content">
-          <span className="ping-detail-incident-label">{t('ping.emergencyMessage')}</span>
-          <p className="ping-detail-incident-text">{incidentSummary}</p>
-        </div>
+        <AlertCircle size={14} className="ping-detail-incident-icon" />
+        <p className="ping-detail-incident-text">{incidentSummary}</p>
       </div>
 
-      {/* Compact location + time row */}
+      {/* Location + time */}
       <div className="ping-detail-info-row">
         <span className="ping-detail-info-item">
-          <MapPin size={13} />
+          <MapPin size={12} />
           {locationLabel}
         </span>
         <span className="ping-detail-info-sep">·</span>
         <span className="ping-detail-info-item">
-          <Clock size={13} />
+          <Clock size={12} />
           {timeAgo}
         </span>
       </div>
 
+      {/* Contact */}
       {hasSensitiveContact && (
-        <div className="ping-detail-card">
-          <div className="ping-detail-card-head">
-            <span className="ping-detail-card-title">
-              <Phone size={14} />
-              {t('ping.contactSectionTitle')}
-            </span>
-            <span className="ping-detail-card-caption">{t('ping.contactSectionResponders')}</span>
-          </div>
-          <div className="ping-contact-grid">
-            {contactPhone && (
-              <a href={`tel:${contactPhone}`} className="ping-contact-item ping-contact-item--link">
-                <Phone size={14} />
-                <div>
-                  <span className="ping-contact-label">{t('ping.contactPhoneLabel')}</span>
-                  <strong>{contactPhone}</strong>
-                </div>
-              </a>
-            )}
-            {contactEmail && (
-              <a href={`mailto:${contactEmail}`} className="ping-contact-item ping-contact-item--link">
-                <Mail size={14} />
-                <div>
-                  <span className="ping-contact-label">{t('ping.contactEmailLabel')}</span>
-                  <strong>{contactEmail}</strong>
-                </div>
-              </a>
-            )}
-          </div>
+        <div className="ping-contact-grid">
+          {contactPhone && (
+            <a href={`tel:${contactPhone}`} className="ping-contact-item">
+              <Phone size={13} />
+              <span>{contactPhone}</span>
+            </a>
+          )}
+          {contactEmail && (
+            <a href={`mailto:${contactEmail}`} className="ping-contact-item">
+              <Mail size={13} />
+              <span>{contactEmail}</span>
+            </a>
+          )}
         </div>
       )}
 
-      {ping.conditionImageUrl && (
-        <div className="ping-detail-card ping-detail-card--visual">
-          <div className="ping-detail-card-head">
-            <span className="ping-detail-card-title">
-              <Camera size={14} />
-              {t('ping.conditionImageLabel')}
-            </span>
-            <span className="ping-detail-card-caption">{t('ping.conditionImageCaption')}</span>
-          </div>
+      {/* Condition image */}
+      {ping.conditionImageUrl && !imgError && (
+        <div className="ping-detail-image-wrapper">
           <img
             src={getImageUrl(ping.conditionImageUrl)}
             alt={t('ping.conditionImageAlt')}
             className="ping-detail-image"
+            loading="lazy"
+            onError={() => setImgError(true)}
           />
+        </div>
+      )}
+      {ping.conditionImageUrl && imgError && (
+        <div className="ping-detail-image-error">
+          <AlertCircle size={20} />
+          <span>{t('ping.imageLoadError') || 'Không thể tải ảnh'}</span>
         </div>
       )}
 
       {/* Items */}
       {ping.items && ping.items.length > 0 && (
-        <div className="ping-detail-card ping-detail-items">
-          <div className="ping-items-header">
-            <Package size={14} />
-            <span>{t('ping.items')}</span>
-          </div>
-          <div className="ping-items-list">
-            {ping.items.map((item, i) => (
-              <span key={i} className="mini-tag">{item}</span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Need help hint when no items specified */}
-      {ping.type === 'need_help' && (!ping.items || ping.items.length === 0) && (
-        <div className="ping-detail-card ping-detail-items">
-          <div className="ping-items-header">
-            <Package size={14} />
-            <span>{t('ping.needsHelp')}</span>
-          </div>
-          <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', margin: 0 }}>
-            {t('ping.needsHelpGeneral')}
-          </p>
+        <div className="ping-items-list">
+          {ping.items.map((item, i) => (
+            <span key={i} className="mini-tag">{item}</span>
+          ))}
         </div>
       )}
 
@@ -270,8 +272,7 @@ export default function PingDetailPanel() {
         const selected = allRoutes[route.selectedIndex] || allRoutes[0];
 
         return (
-          <div className="ping-detail-card ping-route-info">
-            {/* Selected route summary */}
+          <div className="ping-route-info">
             <div className="ping-route-info-row">
               <span className="ping-route-label">{t('ping.distance')}</span>
               <span className="ping-route-value">{selected.info.distanceKm} km</span>
@@ -281,46 +282,17 @@ export default function PingDetailPanel() {
               <span className="ping-route-value">{formatDuration(selected.info.durationMin)}</span>
             </div>
 
-            {/* Route selector (only if multiple routes) */}
             {allRoutes.length > 1 && (
-              <>
-                <p className="ping-route-note">{t('ping.routeCompareHint')}</p>
-                <div className="ping-route-grid">
-                  {allRoutes.map((r) => (
-                    <button
-                      key={r.index}
-                      className={`ping-route-card ${route.selectedIndex === r.index ? 'ping-route-card--active' : ''}`}
-                      onClick={() => selectRouteIndex(r.index)}
-                    >
-                      <div className="ping-route-card-head">
-                        <span className="ping-route-card-title">
-                          <span className="ping-route-dot" style={{ backgroundColor: r.color }} />
-                          {r.label}
-                        </span>
-                        {route.selectedIndex === r.index && (
-                          <span className="mini-tag">{t('ping.selectedRoute')}</span>
-                        )}
-                      </div>
-                      <span className="ping-route-card-stats">
-                        <span>{r.info.distanceKm} km</span>
-                        <span>{formatDuration(r.info.durationMin)}</span>
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
-
-            {allRoutes.length > 1 && (
-              <div className="ping-route-selector">
+              <div className="ping-route-grid">
                 {allRoutes.map((r) => (
                   <button
                     key={r.index}
-                    className={`ping-route-option ${route.selectedIndex === r.index ? 'ping-route-option--active' : ''}`}
+                    className={`ping-route-card ${route.selectedIndex === r.index ? 'ping-route-card--active' : ''}`}
                     onClick={() => selectRouteIndex(r.index)}
                   >
-                    <span className="ping-route-option-label">{r.label}</span>
-                    <span className="ping-route-option-info">{r.info.distanceKm} km · {formatDuration(r.info.durationMin)}</span>
+                    <span className="ping-route-dot" style={{ backgroundColor: r.color }} />
+                    <span className="ping-route-card-label">{r.label}</span>
+                    <span className="ping-route-card-stats">{r.info.distanceKm} km · {formatDuration(r.info.durationMin)}</span>
                   </button>
                 ))}
               </div>
@@ -336,9 +308,7 @@ export default function PingDetailPanel() {
 
       {/* Route error */}
       {routeError && (
-        <div className="ping-route-error">
-          {routeError}
-        </div>
+        <div className="ping-route-error">{routeError}</div>
       )}
 
       {/* CTA Buttons */}
@@ -348,20 +318,14 @@ export default function PingDetailPanel() {
           onClick={handleDirections}
           disabled={isRouting}
         >
-          {isRouting ? <Loader2 size={16} className="animate-spin" /> : <Navigation size={16} />}
+          {isRouting ? <Loader2 size={15} className="animate-spin" /> : <Navigation size={15} />}
           {isRouting ? t('common.loading') : t('ping.directionsTo')}
         </button>
         {hasSensitiveContact && contactPhone && (
           <a href={`tel:${contactPhone}`} className="ping-cta-btn ping-cta-btn--contact">
-            <Phone size={16} />
+            <Phone size={15} />
             {t('ping.contactReporter')}
           </a>
-        )}
-        {ping.type === 'need_help' && ping.status === 'active' && (
-          <button className="ping-cta-btn ping-cta-btn--support">
-            <Gift size={16} />
-            {t('ping.support')}
-          </button>
         )}
       </div>
 

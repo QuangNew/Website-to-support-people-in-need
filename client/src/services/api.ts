@@ -27,11 +27,34 @@ export interface HideCommentRequest {
   notifyUser: boolean;
 }
 
+export const AUTH_EXPIRED_EVENT = 'reliefconnect:auth-expired';
+
+function isPublicAuthRequest(url: string): boolean {
+  return /\/auth\/(login|register|google|forgot-password|reset-password)$/.test(url);
+}
+
+function hasAuthorizationHeader(headers: unknown): boolean {
+  if (!headers || typeof headers !== 'object') return false;
+
+  const headerBag = headers as Record<string, unknown>;
+  return Boolean(headerBag.Authorization ?? headerBag.authorization);
+}
+
+function notifyAuthExpired() {
+  localStorage.removeItem('token');
+  localStorage.removeItem('user');
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
+  }
+}
+
 // Request interceptor: Attach JWT token
 api.interceptors.request.use(
   (config) => {
+    const requestUrl = String(config.url ?? '');
     const token = localStorage.getItem('token');
-    if (token) {
+    if (token && !isPublicAuthRequest(requestUrl)) {
       config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
@@ -43,14 +66,13 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
-      // Only clear token if there is no token at all (truly unauthenticated).
-      // If a token exists but got 401, it means the role/claim check failed —
-      // keep the token so other non-protected requests still work.
-      const token = localStorage.getItem('token');
-      if (!token) {
-        localStorage.removeItem('user');
-      }
+    const requestUrl = String(error.config?.url ?? '');
+    if (
+      error.response?.status === 401
+      && hasAuthorizationHeader(error.config?.headers)
+      && !isPublicAuthRequest(requestUrl)
+    ) {
+      notifyAuthExpired();
     }
     return Promise.reject(error);
   }
@@ -105,8 +127,19 @@ export const authApi = {
 //  MAP API
 // ═══════════════════════════════════════════
 export const mapApi = {
-  getPings: (params?: { lat?: number; lng?: number; radius?: number }) =>
-    api.get('/map/pings', { params }),
+  getPings: (params?: { lat?: number; lng?: number; radius?: number; radiusKm?: number }) => {
+    if (!params) {
+      return api.get('/map/pings');
+    }
+
+    const { radius, radiusKm, ...rest } = params;
+    return api.get('/map/pings', {
+      params: {
+        ...rest,
+        ...(radiusKm ?? radius) !== undefined ? { radiusKm: radiusKm ?? radius } : {},
+      },
+    });
+  },
 
   getPingById: (id: number) =>
     api.get(`/map/pings/${id}`),
@@ -197,6 +230,9 @@ export const socialApi = {
 
   createPost: (data: { content: string; category: string; imageUrl?: string }) =>
     api.post('/social/posts', data),
+
+  reportPost: (postId: number, data: { reason: string }) =>
+    api.post(`/social/posts/${postId}/reports`, data),
 
   addReaction: (postId: number, data: { type: string }) =>
     api.post(`/social/posts/${postId}/reactions`, data),
@@ -383,6 +419,26 @@ export const volunteerApi = {
 
   getActiveTasks: () =>
     api.get('/volunteer/active-tasks'),
+
+  completeTask: (pingId: number, data: { completionNotes?: string }) =>
+    api.post(`/volunteer/tasks/${pingId}/complete`, data),
+
+  getTaskHistory: () =>
+    api.get('/volunteer/tasks/history'),
+
+  getStats: () =>
+    api.get('/volunteer/stats'),
+};
+
+// ═══════════════════════════════════════════
+//  PERSON IN NEED API
+// ═══════════════════════════════════════════
+export const personInNeedApi = {
+  getOffers: () =>
+    api.get('/person-in-need/offers'),
+
+  respondToOffer: (offerId: number, data: { decision: 'Accepted' | 'Declined' }) =>
+    api.post(`/person-in-need/offers/${offerId}/respond`, data),
 };
 
 // ═══════════════════════════════════════════
@@ -394,6 +450,12 @@ export const sponsorApi = {
 
   offerHelp: (data: { pingId: number; message?: string }) =>
     api.post('/sponsor/offer-help', data),
+
+  getOffers: () =>
+    api.get('/sponsor/offers'),
+
+  getImpact: () =>
+    api.get('/sponsor/impact'),
 };
 
 // ═══════════════════════════════════════════

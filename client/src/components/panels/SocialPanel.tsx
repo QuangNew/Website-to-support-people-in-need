@@ -11,12 +11,14 @@ import {
   ImagePlus,
   X,
   EyeOff,
+  Flag,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '../../stores/authStore';
 import { useMapStore } from '../../stores/mapStore';
 import { useLanguage } from '../../contexts/LanguageContext';
 import HideCommentModal from '../ui/HideCommentModal';
+import ReportPostModal from '../ui/ReportPostModal';
 import { socialApi, getImageUrl, type HideCommentRequest } from '../../services/api';
 
 interface PostDto {
@@ -49,6 +51,12 @@ interface HideCommentTarget {
   commentId: number;
   content: string;
   userName: string;
+}
+
+interface ReportPostTarget {
+  postId: number;
+  content: string;
+  authorName: string;
 }
 
 const CATEGORIES = ['Livelihood', 'Medical', 'Education'] as const;
@@ -88,6 +96,8 @@ export default function SocialPanel() {
   const [loadingComments, setLoadingComments] = useState<Record<number, boolean>>({});
   const [hideCommentTarget, setHideCommentTarget] = useState<HideCommentTarget | null>(null);
   const [hidingComment, setHidingComment] = useState(false);
+  const [reportPostTarget, setReportPostTarget] = useState<ReportPostTarget | null>(null);
+  const [reportingPost, setReportingPost] = useState(false);
   const observerRef = useRef<HTMLDivElement>(null);
   const inflightRef = useRef(false); // Track inflight requests to prevent race conditions
 
@@ -251,6 +261,31 @@ export default function SocialPanel() {
     } catch { /* ignore */ }
   };
 
+  const openReportPost = (post: PostDto) => {
+    if (!isAuthenticated) {
+      setAuthModal('login');
+      return;
+    }
+
+    setReportPostTarget({ postId: post.id, content: post.content, authorName: post.authorName });
+  };
+
+  const handleReportPost = async (reason: string) => {
+    if (!reportPostTarget) return;
+
+    setReportingPost(true);
+    try {
+      const res = await socialApi.reportPost(reportPostTarget.postId, { reason });
+      toast.success(res.data?.message || t('social.reportSubmitted'));
+      setReportPostTarget(null);
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { message?: string } } };
+      toast.error(axiosErr.response?.data?.message || t('common.error'));
+    } finally {
+      setReportingPost(false);
+    }
+  };
+
   const handleHideComment = async (payload: HideCommentRequest) => {
     if (!hideCommentTarget) return;
 
@@ -400,6 +435,12 @@ export default function SocialPanel() {
                 <span>{post.commentCount || ''}</span>
                 <ChevronDown size={12} style={{ transform: expandedComments[post.id] ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
               </button>
+              {post.authorId !== user?.id && (
+                <button className="social-action-btn" onClick={() => openReportPost(post)}>
+                  <Flag size={15} />
+                  <span>{t('social.reportPost')}</span>
+                </button>
+              )}
             </div>
 
             {/* Comments */}
@@ -476,6 +517,14 @@ export default function SocialPanel() {
         submitting={hidingComment}
         onClose={() => !hidingComment && setHideCommentTarget(null)}
         onConfirm={handleHideComment}
+      />
+
+      <ReportPostModal
+        isOpen={!!reportPostTarget}
+        postPreview={reportPostTarget ? `${reportPostTarget.authorName}: ${reportPostTarget.content}` : undefined}
+        submitting={reportingPost}
+        onClose={() => !reportingPost && setReportPostTarget(null)}
+        onConfirm={handleReportPost}
       />
     </div>
   );

@@ -20,7 +20,6 @@ import ForgotPasswordModal from '../auth/ForgotPasswordModal';
 import ResetPasswordModal from '../auth/ResetPasswordModal';
 import WelcomeModal from '../auth/WelcomeModal';
 import { useMapStore, type PanelType } from '../../stores/mapStore';
-import { useAuthStore } from '../../stores/authStore';
 
 const PANEL_COMPONENTS: Record<NonNullable<PanelType>, React.FC> = {
   list: ListPanel,
@@ -36,16 +35,10 @@ const PANEL_COMPONENTS: Record<NonNullable<PanelType>, React.FC> = {
 
 export default function MapShell() {
   const { activePanel, setActivePanel, sidebarExpanded, fetchPings, fetchZones } = useMapStore();
-  const { loadUser, isAuthenticated, token } = useAuthStore();
 
-  // Load user on mount if token exists
-  useEffect(() => {
-    if (token && !isAuthenticated) {
-      loadUser().catch(() => {});
-    }
-  }, [token, isAuthenticated, loadUser]);
-
-  // Fetch real pings + zones from backend (falls back to mock data)
+  // Fetch all recent pings + zones on mount
+  // Initial fetchPings() loads 500 most recent (no bounds) for full overview;
+  // MapView then uses fetchPingsInBounds() on pan/zoom for spatial filtering.
   useEffect(() => {
     fetchPings();
     fetchZones();

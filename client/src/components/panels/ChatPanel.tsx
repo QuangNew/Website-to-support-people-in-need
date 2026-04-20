@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Send, Bot, User, Sparkles, LogIn, AlertTriangle, RotateCcw, MessageSquare, ImagePlus, X, ImageOff } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useAuthStore } from '../../stores/authStore';
 import { useMapStore } from '../../stores/mapStore';
@@ -72,12 +73,15 @@ export default function ChatPanel() {
 
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [pendingImage, setPendingImage] = useState<{ dataUrl: string; base64: string; mimeType: string } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevUserIdRef = useRef<string | null>(user?.id ?? null);
+  const hydratedConversationIdRef = useRef<number | null>(null);
+  const hydratingConversationIdRef = useRef<number | null>(null);
 
   // Clear chat when user changes (logout or switch account)
   useEffect(() => {
@@ -90,6 +94,7 @@ export default function ChatPanel() {
       setMessages([getWelcomeMessage()]);
       setConversationId(null);
       setInput('');
+      setPendingImage(null);
       prevUserIdRef.current = currentUserId;
     }
   }, [user?.id, getWelcomeMessage]);
@@ -122,6 +127,74 @@ export default function ChatPanel() {
     }
   }, [conversationId]);
 
+  useEffect(() => {
+    if (!isAuthenticated || conversationId === null) {
+      if (conversationId === null) {
+        hydratedConversationIdRef.current = null;
+        hydratingConversationIdRef.current = null;
+      }
+      return;
+    }
+
+    if (
+      hydratedConversationIdRef.current === conversationId
+      || hydratingConversationIdRef.current === conversationId
+      || messages.length > 1
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    hydratingConversationIdRef.current = conversationId;
+    setIsLoadingHistory(true);
+
+    chatbotApi.getMessages(conversationId)
+      .then((response) => {
+        if (cancelled) {
+          return;
+        }
+
+        const historyMessages = ((response.data as Array<Record<string, unknown>> | undefined) ?? []).map((message) => ({
+          id: Number(message.id ?? message.Id ?? Date.now()),
+          role: Boolean(message.isBotMessage ?? message.IsBotMessage) ? 'assistant' as const : 'user' as const,
+          content: String(message.content ?? message.Content ?? ''),
+          timestamp: String(message.sentAt ?? message.SentAt ?? new Date().toISOString()),
+          hasSafetyWarning: Boolean(message.hasSafetyWarning ?? message.HasSafetyWarning),
+        }));
+
+        hydratedConversationIdRef.current = conversationId;
+        setMessages(historyMessages.length > 0 ? historyMessages : [getWelcomeMessage()]);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) {
+          return;
+        }
+
+        const axiosErr = err as { response?: { status?: number } };
+        if (axiosErr?.response?.status === 404) {
+          localStorage.removeItem(CHAT_CONV_KEY);
+          setConversationId(null);
+          setMessages([getWelcomeMessage()]);
+        }
+      })
+      .finally(() => {
+        if (hydratingConversationIdRef.current === conversationId) {
+          hydratingConversationIdRef.current = null;
+        }
+
+        if (!cancelled) {
+          setIsLoadingHistory(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      if (hydratingConversationIdRef.current === conversationId) {
+        hydratingConversationIdRef.current = null;
+      }
+    };
+  }, [conversationId, getWelcomeMessage, isAuthenticated, messages.length]);
+
   // New chat handler
   const handleNewChat = () => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -129,11 +202,13 @@ export default function ChatPanel() {
     localStorage.removeItem(CHAT_CONV_KEY);
     setMessages([getWelcomeMessage()]);
     setConversationId(null);
+    setInput('');
+    setPendingImage(null);
   };
 
   // Create conversation on first authenticated message
-  const ensureConversation = async (): Promise<number | null> => {
-    if (conversationId) return conversationId;
+  const ensureConversation = async (forceNew = false): Promise<number | null> => {
+    if (!forceNew && conversationId) return conversationId;
     if (!isAuthenticated) return null;
     try {
       const res = await chatbotApi.createConversation();
@@ -150,12 +225,12 @@ export default function ChatPanel() {
     const file = e.target.files?.[0];
     if (!file) return;
     if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
-      alert(locale === 'vi' ? 'Chỉ hỗ trợ JPEG, PNG, WebP.' : 'Only JPEG, PNG, WebP supported.');
+      toast.error(t('chat.invalidImageType'));
       e.target.value = '';
       return;
     }
     if (file.size > MAX_IMAGE_SIZE) {
-      alert(locale === 'vi' ? 'Ảnh quá lớn (tối đa 4 MB).' : 'Image too large (max 4 MB).');
+      toast.error(t('chat.imageTooLarge'));
       e.target.value = '';
       return;
     }
@@ -221,7 +296,7 @@ export default function ChatPanel() {
         if (sendErr?.response?.status === 404) {
           setConversationId(null);
           localStorage.removeItem(CHAT_CONV_KEY);
-          convId = await ensureConversation();
+          convId = await ensureConversation(true);
           if (!convId) throw new Error(t('chat.errorCreateConversation'));
           res = await chatbotApi.sendMessage(convId, sendData);
         } else {
@@ -299,7 +374,7 @@ export default function ChatPanel() {
 
       {/* Messages */}
       <div className="chat-panel-messages">
-        {messages.length <= 1 && (
+        {messages.length <= 1 && !isLoadingHistory && (
           <div className="chat-panel-empty">
             <div className="chat-panel-empty-icon">
               <MessageSquare size={32} />

@@ -149,6 +149,59 @@ public class PostController : ControllerBase
         return CreatedAtAction(nameof(GetPost), new { id = created.Id }, MapToDto(full!, userId));
     }
 
+    [Authorize]
+    [HttpPost("posts/{postId}/reports")]
+    public async Task<IActionResult> ReportPost(int postId, [FromBody] ReportPostDto dto)
+    {
+        var userId = GetUserId();
+        if (userId == null) return Unauthorized();
+
+        var reason = dto.Reason?.Trim();
+        if (string.IsNullOrWhiteSpace(reason))
+            return BadRequest(new { message = "Vui lòng nhập lý do báo cáo." });
+
+        var post = await _db.Posts
+            .AsNoTracking()
+            .Where(p => p.Id == postId && !p.IsDeleted)
+            .Select(p => new { p.AuthorId })
+            .FirstOrDefaultAsync();
+
+        if (post == null)
+            return NotFound(new { message = "Bài viết không tồn tại." });
+
+        if (post.AuthorId == userId)
+            return BadRequest(new { message = "Bạn không thể báo cáo bài viết của chính mình." });
+
+        var hasPendingReport = await _db.Reports
+            .AsNoTracking()
+            .AnyAsync(r => r.PostId == postId && r.ReporterId == userId && r.Status == ReportStatus.Pending);
+
+        if (hasPendingReport)
+            return Conflict(new { message = "Bạn đã báo cáo bài viết này và đang chờ xử lý." });
+
+        _db.Reports.Add(new Report
+        {
+            PostId = postId,
+            ReporterId = userId,
+            Reason = reason,
+            Status = ReportStatus.Pending,
+            CreatedAt = DateTime.UtcNow,
+        });
+
+        await _db.SaveChangesAsync();
+
+        try
+        {
+            await _notifications.SendToRoleAsync((int)RoleEnum.Admin, $"Có báo cáo mới cho bài viết #{postId}.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to send admin report notification for post {PostId}", postId);
+        }
+
+        return Ok(new { message = "Đã gửi báo cáo để quản trị viên xem xét." });
+    }
+
     // POST /api/social/posts/{postId}/reactions
     [Authorize]
     [HttpPost("posts/{postId}/reactions")]
@@ -170,6 +223,7 @@ public class PostController : ControllerBase
         for (int attempt = 0; attempt < 2; attempt++)
         {
             var existing = await _db.Reactions
+                .AsTracking()
                 .FirstOrDefaultAsync(r => r.PostId == postId && r.UserId == userId);
 
             if (existing != null)
@@ -306,7 +360,6 @@ public class PostController : ControllerBase
                 IsAutoDetected = true,
                 CreatedAt = DateTime.UtcNow
             };
-            _db.ContentViolations.Add(violation);
 
             // Create warning notification
             string warningMessage;
@@ -329,9 +382,8 @@ public class PostController : ControllerBase
             // with batched INSERT ... RETURNING commands.
             await _db.SaveChangesAsync();
 
-            await _db.Database.ExecuteSqlInterpolatedAsync(
-                $@"INSERT INTO ""ContentViolations"" (""CommentId"", ""Content"", ""CreatedAt"", ""IsAutoDetected"", ""Reason"", ""StrikeNumber"", ""UserId"")
-                   VALUES ({(int?)null}, {dto.Content}, {violation.CreatedAt}, {true}, {violationReason}, {user.ViolationCount}, {userId})");
+            _db.ContentViolations.Add(violation);
+            await _db.SaveChangesAsync();
 
             await _notifications.SendAsync(userId, warningMessage);
 
@@ -392,6 +444,7 @@ public class PostController : ControllerBase
         if (userId == null) return Unauthorized();
 
         var post = await _db.Posts
+            .AsTracking()
             .Where(p => p.Id == id && !p.IsDeleted)
             .FirstOrDefaultAsync();
 

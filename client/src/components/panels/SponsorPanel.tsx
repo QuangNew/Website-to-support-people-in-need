@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
   Heart,
+  BarChart3,
   Clock,
   Inbox,
   MapPin,
@@ -11,6 +12,7 @@ import {
   X,
   Package,
   Plus,
+  Users,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { sponsorApi, supplyApi } from '../../services/api';
@@ -36,7 +38,27 @@ interface SocialCase {
   authorName: string | null;
 }
 
-type TabType = 'sos' | 'posts' | 'supply';
+interface SponsorOffer {
+  id: number;
+  targetUserId: string;
+  targetUserName: string;
+  pingId?: number | null;
+  pingStatus?: string | null;
+  pingDetails?: string | null;
+  message: string;
+  status: string;
+  createdAt: string;
+}
+
+interface SponsorImpact {
+  totalOffers: number;
+  pendingOffers: number;
+  acceptedOffers: number;
+  declinedOffers: number;
+  supportedPeople: number;
+}
+
+type TabType = 'sos' | 'posts' | 'offers' | 'supply';
 
 interface SupplyItem {
   id: number;
@@ -56,6 +78,14 @@ interface SupplyForm {
 
 const emptySupplyForm: SupplyForm = { name: '', quantity: 0, lat: 0, lng: 0 };
 
+const emptyImpact: SponsorImpact = {
+  totalOffers: 0,
+  pendingOffers: 0,
+  acceptedOffers: 0,
+  declinedOffers: 0,
+  supportedPeople: 0,
+};
+
 export default function SponsorPanel() {
   const { selectPing, setActivePanel, setFlyTo } = useMapStore();
   const { t } = useLanguage();
@@ -63,7 +93,10 @@ export default function SponsorPanel() {
   const [tab, setTab] = useState<TabType>('sos');
   const [sosCases, setSOSCases] = useState<SOSCase[]>([]);
   const [socialCases, setSocialCases] = useState<SocialCase[]>([]);
+  const [offers, setOffers] = useState<SponsorOffer[]>([]);
+  const [impact, setImpact] = useState<SponsorImpact>(emptyImpact);
   const [loading, setLoading] = useState(true);
+  const [offersLoading, setOffersLoading] = useState(true);
   const [category, setCategory] = useState('');
   const [status, setStatus] = useState('');
 
@@ -103,19 +136,42 @@ export default function SponsorPanel() {
     fetchCases();
   }, [fetchCases]);
 
+  const fetchOfferData = useCallback(async () => {
+    setOffersLoading(true);
+    try {
+      const [offersRes, impactRes] = await Promise.all([
+        sponsorApi.getOffers(),
+        sponsorApi.getImpact(),
+      ]);
+      setOffers((offersRes.data as SponsorOffer[]) ?? []);
+      setImpact((impactRes.data as SponsorImpact) ?? emptyImpact);
+    } catch {
+      // Silent fail
+    } finally {
+      setOffersLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void fetchOfferData();
+  }, [fetchOfferData]);
+
   const handleOfferHelp = async () => {
     if (!offerTarget) return;
     try {
       setOffering(true);
       await sponsorApi.offerHelp({ pingId: offerTarget.id, message: offerMessage || undefined });
+      toast.success(t('sponsorPanel.offerSent'));
+      void fetchOfferData();
       setOfferSent(true);
       setTimeout(() => {
         setOfferTarget(null);
         setOfferMessage('');
         setOfferSent(false);
       }, 1500);
-    } catch {
-      // Silent fail
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { message?: string } } };
+      toast.error(axiosErr.response?.data?.message || t('common.error'));
     } finally {
       setOffering(false);
     }
@@ -208,10 +264,46 @@ export default function SponsorPanel() {
     setActivePanel(null);
   };
 
+  const impactCards = [
+    { key: 'totalOffers', icon: Heart, value: impact.totalOffers, label: t('sponsorPanel.metricTotalOffers'), color: 'var(--warning-500)' },
+    { key: 'pendingOffers', icon: Clock, value: impact.pendingOffers, label: t('sponsorPanel.metricPendingOffers'), color: 'var(--primary-500)' },
+    { key: 'acceptedOffers', icon: BarChart3, value: impact.acceptedOffers, label: t('sponsorPanel.metricAcceptedOffers'), color: 'var(--success-500)' },
+    { key: 'supportedPeople', icon: Users, value: impact.supportedPeople, label: t('sponsorPanel.metricSupportedPeople'), color: 'var(--accent-500)' },
+  ];
+
   return (
     <div className="panel-content">
       <div className="panel-header">
         <h2 className="panel-title">{t('sponsorPanel.title')}</h2>
+      </div>
+
+      <div style={{ padding: '0 1rem', marginBottom: '0.75rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
+          <BarChart3 size={14} />
+          <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>{t('sponsorPanel.impactTitle')}</span>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '0.5rem' }}>
+          {impactCards.map((card) => {
+            const Icon = card.icon;
+            return (
+              <div
+                key={card.key}
+                style={{
+                  border: '1px solid var(--border)',
+                  borderRadius: '10px',
+                  padding: '0.75rem',
+                  background: 'var(--surface)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>{card.label}</span>
+                  <Icon size={14} style={{ color: card.color }} />
+                </div>
+                <div style={{ fontSize: '1.2rem', fontWeight: 700 }}>{card.value}</div>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {/* Filters */}
@@ -255,10 +347,16 @@ export default function SponsorPanel() {
           <MessageSquare size={14} /> {t('sponsorPanel.tabPosts')} ({socialCases.length})
         </button>
         <button
+          className={`btn btn-sm ${tab === 'offers' ? 'btn-primary' : 'btn-ghost'}`}
+          onClick={() => setTab('offers')}
+        >
+          <Heart size={14} /> {t('sponsorPanel.tabOffers')} ({offers.length})
+        </button>
+        <button
           className={`btn btn-sm ${tab === 'supply' ? 'btn-primary' : 'btn-ghost'}`}
           onClick={() => setTab('supply')}
         >
-          <Package size={14} /> {t('sponsorPanel.tabSupply') || 'Supply'}
+          <Package size={14} /> {t('sponsorPanel.tabSupply')}
         </button>
       </div>
 
@@ -309,12 +407,14 @@ export default function SponsorPanel() {
                   >
                     <MapPin size={14} /> {t('mySos.viewOnMap')}
                   </button>
-                  <button
-                    className="btn btn-sm btn-warning"
-                    onClick={() => setOfferTarget(c)}
-                  >
-                    <Heart size={14} /> {t('sponsorPanel.offerHelp')}
-                  </button>
+                  {(c.status === 'Pending' || c.status === 'InProgress') && (
+                    <button
+                      className="btn btn-sm btn-warning"
+                      onClick={() => setOfferTarget(c)}
+                    >
+                      <Heart size={14} /> {t('sponsorPanel.offerHelp')}
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
@@ -354,12 +454,58 @@ export default function SponsorPanel() {
             ))}
           </div>
         )
+      ) : tab === 'offers' ? (
+        offersLoading ? (
+          <div className="empty-state">
+            <Loader2 size={32} className="animate-spin" />
+          </div>
+        ) : offers.length === 0 ? (
+          <div className="empty-state">
+            <Heart size={48} strokeWidth={1.5} />
+            <p>{t('sponsorPanel.noOfferHistory')}</p>
+          </div>
+        ) : (
+          <div className="panel-list">
+            {offers.map((offer) => (
+              <div key={offer.id} className="list-item" style={{ cursor: 'default', flexDirection: 'column', alignItems: 'stretch', gap: '0.5rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  <div className="list-item-icon" style={{ color: 'var(--warning-500)', backgroundColor: 'var(--warning-500)15' }}>
+                    <Heart size={18} />
+                  </div>
+                  <div className="list-item-content" style={{ flex: 1 }}>
+                    <h4 className="list-item-title">
+                      {offer.targetUserName}
+                      <span className="mini-tag" style={{ marginLeft: '0.5rem' }}>{getOfferStatusLabel(offer.status, t)}</span>
+                    </h4>
+                    <p className="list-item-subtitle" style={{ margin: 0 }}>
+                      {offer.pingId ? `SOS #${offer.pingId}` : t('sponsorPanel.generalOffer')}
+                      {offer.pingStatus ? ` • ${getCaseStatusLabel(offer.pingStatus, t)}` : ''}
+                    </p>
+                  </div>
+                  <span className="list-item-time">
+                    <Clock size={12} /> {getShortTime(offer.createdAt)}
+                  </span>
+                </div>
+
+                {offer.pingDetails && (
+                  <p className="list-item-subtitle" style={{ margin: 0, paddingLeft: '2.75rem' }}>
+                    {offer.pingDetails}
+                  </p>
+                )}
+
+                <div style={{ paddingLeft: '2.75rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                  <strong>{t('sponsorPanel.offerMessageLabel')}:</strong> {offer.message}
+                </div>
+              </div>
+            ))}
+          </div>
+        )
       ) : /* tab === 'supply' */ (
         <div style={{ padding: '0 1rem' }}>
           {/* Create button */}
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.75rem' }}>
             <button className="btn btn-sm btn-primary" onClick={openCreateSupply}>
-              <Plus size={14} /> {t('sponsorPanel.newSupply') || 'New Supply'}
+              <Plus size={14} /> {t('sponsorPanel.newSupply')}
             </button>
           </div>
 
@@ -582,4 +728,23 @@ function getShortTime(dateStr: string): string {
   if (diffH < 24) return `${diffH}h`;
   const diffD = Math.floor(diffH / 24);
   return `${diffD}d`;
+}
+
+function getCaseStatusLabel(status: string, t: (key: string) => string): string {
+  const labels: Record<string, string> = {
+    Pending: t('mySos.statusPending'),
+    InProgress: t('mySos.statusInProgress'),
+    Resolved: t('mySos.statusResolved'),
+    VerifiedSafe: t('mySos.statusVerifiedSafe'),
+  };
+  return labels[status] ?? status;
+}
+
+function getOfferStatusLabel(status: string, t: (key: string) => string): string {
+  const labels: Record<string, string> = {
+    Pending: t('mySos.statusPending'),
+    Accepted: t('sponsorPanel.offerAccepted'),
+    Declined: t('sponsorPanel.offerDeclined'),
+  };
+  return labels[status] ?? status;
 }

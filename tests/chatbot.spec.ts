@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 const API_URL = 'http://127.0.0.1:5164/api';
+const UI_BASE_URL = process.env.UI_BASE_URL ?? 'http://127.0.0.1:5173';
 
 test.describe('Chatbot', () => {
   test('API: Create conversation requires auth', async ({ request }) => {
@@ -39,15 +40,13 @@ test.describe('Chatbot', () => {
   });
 
   test('UI: Chat panel shows on sidebar click', async ({ page }) => {
-    await page.goto('/');
+    await page.goto(UI_BASE_URL);
     await expect(page.locator('.leaflet-container')).toBeVisible({ timeout: 10000 });
-    // Find chat button in sidebar
-    const chatBtn = page.locator('button, a').filter({ hasText: /chatbot|chat/i }).first();
+    const chatBtn = page.locator('.sidebar button[title="AI Chatbot"], .sidebar button:has-text("AI Chatbot")').first();
     if (await chatBtn.isVisible()) {
       await chatBtn.click();
       await expect(page.locator('.chat-panel').first()).toBeVisible({ timeout: 5000 });
-      // Welcome message should be present
-      await expect(page.locator('.chat-message-assistant').first()).toBeVisible();
+      await expect(page.locator('.chat-panel-msg--assistant').first()).toBeVisible();
     }
   });
 });

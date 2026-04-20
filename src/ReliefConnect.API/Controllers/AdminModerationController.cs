@@ -99,7 +99,9 @@ public class AdminModerationController : ControllerBase
     [HttpPost("posts/{postId}/pin")]
     public async Task<ActionResult> TogglePinPost(int postId)
     {
-        var post = await _db.Posts.FirstOrDefaultAsync(p => p.Id == postId);
+        var post = await _db.Posts
+            .AsTracking()
+            .FirstOrDefaultAsync(p => p.Id == postId);
         if (post == null)
             return NotFound(new ApiErrorResponse { StatusCode = 404, Message = "Bài viết không tồn tại." });
 
@@ -124,6 +126,7 @@ public class AdminModerationController : ControllerBase
     public async Task<ActionResult> DeletePost(int postId)
     {
         var post = await _db.Posts
+            .AsTracking()
             .Where(p => p.Id == postId && !p.IsDeleted)
             .Include(p => p.Author)
             .FirstOrDefaultAsync();
@@ -156,6 +159,7 @@ public class AdminModerationController : ControllerBase
     public async Task<ActionResult> RestorePost(int postId)
     {
         var post = await _db.Posts
+            .AsTracking()
             .Where(p => p.Id == postId && p.IsDeleted)
             .FirstOrDefaultAsync();
 
@@ -288,6 +292,7 @@ public class AdminModerationController : ControllerBase
             return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Lý do ẩn bình luận không được vượt quá 500 ký tự." });
 
         var comment = await _db.Comments
+            .AsTracking()
             .Where(c => c.Id == commentId && c.PostId == postId && !c.IsHidden)
             .Include(c => c.User)
             .FirstOrDefaultAsync();
@@ -355,6 +360,7 @@ public class AdminModerationController : ControllerBase
     public async Task<ActionResult> RestoreComment(int postId, int commentId)
     {
         var comment = await _db.Comments
+            .AsTracking()
             .Where(c => c.Id == commentId && c.PostId == postId && c.IsHidden)
             .FirstOrDefaultAsync();
 
@@ -388,7 +394,7 @@ public class AdminModerationController : ControllerBase
 
         var query = _db.Comments
             .AsNoTracking()
-            .Where(c => c.IsHidden);
+            .Where(c => c.IsHidden && (!c.HiddenUntil.HasValue || c.HiddenUntil > now));
 
         var total = await query.CountAsync();
         var comments = await query
@@ -491,7 +497,9 @@ public class AdminModerationController : ControllerBase
     [HttpPost("reports/{reportId}/review")]
     public async Task<ActionResult> ReviewReport(int reportId)
     {
-        var report = await _db.Reports.FirstOrDefaultAsync(r => r.Id == reportId);
+        var report = await _db.Reports
+            .AsTracking()
+            .FirstOrDefaultAsync(r => r.Id == reportId);
         if (report == null)
             return NotFound(new ApiErrorResponse { StatusCode = 404, Message = "Báo cáo không tồn tại." });
 
@@ -510,7 +518,9 @@ public class AdminModerationController : ControllerBase
     [HttpPost("reports/{reportId}/dismiss")]
     public async Task<ActionResult> DismissReport(int reportId)
     {
-        var report = await _db.Reports.FirstOrDefaultAsync(r => r.Id == reportId);
+        var report = await _db.Reports
+            .AsTracking()
+            .FirstOrDefaultAsync(r => r.Id == reportId);
         if (report == null)
             return NotFound(new ApiErrorResponse { StatusCode = 404, Message = "Báo cáo không tồn tại." });
 

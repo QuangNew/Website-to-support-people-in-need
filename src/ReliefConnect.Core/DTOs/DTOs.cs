@@ -488,7 +488,7 @@ public class AdminUserDetailDto : AdminUserDto
 public class CompleteTaskDto
 {
     [StringLength(1000)]
-    public string? Notes { get; set; }
+    public string? CompletionNotes { get; set; }
 }
 
 /// <summary>Paginated response with total count and page metadata.</summary>
@@ -579,6 +579,47 @@ public class OfferHelpDto
     public string? Message { get; set; }
 }
 
+public class SponsorOfferHistoryDto
+{
+    public int Id { get; set; }
+    public string TargetUserId { get; set; } = string.Empty;
+    public string TargetUserName { get; set; } = string.Empty;
+    public int? PingId { get; set; }
+    public string? PingStatus { get; set; }
+    public string? PingDetails { get; set; }
+    public string Message { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; }
+}
+
+public class SponsorImpactDto
+{
+    public int TotalOffers { get; set; }
+    public int PendingOffers { get; set; }
+    public int AcceptedOffers { get; set; }
+    public int DeclinedOffers { get; set; }
+    public int SupportedPeople { get; set; }
+}
+
+public class IncomingHelpOfferDto
+{
+    public int Id { get; set; }
+    public string SponsorId { get; set; } = string.Empty;
+    public string SponsorName { get; set; } = string.Empty;
+    public int? PingId { get; set; }
+    public string? PingStatus { get; set; }
+    public string? PingDetails { get; set; }
+    public string Message { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; }
+}
+
+public class RespondHelpOfferDto
+{
+    [Required]
+    public string Decision { get; set; } = string.Empty;
+}
+
 // ═══════════════════════════════════════════
 //  VOLUNTEER DTOs
 // ═══════════════════════════════════════════
@@ -587,6 +628,28 @@ public class AcceptTaskDto
 {
     [Required]
     public int PingId { get; set; }
+}
+
+public class VolunteerTaskDto
+{
+    public int Id { get; set; }
+    public double Lat { get; set; }
+    public double Lng { get; set; }
+    public string? Details { get; set; }
+    public int PriorityLevel { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public string? UserName { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public string? CompletionNotes { get; set; }
+}
+
+public class VolunteerStatsDto
+{
+    public int TotalAcceptedTasks { get; set; }
+    public int ActiveTasks { get; set; }
+    public int CompletedTasks { get; set; }
+    public int VerifiedSafeTasks { get; set; }
+    public int HighPriorityActiveTasks { get; set; }
 }
 
 // ═══════════════════════════════════════════
