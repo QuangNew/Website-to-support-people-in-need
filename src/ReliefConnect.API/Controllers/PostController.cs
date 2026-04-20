@@ -22,8 +22,9 @@ public class PostController : ControllerBase
     private readonly ILogger<PostController> _logger;
     private readonly IContentModerationService _moderation;
     private readonly INotificationService _notifications;
+    private readonly ISpamGuardService _spamGuard;
 
-    public PostController(IPostRepository postRepo, AppDbContext db, HtmlSanitizer sanitizer, ILogger<PostController> logger, IContentModerationService moderation, INotificationService notifications)
+    public PostController(IPostRepository postRepo, AppDbContext db, HtmlSanitizer sanitizer, ILogger<PostController> logger, IContentModerationService moderation, INotificationService notifications, ISpamGuardService spamGuard)
     {
         _postRepo = postRepo;
         _db = db;
@@ -31,6 +32,7 @@ public class PostController : ControllerBase
         _logger = logger;
         _moderation = moderation;
         _notifications = notifications;
+        _spamGuard = spamGuard;
     }
 
     private string? GetUserId() => User.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -123,6 +125,14 @@ public class PostController : ControllerBase
         var userId = GetUserId();
         if (userId == null) return Unauthorized();
 
+        // ── Spam Guard ──
+        var spamCheck = await _spamGuard.CheckPostAsync(userId);
+        if (spamCheck.Verdict == SpamVerdict.Suspend)
+        {
+            await _spamGuard.SuspendForSpamAsync(userId, "Đăng bài quá nhiều (>5 bài/giờ)");
+            return StatusCode(429, new { message = "Tài khoản của bạn đã bị tạm khóa do đăng bài quá nhiều.", suspended = true });
+        }
+
         if (!Enum.TryParse<PostCategory>(dto.Category, true, out var category))
             return BadRequest(new { message = "Danh mục không hợp lệ. Chọn: Livelihood, Medical, Education" });
 
@@ -146,7 +156,13 @@ public class PostController : ControllerBase
 
         var created = await _postRepo.AddAsync(post);
         var full = await _postRepo.GetPostWithDetailsAsync(created.Id);
-        return CreatedAtAction(nameof(GetPost), new { id = created.Id }, MapToDto(full!, userId));
+        var response = MapToDto(full!, userId);
+
+        // Attach spam warning if approaching limit
+        if (spamCheck.Verdict == SpamVerdict.Warning)
+            return CreatedAtAction(nameof(GetPost), new { id = created.Id }, new { post = response, spamWarning = spamCheck.WarningMessage });
+
+        return CreatedAtAction(nameof(GetPost), new { id = created.Id }, response);
     }
 
     [Authorize]
@@ -340,6 +356,14 @@ public class PostController : ControllerBase
         if (user.IsSuspended)
             return StatusCode(403, new { message = "Tài khoản của bạn đã bị khóa do vi phạm tiêu chuẩn cộng đồng." });
 
+        // ── Spam Guard ──
+        var spamCheck = await _spamGuard.CheckCommentAsync(userId);
+        if (spamCheck.Verdict == SpamVerdict.Suspend)
+        {
+            await _spamGuard.SuspendForSpamAsync(userId, "Bình luận quá nhiều (>10 comment/phút)");
+            return StatusCode(429, new { message = "Tài khoản của bạn đã bị tạm khóa do bình luận quá nhiều.", suspended = true });
+        }
+
         var postExists = await _db.Posts.AnyAsync(p => p.Id == postId);
         if (!postExists) return NotFound();
 
@@ -406,7 +430,7 @@ public class PostController : ControllerBase
         _db.Comments.Add(comment);
         await _db.SaveChangesAsync();
 
-        return CreatedAtAction(nameof(GetComments), new { postId }, new CommentResponseDto
+        var commentDto = new CommentResponseDto
         {
             Id = comment.Id,
             Content = comment.Content,
@@ -414,7 +438,13 @@ public class PostController : ControllerBase
             UserId = userId,
             UserName = user.FullName ?? user.UserName ?? "Ẩn danh",
             UserAvatar = user.AvatarUrl
-        });
+        };
+
+        // Attach spam warning if approaching limit
+        if (spamCheck.Verdict == SpamVerdict.Warning)
+            return CreatedAtAction(nameof(GetComments), new { postId }, new { comment = commentDto, spamWarning = spamCheck.WarningMessage });
+
+        return CreatedAtAction(nameof(GetComments), new { postId }, commentDto);
     }
 
     // GET /api/social/users/{userId}/wall?cursor=&limit=10

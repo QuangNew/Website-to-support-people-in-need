@@ -7,6 +7,7 @@ using ReliefConnect.API.Hubs;
 using ReliefConnect.Core.DTOs;
 using ReliefConnect.Core.Entities;
 using ReliefConnect.Core.Enums;
+using ReliefConnect.Core.Interfaces;
 using ReliefConnect.Infrastructure.Data;
 
 namespace ReliefConnect.API.Controllers;
@@ -21,19 +22,22 @@ public class MessageController : ControllerBase
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly Ganss.Xss.HtmlSanitizer _sanitizer;
     private readonly ILogger<MessageController> _logger;
+    private readonly ISpamGuardService _spamGuard;
 
     public MessageController(
         AppDbContext db,
         IHubContext<DirectMessageHub> hubContext,
         IServiceScopeFactory scopeFactory,
         Ganss.Xss.HtmlSanitizer sanitizer,
-        ILogger<MessageController> logger)
+        ILogger<MessageController> logger,
+        ISpamGuardService spamGuard)
     {
         _db = db;
         _hubContext = hubContext;
         _scopeFactory = scopeFactory;
         _sanitizer = sanitizer;
         _logger = logger;
+        _spamGuard = spamGuard;
     }
 
     private string? GetUserId() => User.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -242,6 +246,14 @@ public class MessageController : ControllerBase
         if (conversation.SenderIsSuspended)
             return StatusCode(403, new { message = "Your account is suspended" });
 
+        // ── Spam Guard ──
+        var spamCheck = await _spamGuard.CheckMessageAsync(userId);
+        if (spamCheck.Verdict == SpamVerdict.Suspend)
+        {
+            await _spamGuard.SuspendForSpamAsync(userId, "Gửi tin nhắn quá nhiều (>50 tin/phút)");
+            return StatusCode(429, new { message = "Tài khoản của bạn đã bị tạm khóa do gửi tin nhắn quá nhiều.", suspended = true });
+        }
+
         if (conversation.ReceiverIsSuspended)
             return BadRequest(new { message = "Cannot send message to a suspended user" });
 
@@ -283,7 +295,8 @@ public class MessageController : ControllerBase
             SentAt = now,
             IsRead = false,
             IsMine = true,
-            ClientMessageId = clientMessageId
+            ClientMessageId = clientMessageId,
+            SpamWarning = spamCheck.Verdict == SpamVerdict.Warning ? spamCheck.WarningMessage : null
         });
     }
 

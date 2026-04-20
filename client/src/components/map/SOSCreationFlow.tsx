@@ -303,7 +303,7 @@ export default function SOSCreationFlow() {
         }
       }
 
-      await mapApi.createPing({
+      const pingRes = await mapApi.createPing({
         lat: location.lat,
         lng: location.lng,
         type,
@@ -313,6 +313,12 @@ export default function SOSCreationFlow() {
         conditionImageUrl,
         sosCategory,
       });
+      // Show spam warning if approaching limit
+      const pingData = pingRes.data as Record<string, unknown>;
+      if (pingData?.spamWarning) {
+        const { default: toast } = await import('react-hot-toast');
+        toast(String(pingData.spamWarning), { icon: '⚠️', duration: 6000 });
+      }
       setStep('success');
       await fetchPings();
       setTimeout(reset, 2500);

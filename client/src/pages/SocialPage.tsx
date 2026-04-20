@@ -164,10 +164,15 @@ export default function SocialPage() {
                 imageUrl = (uploadRes.data as { imageUrl: string }).imageUrl;
             }
             const res = await socialApi.createPost({ content: newPost, category, imageUrl });
-            setPosts(prev => [res.data as PostDto, ...prev]);
+            const data = res.data as PostDto | { post: PostDto; spamWarning: string };
+            const post = 'post' in data ? data.post : data;
+            setPosts(prev => [post, ...prev]);
             setNewPost('');
             setImageFile(null);
             setImagePreview(null);
+            if ('spamWarning' in data && data.spamWarning) {
+                toast(data.spamWarning, { icon: '⚠️', duration: 6000 });
+            }
         } catch {
             // ignore
         } finally {
@@ -203,10 +208,14 @@ export default function SocialPage() {
         if (!content) return;
         try {
             const res = await socialApi.addComment(postId, { content });
-            const newComment = res.data as CommentDto;
+            const data = res.data as CommentDto | { comment: CommentDto; spamWarning: string };
+            const newComment = 'comment' in data ? data.comment : data;
             setExpandedComments(prev => ({ ...prev, [postId]: [newComment, ...(prev[postId] || [])] }));
             setCommentInputs(prev => ({ ...prev, [postId]: '' }));
             setPosts(prev => prev.map(p => p.id === postId ? { ...p, commentCount: p.commentCount + 1 } : p));
+            if ('spamWarning' in data && data.spamWarning) {
+                toast(data.spamWarning, { icon: '⚠️', duration: 6000 });
+            }
         } catch (err: unknown) {
             const axiosErr = err as { response?: { status?: number; data?: { message?: string; violationCount?: number; isBanned?: boolean } } };
             if (axiosErr?.response?.status === 422) {

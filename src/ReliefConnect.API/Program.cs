@@ -220,6 +220,7 @@ builder.Services.AddScoped<IPingRepository, PingRepository>();
 builder.Services.AddScoped<IPostRepository, PostRepository>();
 builder.Services.AddScoped<IEmailService, SmtpEmailService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
+builder.Services.AddScoped<ISpamGuardService, SpamGuardService>();
 builder.Services.AddSingleton<IGeminiService, GeminiService>();
 builder.Services.AddScoped<ITokenBlacklistService, TokenBlacklistService>();
 builder.Services.AddSingleton<Ganss.Xss.HtmlSanitizer>();

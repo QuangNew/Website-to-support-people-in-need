@@ -168,9 +168,14 @@ export default function SocialPanel() {
         imageUrl = uploadRes.data.imageUrl;
       }
       const res = await socialApi.createPost({ content: newPost.trim(), category, imageUrl });
-      setPosts(prev => [res.data, ...prev]);
+      const data = res.data as PostDto | { post: PostDto; spamWarning: string };
+      const post = 'post' in data ? data.post : data;
+      setPosts(prev => [post, ...prev]);
       setNewPost('');
       removeImage();
+      if ('spamWarning' in data && data.spamWarning) {
+        toast(data.spamWarning, { icon: '⚠️', duration: 6000 });
+      }
     } catch { /* show nothing — api interceptor handles 401 */ }
     finally { setPosting(false); }
   };
@@ -227,12 +232,17 @@ export default function SocialPanel() {
     if (!content) return;
     try {
       const res = await socialApi.addComment(postId, { content });
+      const cData = res.data as CommentDto | { comment: CommentDto; spamWarning: string };
+      const newComment = 'comment' in cData ? cData.comment : cData;
       setExpandedComments(prev => ({
         ...prev,
-        [postId]: [res.data, ...(prev[postId] || [])],
+        [postId]: [newComment, ...(prev[postId] || [])],
       }));
       setCommentInputs(prev => ({ ...prev, [postId]: '' }));
       setPosts(prev => prev.map(p => p.id === postId ? { ...p, commentCount: p.commentCount + 1 } : p));
+      if ('spamWarning' in cData && cData.spamWarning) {
+        toast(cData.spamWarning, { icon: '⚠️', duration: 6000 });
+      }
     } catch (err: unknown) {
       const axiosErr = err as { response?: { status?: number; data?: { message?: string; isBanned?: boolean } } };
       if (axiosErr?.response?.status === 422) {

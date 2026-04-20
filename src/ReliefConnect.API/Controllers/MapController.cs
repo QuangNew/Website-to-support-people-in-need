@@ -24,17 +24,20 @@ public class MapController : ControllerBase
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly INotificationService _notifications;
     private readonly ILogger<MapController> _logger;
+    private readonly ISpamGuardService _spamGuard;
 
     public MapController(
         IPingRepository pingRepo,
         UserManager<ApplicationUser> userManager,
         INotificationService notifications,
-        ILogger<MapController> logger)
+        ILogger<MapController> logger,
+        ISpamGuardService spamGuard)
     {
         _pingRepo = pingRepo;
         _userManager = userManager;
         _notifications = notifications;
         _logger = logger;
+        _spamGuard = spamGuard;
     }
 
     // ─────────────────────────────────────
@@ -115,6 +118,14 @@ public class MapController : ControllerBase
             .FirstOrDefaultAsync();
         if (currentUser == null)
             return Unauthorized();
+
+        // ── Spam Guard ──
+        var spamCheck = await _spamGuard.CheckPingAsync(userId);
+        if (spamCheck.Verdict == SpamVerdict.Suspend)
+        {
+            await _spamGuard.SuspendForSpamAsync(userId, "Tạo SOS quá nhiều (>5 lần/giờ)");
+            return StatusCode(429, new ApiErrorResponse { StatusCode = 429, Message = "Tài khoản của bạn đã bị tạm khóa do tạo SOS quá nhiều." });
+        }
 
         if (!Enum.TryParse<MapItemType>(dto.Type, true, out var mapType))
             return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Loại ping không hợp lệ. Chấp nhận: SOS, Supply, Shelter." });
@@ -210,6 +221,10 @@ public class MapController : ControllerBase
             ConditionImageUrl = conditionImageUrl,
             IsBlinking = false,
         };
+
+        if (spamCheck.Verdict == SpamVerdict.Warning)
+            return CreatedAtAction(nameof(GetPingById), new { id = created.Id }, new { ping = responseDto, spamWarning = spamCheck.WarningMessage });
+
         return CreatedAtAction(nameof(GetPingById), new { id = created.Id }, responseDto);
     }
 

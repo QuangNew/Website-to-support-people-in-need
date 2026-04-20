@@ -1,4 +1,5 @@
 import axios from 'axios';
+import toast from 'react-hot-toast';
 import { uploadToStorage } from './supabase';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
@@ -62,7 +63,7 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// Response interceptor: Handle 401
+// Response interceptor: Handle 401 and 429
 api.interceptors.response.use(
   (response) => response,
   (error) => {
@@ -73,6 +74,14 @@ api.interceptors.response.use(
       && !isPublicAuthRequest(requestUrl)
     ) {
       notifyAuthExpired();
+    }
+    // Global spam/rate-limit handler
+    if (error.response?.status === 429) {
+      const data = error.response.data as { message?: string; suspended?: boolean };
+      toast.error(data?.message || 'Bạn đang thao tác quá nhanh. Vui lòng thử lại sau.', { duration: 6000 });
+      if (data?.suspended) {
+        setTimeout(() => window.location.reload(), 3000);
+      }
     }
     return Promise.reject(error);
   }

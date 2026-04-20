@@ -819,6 +819,7 @@ public class DirectMessageResponseDto
     public bool IsRead { get; set; }
     public bool IsMine { get; set; }
     public string? ClientMessageId { get; set; }
+    public string? SpamWarning { get; set; }
 }
 
 public class SearchUserDto

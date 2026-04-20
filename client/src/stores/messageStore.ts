@@ -133,6 +133,12 @@ export const useMessageStore = create<MessageState>((set, get) => ({
         deliveryStatus: 'sent',
       };
 
+      // Show spam warning toast if approaching limit
+      if (res.data.spamWarning) {
+        const { default: toast } = await import('react-hot-toast');
+        toast(res.data.spamWarning, { icon: '⚠️', duration: 6000 });
+      }
+
       set((state) => {
         const hasPendingMessage = state.messages.some((message) => message.clientMessageId === clientMessageId);
 

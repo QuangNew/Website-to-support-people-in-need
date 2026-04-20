@@ -196,12 +196,17 @@ export default function MyWallPage() {
     if (!content) return;
     try {
       const res = await socialApi.addComment(postId, { content });
+      const cData = res.data as CommentDto | { comment: CommentDto; spamWarning: string };
+      const newComment = 'comment' in cData ? cData.comment : cData;
       setExpandedComments(prev => ({
         ...prev,
-        [postId]: [res.data, ...(prev[postId] || [])],
+        [postId]: [newComment, ...(prev[postId] || [])],
       }));
       setCommentInputs(prev => ({ ...prev, [postId]: '' }));
       setPosts(prev => prev.map(p => p.id === postId ? { ...p, commentCount: p.commentCount + 1 } : p));
+      if ('spamWarning' in cData && cData.spamWarning) {
+        toast(cData.spamWarning, { icon: '⚠️', duration: 6000 });
+      }
     } catch (err: unknown) {
       const axiosErr = err as { response?: { status?: number; data?: { message?: string; isBanned?: boolean } } };
       if (axiosErr?.response?.status === 422) {
