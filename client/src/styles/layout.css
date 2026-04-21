@@ -813,6 +813,29 @@
   flex-shrink: 0;
 }
 
+.ping-detail-info-item--link {
+  color: var(--primary-600);
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.ping-detail-info-item--link:hover {
+  color: var(--primary-500);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.ping-detail-info-item--link svg {
+  color: currentColor;
+}
+
+.ping-detail-info-item--link span {
+  max-width: min(44vw, 240px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .ping-detail-info-sep {
   color: var(--text-muted);
   font-size: 11px;
@@ -978,13 +1001,20 @@
   display: flex;
   gap: var(--sp-1);
   margin-top: var(--sp-1);
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 4px;
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
 }
 
 .ping-route-card {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-start;
   gap: 6px;
-  flex: 1;
+  flex: 0 0 min(240px, calc(100% - 4px));
+  min-width: 200px;
   padding: 6px 8px;
   border-radius: 8px;
   border: 1px solid var(--border-subtle);
@@ -994,6 +1024,7 @@
   font-size: 11px;
   color: var(--text-secondary);
   text-align: left;
+  scroll-snap-align: start;
 }
 
 .ping-route-card:hover {
@@ -1021,7 +1052,8 @@
 .ping-route-card-stats {
   color: var(--text-muted);
   white-space: nowrap;
-  margin-left: auto;
+  margin-left: 0;
+  max-width: 100%;
 }
 
 .ping-route-clear {
@@ -1153,6 +1185,27 @@
   margin-bottom: var(--sp-3);
 }
 
+.social-user-trigger {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.social-user-trigger:focus-visible,
+.social-comment-user-trigger:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--primary-500) 75%, white);
+  outline-offset: 3px;
+  border-radius: 14px;
+}
+
 .social-post-author {
   display: flex;
   flex-direction: column;
@@ -1169,6 +1222,11 @@
 .social-post-time {
   font-size: var(--text-xs);
   color: var(--text-muted);
+}
+
+.social-user-trigger:hover .social-post-name,
+.social-comment-user-trigger:hover strong {
+  color: var(--primary-500);
 }
 
 .social-post-more {
@@ -1212,6 +1270,126 @@
 
 .social-action-liked {
   color: var(--danger-400) !important;
+}
+
+.social-comment-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  margin-bottom: 0.4rem;
+  font-size: 0.8rem;
+}
+
+.social-comment-user-trigger {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.social-comment-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.social-comment-meta {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+.social-comment-meta span {
+  opacity: 0.6;
+}
+
+.social-comment-content {
+  margin: 2px 0 0;
+}
+
+.user-preview-modal {
+  width: min(720px, 100%);
+  max-height: 88vh;
+  overflow: auto;
+  border-radius: 24px;
+  padding: var(--sp-5);
+}
+
+.user-preview-modal__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-4);
+}
+
+.user-preview-modal__identity {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-width: 0;
+}
+
+.user-preview-modal__avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 20px;
+  overflow: hidden;
+  background: var(--bg-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: var(--text-lg);
+  font-weight: 700;
+}
+
+.user-preview-modal__avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.user-preview-modal__identity h4 {
+  margin: 0 0 4px;
+  font-size: var(--text-xl);
+}
+
+.user-preview-modal__identity p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.user-preview-modal__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.user-preview-modal__actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.user-preview-link,
+.admin-contact-link {
+  color: var(--primary-500);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.user-preview-link:hover,
+.admin-contact-link:hover {
+  text-decoration: underline;
 }
 
 /* ═══════════════════════════════════════════════════════

@@ -39,7 +39,7 @@ function App() {
   const logout = useAuthStore((s) => s.logout);
 
   useEffect(() => {
-    const handleAuthExpired = () => logout();
+    const handleAuthExpired = () => { void logout({ localOnly: true }); };
 
     window.addEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired);
     return () => window.removeEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired);

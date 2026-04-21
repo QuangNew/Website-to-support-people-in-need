@@ -2,11 +2,13 @@ using System.Text;
 using Hangfire;
 using Hangfire.PostgreSql;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using ReliefConnect.API.Hubs;
 using ReliefConnect.API.Middleware;
+using ReliefConnect.API.Services;
 using ReliefConnect.Core.Entities;
 using ReliefConnect.Core.Enums;
 using ReliefConnect.Core.Interfaces;
@@ -14,6 +16,7 @@ using ReliefConnect.Infrastructure.Data;
 using ReliefConnect.Infrastructure.Repositories;
 using ReliefConnect.Infrastructure.Services;
 using Serilog;
+using System.Net;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -39,6 +42,7 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
 
 var appConnectionString = BuildAppConnectionString(connectionString);
 var appUsesSupabasePooler = IsSupabasePoolerConnection(appConnectionString);
+var forwardedHeadersOptions = BuildForwardedHeadersOptions(builder.Configuration);
 
 if (appUsesSupabasePooler)
 {
@@ -219,6 +223,8 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddScoped<IPingRepository, PingRepository>();
 builder.Services.AddScoped<IPostRepository, PostRepository>();
 builder.Services.AddScoped<IEmailService, SmtpEmailService>();
+builder.Services.AddScoped<IRateLimitStore, PostgresRateLimitStore>();
+builder.Services.AddScoped<INotificationRealtimeDispatcher, NotificationRealtimeDispatcher>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<ISpamGuardService, SpamGuardService>();
 builder.Services.AddSingleton<IGeminiService, GeminiService>();
@@ -274,13 +280,14 @@ if (app.Environment.IsDevelopment())
 // ═══════════════════════════════════════════
 app.UseResponseCompression();
 app.UseGlobalExceptionHandler();
+app.UseForwardedHeaders(forwardedHeadersOptions);
 app.UseHttpsRedirection();
 app.UseStaticFiles();
 app.Use(async (context, next) =>
 {
     context.Response.Headers["X-Content-Type-Options"] = "nosniff";
     context.Response.Headers["X-Frame-Options"] = "DENY";
-    context.Response.Headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' https: wss:; font-src 'self';";
+    context.Response.Headers["Content-Security-Policy"] = "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' https: wss:; font-src 'self' data:; manifest-src 'self';";
     context.Response.Headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains";
     context.Response.Headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
     context.Response.Headers["Permissions-Policy"] = "geolocation=(self), camera=(), microphone=()";
@@ -300,6 +307,7 @@ app.UseSerilogRequestLogging();
 app.MapControllers();
 app.MapHub<SOSAlertHub>("/hubs/sos-alerts");
 app.MapHub<DirectMessageHub>("/hubs/direct-messages");
+app.MapHub<NotificationHub>("/hubs/notifications");
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }));
 if (hangfireEnabled)
 {
@@ -385,6 +393,42 @@ static string BuildHangfireConnectionString(IConfiguration configuration, string
     return builder.ConnectionString;
 }
 
+static ForwardedHeadersOptions BuildForwardedHeadersOptions(IConfiguration configuration)
+{
+    var options = new ForwardedHeadersOptions
+    {
+        ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto,
+        ForwardLimit = configuration.GetValue<int?>("ReverseProxy:ForwardLimit") ?? 2,
+    };
+
+    var knownProxies = configuration.GetSection("ReverseProxy:KnownProxies").Get<string[]>() ?? [];
+    var knownNetworks = configuration.GetSection("ReverseProxy:KnownNetworks").Get<string[]>() ?? [];
+
+    if (knownProxies.Length == 0 && knownNetworks.Length == 0)
+        return options;
+
+    options.KnownProxies.Clear();
+    options.KnownIPNetworks.Clear();
+
+    foreach (var proxy in knownProxies)
+    {
+        if (IPAddress.TryParse(proxy, out var ipAddress))
+            options.KnownProxies.Add(ipAddress);
+        else
+            Log.Warning("Ignoring invalid ReverseProxy:KnownProxies entry {Proxy}", proxy);
+    }
+
+    foreach (var network in knownNetworks)
+    {
+        if (TryParseIpNetwork(network, out var ipNetwork))
+            options.KnownIPNetworks.Add(ipNetwork);
+        else
+            Log.Warning("Ignoring invalid ReverseProxy:KnownNetworks entry {Network}", network);
+    }
+
+    return options;
+}
+
 static string BuildAppConnectionString(string connectionString)
 {
     var builder = new Npgsql.NpgsqlConnectionStringBuilder(connectionString);
@@ -410,6 +454,21 @@ static bool IsSupabasePoolerConnection(string connectionString)
 static bool ShouldEnableHangfire(string connectionString)
 {
     return !IsSupabasePoolerConnection(connectionString);
+}
+
+static bool TryParseIpNetwork(string value, out System.Net.IPNetwork ipNetwork)
+{
+    ipNetwork = default;
+
+    var parts = value.Split('/', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+    if (parts.Length != 2)
+        return false;
+
+    if (!IPAddress.TryParse(parts[0], out var prefix) || !int.TryParse(parts[1], out var prefixLength))
+        return false;
+
+    ipNetwork = new System.Net.IPNetwork(prefix, prefixLength);
+    return true;
 }
 
 static async Task SeedDevelopmentAdminAsync(WebApplication app)

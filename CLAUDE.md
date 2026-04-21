@@ -129,12 +129,13 @@ npx playwright show-report
 
 ### Authentication Flow
 - JWT tokens issued by `AuthController`
-- Tokens stored in localStorage on frontend
-- Axios interceptor adds `Authorization: Bearer <token>` header
-- SignalR connections accept token via query string (`?access_token=...`)
+- Login/register/Google auth now set an `auth_token` HttpOnly cookie; logout clears the cookie and blacklists the token server-side
+- Frontend uses `withCredentials` requests and reloads session state from `/api/auth/me` instead of persisting bearer tokens in localStorage
+- SignalR hubs authenticate through the auth cookie, so the client no longer injects `?access_token=...` for notification/direct-message connections
 
 ### Real-time Features
 - SignalR hub at `/hubs/sos-alerts`
+- SignalR hubs at `/hubs/direct-messages` and `/hubs/notifications` push unread counters in real time
 - Frontend connects via `@microsoft/signalr`
 - Broadcasts new SOS requests to connected clients
 
@@ -196,6 +197,7 @@ npx playwright show-report
 - `ConnectionStrings:DefaultConnection`: PostgreSQL connection string
 - `Jwt:Key`, `Jwt:Issuer`, `Jwt:Audience`: JWT configuration (use 256-bit key minimum)
 - `Frontend:Urls`: CORS allowed origins
+- `ReverseProxy:KnownProxies`, `ReverseProxy:KnownNetworks`, `ReverseProxy:ForwardLimit`: trusted proxy boundaries for forwarded headers and IP-based rate limiting
 - `Smtp:*`: Email service configuration
 - `Gemini:ApiKey`: Google Gemini API key for chatbot
 - `Gemini:Model`: Gemini model (use "gemini-2.5-flash" , "gemini-3-flash")
@@ -222,6 +224,8 @@ Smtp__User=<email>
 Smtp__Password=<app-password>
 Gemini__ApiKey=<gemini-api-key>
 Frontend__Urls__0=https://<your-static-web-app>.azurestaticapps.net
+ReverseProxy__KnownProxies__0=<trusted-proxy-ip>
+ReverseProxy__KnownNetworks__0=<trusted-proxy-cidr>
 ```
 
 ### Health Check
@@ -238,27 +242,30 @@ Frontend__Urls__0=https://<your-static-web-app>.azurestaticapps.net
 - **E2E Tests**: Playwright suite with 22 tests covering auth, map, SOS, social, chatbot flows
 - **Test Status**: 12 UI tests passing (as of 2026-03-17)
 
-## Security Improvements (Updated 2026-04-15)
+## Security Improvements (Updated 2026-04-21)
 
 **Fixed Vulnerabilities:**
 1. ✅ **Token Blacklist** - Implemented logout endpoint that invalidates JWT tokens
 2. ✅ **JWT Secret Validation** - Rejects keys shorter than 256 bits on startup
-3. ✅ **Rate Limiting** - 5 login attempts per 15 minutes on auth endpoints
-4. ✅ **API Key Security** - Gemini API key moved from query string to header
-5. ✅ **XSS Prevention** - HtmlSanitizer for posts and comments
-6. ✅ **Timing Attack Prevention** - Using CryptographicOperations.FixedTimeEquals()
-7. ✅ **Image Upload Validation** - MIME type regex whitelist on DTO, base64 decode + 4MB binary size check in controller
-8. ✅ **Image Consistency Check** - ImageBase64 and ImageMimeType must both be present or both absent
-9. ✅ **Secrets Sanitized** - All secrets removed from appsettings.json, use env vars or appsettings.Development.json for local dev
-10. ✅ **Token Blacklist Persistent** - Moved from in-memory ConcurrentDictionary to PostgreSQL (BlacklistedTokens table)
-11. ✅ **Hangfire PostgreSQL** - Replaced MemoryStorage with PostgreSql storage (survives restarts)
-12. ✅ **Startup Validation** - ConnectionString and JWT key validated at startup (fail-fast)
+3. ✅ **Distributed Rate Limiting** - Auth/upload/chatbot throttles now use PostgreSQL-backed counters, so limits hold across multiple app instances
+4. ✅ **Trusted Proxy Handling** - Forwarded headers are only honored from configured proxies/networks before IP-based abuse checks run
+5. ✅ **Auth Token Storage** - Frontend moved from localStorage bearer tokens to an HttpOnly auth cookie flow
+6. ✅ **CSP Hardening** - Removed inline script execution and tightened browser isolation directives
+7. ✅ **API Key Security** - Gemini API key moved from query string to header
+8. ✅ **XSS Prevention** - HtmlSanitizer for posts and comments
+9. ✅ **Timing Attack Prevention** - Using CryptographicOperations.FixedTimeEquals()
+10. ✅ **Image Upload Validation** - MIME type regex whitelist on DTO, base64 decode + 4MB binary size check in controller
+11. ✅ **Image Consistency Check** - ImageBase64 and ImageMimeType must both be present or both absent
+12. ✅ **Secrets Sanitized** - All secrets removed from appsettings.json, use env vars or appsettings.Development.json for local dev
+13. ✅ **Token Blacklist Persistent** - Moved from in-memory ConcurrentDictionary to PostgreSQL (BlacklistedTokens table)
+14. ✅ **Hangfire PostgreSQL** - Replaced MemoryStorage with PostgreSql storage (survives restarts)
+15. ✅ **Startup Validation** - ConnectionString and JWT key validated at startup (fail-fast)
 
 **Security Score:** 9/10
 
 **Remaining Concerns:**
-- JWT in localStorage (vulnerable to XSS) - consider httpOnly cookies
 - No token rotation mechanism
+- Trusted proxy allowlists must be configured in production, or IP-based limits will collapse to the last proxy hop
 - OSRM routing sends coordinates to public server (consider backend proxy for privacy)
 - Chatbot image cache in localStorage (no encryption)
 - See `docs/SECURITY_AUDIT_REPORT.md` for full details

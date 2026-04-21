@@ -19,6 +19,7 @@ import { useMapStore } from '../../stores/mapStore';
 import { useLanguage } from '../../contexts/LanguageContext';
 import HideCommentModal from '../ui/HideCommentModal';
 import ReportPostModal from '../ui/ReportPostModal';
+import UserPreviewModal from '../ui/UserPreviewModal';
 import { socialApi, getImageUrl, type HideCommentRequest } from '../../services/api';
 
 interface PostDto {
@@ -57,6 +58,12 @@ interface ReportPostTarget {
   postId: number;
   content: string;
   authorName: string;
+}
+
+interface PreviewUserTarget {
+  userId: string;
+  fallbackName: string;
+  fallbackAvatar?: string;
 }
 
 const CATEGORIES = ['Livelihood', 'Medical', 'Education'] as const;
@@ -98,6 +105,7 @@ export default function SocialPanel() {
   const [hidingComment, setHidingComment] = useState(false);
   const [reportPostTarget, setReportPostTarget] = useState<ReportPostTarget | null>(null);
   const [reportingPost, setReportingPost] = useState(false);
+  const [previewUserTarget, setPreviewUserTarget] = useState<PreviewUserTarget | null>(null);
   const observerRef = useRef<HTMLDivElement>(null);
   const inflightRef = useRef(false); // Track inflight requests to prevent race conditions
 
@@ -323,6 +331,10 @@ export default function SocialPanel() {
     }
   };
 
+  const openUserPreview = (userId: string, fallbackName: string, fallbackAvatar?: string) => {
+    setPreviewUserTarget({ userId, fallbackName, fallbackAvatar });
+  };
+
   return (
     <div className="panel-content">
       <div className="panel-header">
@@ -390,17 +402,23 @@ export default function SocialPanel() {
           <article key={post.id} className="social-post glass-card-sm">
             {/* Author */}
             <div className="social-post-header">
-              {post.authorAvatar ? (
-                <img src={getImageUrl(post.authorAvatar)} alt="" className="avatar avatar-sm" style={{ objectFit: 'cover' }} />
-              ) : (
-                <div className="avatar avatar-sm">
-                  <span>{getInitials(post.authorName)}</span>
+              <button
+                type="button"
+                className="social-user-trigger"
+                onClick={() => openUserPreview(post.authorId, post.authorName, post.authorAvatar)}
+              >
+                {post.authorAvatar ? (
+                  <img src={getImageUrl(post.authorAvatar)} alt="" className="avatar avatar-sm" style={{ objectFit: 'cover' }} />
+                ) : (
+                  <div className="avatar avatar-sm">
+                    <span>{getInitials(post.authorName)}</span>
+                  </div>
+                )}
+                <div className="social-post-author">
+                  <span className="social-post-name">{post.authorName}</span>
+                  <span className="social-post-time">{timeAgo(post.createdAt, t)}</span>
                 </div>
-              )}
-              <div className="social-post-author">
-                <span className="social-post-name">{post.authorName}</span>
-                <span className="social-post-time">{timeAgo(post.createdAt, t)}</span>
-              </div>
+              </button>
               {(post.authorId === user?.id || user?.role === 'Admin') && (
                 <button className="btn-ghost btn-sm social-post-more" onClick={() => handleDelete(post.id)} title={t('social.delete')}>
                   <Trash2 size={14} />
@@ -472,24 +490,32 @@ export default function SocialPanel() {
                   </button>
                 </div>
                 {expandedComments[post.id].map(c => (
-                  <div key={c.id} style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.4rem', fontSize: '0.8rem' }}>
-                    {c.userAvatar ? (
-                      <img
-                        src={getImageUrl(c.userAvatar)}
-                        alt=""
-                        className="avatar"
-                        style={{ width: 24, height: 24, fontSize: '0.6rem', objectFit: 'cover' }}
-                      />
-                    ) : (
-                      <div className="avatar" style={{ width: 24, height: 24, fontSize: '0.6rem' }}>
-                        <span>{getInitials(c.userName)}</span>
+                  <div key={c.id} className="social-comment-row">
+                    <button
+                      type="button"
+                      className="social-comment-user-trigger"
+                      onClick={() => openUserPreview(c.userId, c.userName, c.userAvatar)}
+                    >
+                      {c.userAvatar ? (
+                        <img
+                          src={getImageUrl(c.userAvatar)}
+                          alt=""
+                          className="avatar"
+                          style={{ width: 24, height: 24, fontSize: '0.6rem', objectFit: 'cover' }}
+                        />
+                      ) : (
+                        <div className="avatar" style={{ width: 24, height: 24, fontSize: '0.6rem' }}>
+                          <span>{getInitials(c.userName)}</span>
+                        </div>
+                      )}
+                      <div className="social-comment-body">
+                        <div className="social-comment-meta">
+                          <strong>{c.userName}</strong>
+                          <span>{timeAgo(c.createdAt, t)}</span>
+                        </div>
+                        <p className="social-comment-content">{c.content}</p>
                       </div>
-                    )}
-                    <div>
-                      <strong>{c.userName}</strong>{' '}
-                      <span style={{ opacity: 0.6 }}>{timeAgo(c.createdAt, t)}</span>
-                      <p style={{ margin: '2px 0 0' }}>{c.content}</p>
-                    </div>
+                    </button>
                     {isAdmin && (
                       <button
                         className="btn-ghost btn-sm"
@@ -535,6 +561,14 @@ export default function SocialPanel() {
         submitting={reportingPost}
         onClose={() => !reportingPost && setReportPostTarget(null)}
         onConfirm={handleReportPost}
+      />
+
+      <UserPreviewModal
+        isOpen={!!previewUserTarget}
+        userId={previewUserTarget?.userId ?? ''}
+        fallbackName={previewUserTarget?.fallbackName ?? ''}
+        fallbackAvatar={previewUserTarget?.fallbackAvatar}
+        onClose={() => setPreviewUserTarget(null)}
       />
     </div>
   );

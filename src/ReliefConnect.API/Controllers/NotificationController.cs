@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ReliefConnect.Core.DTOs;
 using ReliefConnect.Core.Entities;
+using ReliefConnect.Core.Interfaces;
 using ReliefConnect.Infrastructure.Data;
 
 namespace ReliefConnect.API.Controllers;
@@ -20,16 +21,28 @@ public class NotificationController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly UserManager<ApplicationUser> _userManager;
+    private readonly INotificationRealtimeDispatcher _realtimeDispatcher;
     private readonly ILogger<NotificationController> _logger;
 
     public NotificationController(
         AppDbContext db,
         UserManager<ApplicationUser> userManager,
+        INotificationRealtimeDispatcher realtimeDispatcher,
         ILogger<NotificationController> logger)
     {
         _db = db;
         _userManager = userManager;
+        _realtimeDispatcher = realtimeDispatcher;
         _logger = logger;
+    }
+
+    private async Task PublishUnreadCountChangedAsync(string userId)
+    {
+        var unreadCount = await _db.Notifications
+            .AsNoTracking()
+            .CountAsync(n => n.UserId == userId && !n.IsRead);
+
+        await _realtimeDispatcher.PublishUnreadCountChangedAsync(userId, unreadCount);
     }
 
     // ─────────────────────────────────────
@@ -145,6 +158,9 @@ public class NotificationController : ControllerBase
             .Where(n => n.Id == id)
             .ExecuteUpdateAsync(s => s.SetProperty(n => n.IsRead, true));
 
+        if (rowsAffected > 0)
+            await PublishUnreadCountChangedAsync(userId);
+
         _logger.LogInformation("Notification {NotificationId} marked as read by user {UserId}", id, userId);
 
         return NoContent();
@@ -167,6 +183,8 @@ public class NotificationController : ControllerBase
         var rowsAffected = await _db.Notifications
             .Where(n => n.UserId == userId && !n.IsRead)
             .ExecuteUpdateAsync(s => s.SetProperty(n => n.IsRead, true));
+
+        await PublishUnreadCountChangedAsync(userId);
 
         _logger.LogInformation(
             "All notifications marked as read for user {UserId} — {Count} updated",
@@ -206,6 +224,8 @@ public class NotificationController : ControllerBase
         await _db.Notifications
             .Where(n => n.Id == id)
             .ExecuteDeleteAsync();
+
+        await PublishUnreadCountChangedAsync(userId);
 
         _logger.LogInformation("Notification {NotificationId} deleted by user {UserId}", id, userId);
 

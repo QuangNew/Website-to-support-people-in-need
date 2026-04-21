@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text;
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -8,6 +9,7 @@ using Microsoft.Extensions.Caching.Memory;
 using ReliefConnect.Core.DTOs;
 using ReliefConnect.Core.Entities;
 using ReliefConnect.Core.Enums;
+using ReliefConnect.Core.Interfaces;
 using ReliefConnect.Infrastructure.Data;
 using ReliefConnect.API.Extensions;
 
@@ -26,17 +28,22 @@ public class AdminSystemController : ControllerBase
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly ILogger<AdminSystemController> _logger;
     private readonly IMemoryCache _cache;
+    private readonly INotificationRealtimeDispatcher _notificationRealtimeDispatcher;
+
+    private static readonly Regex LogKeyRegex = new(@"\bkey=(?<id>[^\s|]+)", RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     public AdminSystemController(
         AppDbContext db,
         UserManager<ApplicationUser> userManager,
         ILogger<AdminSystemController> logger,
-        IMemoryCache cache)
+        IMemoryCache cache,
+        INotificationRealtimeDispatcher notificationRealtimeDispatcher)
     {
         _db = db;
         _userManager = userManager;
         _logger = logger;
         _cache = cache;
+        _notificationRealtimeDispatcher = notificationRealtimeDispatcher;
     }
 
     // ═══════════════════════════════════════════
@@ -49,6 +56,121 @@ public class AdminSystemController : ControllerBase
         public string Bucket { get; set; } = "";
         public string Key    { get; set; } = "";
         public int    Count  { get; set; }
+    }
+
+    private sealed class LogRow
+    {
+        public int Id { get; set; }
+        public string Action { get; set; } = string.Empty;
+        public string? Details { get; set; }
+        public string? UserId { get; set; }
+        public string? UserName { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public Guid? BatchId { get; set; }
+    }
+
+    private sealed class UserDisplayRow
+    {
+        public string Id { get; set; } = string.Empty;
+        public string? FullName { get; set; }
+        public string? UserName { get; set; }
+    }
+
+    private static string BuildUserDisplay(string? fullName, string? userName)
+    {
+        if (!string.IsNullOrWhiteSpace(fullName) && !string.IsNullOrWhiteSpace(userName) &&
+            !string.Equals(fullName, userName, StringComparison.OrdinalIgnoreCase))
+        {
+            return $"{fullName} (@{userName})";
+        }
+
+        if (!string.IsNullOrWhiteSpace(fullName))
+            return fullName;
+
+        if (!string.IsNullOrWhiteSpace(userName))
+            return $"@{userName}";
+
+        return "Unknown user";
+    }
+
+    private static string? TryExtractTargetUserId(string? details)
+    {
+        if (string.IsNullOrWhiteSpace(details))
+            return null;
+
+        var match = LogKeyRegex.Match(details);
+        return match.Success ? match.Groups["id"].Value : null;
+    }
+
+    private static string? EnrichLogDetails(string? details, IReadOnlyDictionary<string, string> userDisplayMap)
+    {
+        if (string.IsNullOrWhiteSpace(details))
+            return details;
+
+        return LogKeyRegex.Replace(details, match =>
+        {
+            var userId = match.Groups["id"].Value;
+            return userDisplayMap.TryGetValue(userId, out var display)
+                ? $"target={display} ({userId})"
+                : match.Value;
+        });
+    }
+
+    private async Task<Dictionary<string, string>> BuildUserDisplayMapAsync(IEnumerable<string?> userIds)
+    {
+        var ids = userIds
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => id!)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        if (ids.Count == 0)
+            return [];
+
+        return await _db.Users
+            .AsNoTracking()
+            .Where(u => ids.Contains(u.Id))
+            .Select(u => new UserDisplayRow
+            {
+                Id = u.Id,
+                FullName = u.FullName,
+                UserName = u.UserName,
+            })
+            .ToDictionaryAsync(u => u.Id, u => BuildUserDisplay(u.FullName, u.UserName), StringComparer.Ordinal);
+    }
+
+    private async Task<List<SystemLogDto>> MapLogDtosAsync(IReadOnlyCollection<LogRow> logs, IReadOnlyDictionary<int, int>? childCountMap = null)
+    {
+        var targetIds = logs
+            .Select(l => TryExtractTargetUserId(l.Details))
+            .Where(id => !string.IsNullOrWhiteSpace(id));
+
+        var actorIds = logs
+            .Select(l => l.UserId)
+            .Where(id => !string.IsNullOrWhiteSpace(id));
+
+        var userDisplayMap = await BuildUserDisplayMapAsync(actorIds.Concat(targetIds));
+
+        return logs.Select(l =>
+        {
+            var targetUserId = TryExtractTargetUserId(l.Details);
+            userDisplayMap.TryGetValue(l.UserId ?? string.Empty, out var actorDisplay);
+            userDisplayMap.TryGetValue(targetUserId ?? string.Empty, out var targetDisplay);
+
+            return new SystemLogDto
+            {
+                Id = l.Id,
+                Action = l.Action,
+                Details = EnrichLogDetails(l.Details, userDisplayMap),
+                UserId = l.UserId,
+                UserName = actorDisplay ?? l.UserName,
+                TargetUserId = targetUserId,
+                TargetUserName = targetDisplay,
+                CreatedAt = l.CreatedAt,
+                BatchId = l.BatchId,
+                HasChildren = childCountMap?.ContainsKey(l.Id) == true,
+            };
+        }).ToList();
     }
 
     /// <summary>
@@ -131,6 +253,8 @@ public class AdminSystemController : ControllerBase
         [FromQuery] string? from,
         [FromQuery] string? to,
         [FromQuery] string? action,
+        [FromQuery] bool adminsOnly = false,
+        [FromQuery] string? userId = null,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 50)
     {
@@ -143,6 +267,19 @@ public class AdminSystemController : ControllerBase
         if (!string.IsNullOrWhiteSpace(action))
             query = query.Where(l => l.Action == action);
 
+        if (adminsOnly)
+        {
+            var adminIds = _db.Users
+                .AsNoTracking()
+                .Where(u => u.Role == RoleEnum.Admin)
+                .Select(u => u.Id);
+
+            query = query.Where(l => l.UserId != null && adminIds.Contains(l.UserId));
+        }
+
+        if (!string.IsNullOrWhiteSpace(userId))
+            query = query.Where(l => l.UserId == userId);
+
         if (DateTime.TryParse(from, out var fromDate))
             query = query.Where(l => l.CreatedAt >= fromDate);
 
@@ -154,7 +291,16 @@ public class AdminSystemController : ControllerBase
             .OrderByDescending(l => l.CreatedAt)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(l => new { l.Id, l.Action, l.Details, l.UserId, l.UserName, l.CreatedAt, l.BatchId })
+            .Select(l => new LogRow
+            {
+                Id = l.Id,
+                Action = l.Action,
+                Details = l.Details,
+                UserId = l.UserId,
+                UserName = l.UserName,
+                CreatedAt = l.CreatedAt,
+                BatchId = l.BatchId,
+            })
             .ToListAsync();
 
         // Fetch child counts in a single query
@@ -165,17 +311,7 @@ public class AdminSystemController : ControllerBase
             .Select(g => new { ParentId = g.Key, Count = g.Count() })
             .ToDictionaryAsync(g => g.ParentId!.Value, g => g.Count);
 
-        var dtos = logs.Select(l => new SystemLogDto
-        {
-            Id          = l.Id,
-            Action      = l.Action,
-            Details     = l.Details,
-            UserId      = l.UserId,
-            UserName    = l.UserName,
-            CreatedAt   = l.CreatedAt,
-            BatchId     = l.BatchId,
-            HasChildren = childCountMap.ContainsKey(l.Id)
-        }).ToList();
+        var dtos = await MapLogDtosAsync(logs, childCountMap);
 
         return Ok(new
         {
@@ -197,20 +333,20 @@ public class AdminSystemController : ControllerBase
             .AsNoTracking()
             .Where(l => l.ParentLogId == logId)
             .OrderBy(l => l.CreatedAt)
-            .Select(l => new SystemLogDto
+            .Select(l => new LogRow
             {
-                Id          = l.Id,
-                Action      = l.Action,
-                Details     = l.Details,
-                UserId      = l.UserId,
-                UserName    = l.UserName,
-                CreatedAt   = l.CreatedAt,
-                BatchId     = l.BatchId,
-                HasChildren = false
+                Id = l.Id,
+                Action = l.Action,
+                Details = l.Details,
+                UserId = l.UserId,
+                UserName = l.UserName,
+                CreatedAt = l.CreatedAt,
+                BatchId = l.BatchId,
             })
             .ToListAsync();
 
-        return Ok(children);
+        var dtos = await MapLogDtosAsync(children);
+        return Ok(dtos);
     }
 
     // ═══════════════════════════════════════════
@@ -288,6 +424,7 @@ public class AdminSystemController : ControllerBase
         await _db.SaveChangesAsync();
 
         await this.LogAdminAction(_db, "AnnouncementCreated", $"Created announcement '{dto.Title}' (id={announcement.Id})");
+        await _notificationRealtimeDispatcher.PublishAnnouncementsChangedAsync(announcement.Id, "created");
         _logger.LogInformation("Admin created announcement #{Id}: {Title}", announcement.Id, dto.Title);
 
         return Ok(new { id = announcement.Id, message = "Đã tạo thông báo hệ thống." });
@@ -315,6 +452,7 @@ public class AdminSystemController : ControllerBase
         await _db.SaveChangesAsync();
 
         await this.LogAdminAction(_db, "AnnouncementUpdated", $"Updated announcement #{id}");
+        await _notificationRealtimeDispatcher.PublishAnnouncementsChangedAsync(id, "updated");
         _logger.LogInformation("Admin updated announcement #{Id}", id);
 
         return Ok(new { message = "Đã cập nhật thông báo." });
@@ -334,6 +472,7 @@ public class AdminSystemController : ControllerBase
         await _db.SaveChangesAsync();
 
         await this.LogAdminAction(_db, "AnnouncementDeleted", $"Deleted announcement #{id}");
+        await _notificationRealtimeDispatcher.PublishAnnouncementsChangedAsync(id, "deleted");
         _logger.LogInformation("Admin deleted announcement #{Id}", id);
 
         return Ok(new { message = "Đã xóa thông báo." });

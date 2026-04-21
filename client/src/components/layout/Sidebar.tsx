@@ -180,7 +180,7 @@ export default function Sidebar() {
         {isAuthenticated ? (
           <button
             className="sidebar-nav-item sidebar-nav-danger"
-            onClick={logout}
+            onClick={() => { void logout(); }}
             title={!sidebarExpanded ? t('sidebar.logout') : undefined}
           >
             <LogOut size={20} />

@@ -20,6 +20,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\ReliefConnect.API\ReliefConnect.API.csproj" />
     <ProjectReference Include="..\ReliefConnect.Core\ReliefConnect.Core.csproj" />
     <ProjectReference Include="..\ReliefConnect.Infrastructure\ReliefConnect.Infrastructure.csproj" />
   </ItemGroup>

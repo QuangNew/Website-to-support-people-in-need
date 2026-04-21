@@ -18,6 +18,8 @@ export interface AdminUser {
   isSuspended: boolean;
   suspendedUntil?: string;
   banReason?: string;
+  facebookUrl?: string;
+  telegramUrl?: string;
 }
 
 export interface VerificationHistoryItem {
@@ -58,6 +60,8 @@ export interface SystemLog {
   details?: string;
   userId?: string;
   userName?: string;
+  targetUserId?: string;
+  targetUserName?: string;
   createdAt: string;
   batchId?: string;
   hasChildren: boolean;

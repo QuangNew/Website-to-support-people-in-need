@@ -15,6 +15,7 @@ interface SearchUser {
 export default function MessagingPanel() {
   const { t } = useLanguage();
   const { user } = useAuthStore();
+  const canUseMessages = user?.role === 'Admin' || user?.verificationStatus === 'Approved';
   const {
     conversations,
     activeConversationId,
@@ -301,7 +302,7 @@ export default function MessagingPanel() {
       )}
 
       {/* Only verified notice */}
-      {user && user.verificationStatus !== 'Approved' && (
+      {user && !canUseMessages && (
         <p className="messaging-notice">{t('messaging.onlyVerified')}</p>
       )}
     </div>

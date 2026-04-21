@@ -16,6 +16,7 @@ export function getImageUrl(path: string | null | undefined): string {
 
 const api = axios.create({
   baseURL: API_BASE_URL,
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -34,13 +35,6 @@ function isPublicAuthRequest(url: string): boolean {
   return /\/auth\/(login|register|google|forgot-password|reset-password)$/.test(url);
 }
 
-function hasAuthorizationHeader(headers: unknown): boolean {
-  if (!headers || typeof headers !== 'object') return false;
-
-  const headerBag = headers as Record<string, unknown>;
-  return Boolean(headerBag.Authorization ?? headerBag.authorization);
-}
-
 function notifyAuthExpired() {
   localStorage.removeItem('token');
   localStorage.removeItem('user');
@@ -50,16 +44,9 @@ function notifyAuthExpired() {
   }
 }
 
-// Request interceptor: Attach JWT token
+// Request interceptor: preserve defaults and credentials for cookie-based auth
 api.interceptors.request.use(
-  (config) => {
-    const requestUrl = String(config.url ?? '');
-    const token = localStorage.getItem('token');
-    if (token && !isPublicAuthRequest(requestUrl)) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-  },
+  (config) => config,
   (error) => Promise.reject(error)
 );
 
@@ -70,7 +57,6 @@ api.interceptors.response.use(
     const requestUrl = String(error.config?.url ?? '');
     if (
       error.response?.status === 401
-      && hasAuthorizationHeader(error.config?.headers)
       && !isPublicAuthRequest(requestUrl)
     ) {
       notifyAuthExpired();
@@ -106,8 +92,14 @@ export const authApi = {
   resendCode: () =>
     api.post('/auth/resend-code'),
 
+  logout: () =>
+    api.post('/auth/logout'),
+
   getMe: () =>
     api.get('/auth/me'),
+
+  getBasicProfile: (userId: string) =>
+    api.get(`/auth/users/${userId}/basic-profile`),
 
   updateProfile: (data: { fullName?: string; avatarUrl?: string; phoneNumber?: string; facebookUrl?: string; telegramUrl?: string }) =>
     api.put('/auth/profile', data),
@@ -355,7 +347,7 @@ export const adminApi = {
   getStats: () =>
     api.get('/admin/system/stats'),
 
-  getLogs: (params?: { from?: string; to?: string; action?: string; page?: number; pageSize?: number }) =>
+  getLogs: (params?: { from?: string; to?: string; action?: string; adminsOnly?: boolean; userId?: string; page?: number; pageSize?: number }) =>
     api.get('/admin/system/logs', { params }),
 
   getLogChildren: (logId: number) =>

@@ -13,11 +13,16 @@ namespace ReliefConnect.Infrastructure.Services;
 public class NotificationService : INotificationService
 {
     private readonly AppDbContext _db;
+    private readonly INotificationRealtimeDispatcher _realtimeDispatcher;
     private readonly ILogger<NotificationService> _logger;
 
-    public NotificationService(AppDbContext db, ILogger<NotificationService> logger)
+    public NotificationService(
+        AppDbContext db,
+        INotificationRealtimeDispatcher realtimeDispatcher,
+        ILogger<NotificationService> logger)
     {
         _db = db;
+        _realtimeDispatcher = realtimeDispatcher;
         _logger = logger;
     }
 
@@ -29,10 +34,20 @@ public class NotificationService : INotificationService
                VALUES ({createdAt}, {false}, {message}, {userId})");
     }
 
+    private async Task PublishUnreadCountChangedAsync(string userId)
+    {
+        var unreadCount = await _db.Notifications
+            .AsNoTracking()
+            .CountAsync(n => n.UserId == userId && !n.IsRead);
+
+        await _realtimeDispatcher.PublishUnreadCountChangedAsync(userId, unreadCount);
+    }
+
     /// <inheritdoc />
     public async Task SendAsync(string userId, string message)
     {
         await InsertNotificationAsync(userId, message);
+        await PublishUnreadCountChangedAsync(userId);
         _logger.LogDebug("Notification sent to user {UserId}", userId);
     }
 
@@ -45,6 +60,7 @@ public class NotificationService : INotificationService
         foreach (var userId in ids)
         {
             await InsertNotificationAsync(userId, message);
+            await PublishUnreadCountChangedAsync(userId);
         }
         _logger.LogDebug("Notification sent to {Count} users", ids.Count);
     }

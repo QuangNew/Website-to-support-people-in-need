@@ -40,7 +40,7 @@ const PANEL_COMPONENTS: Record<NonNullable<PanelType>, React.FC> = {
 
 export default function MapShell() {
   const { activePanel, setActivePanel, sidebarExpanded, fetchPings, fetchZones } = useMapStore();
-  const { isAuthenticated, token } = useAuthStore();
+  const { isAuthenticated } = useAuthStore();
   const fetchUnreadCount = useMessageStore((s) => s.fetchUnreadCount);
 
   // Fetch all recent pings + zones on mount
@@ -54,14 +54,14 @@ export default function MapShell() {
 
   // Connect DirectMessage SignalR + fetch unread count when authenticated
   useEffect(() => {
-    if (isAuthenticated && token) {
-      startDirectMessageConnection(token);
+    if (isAuthenticated) {
+      startDirectMessageConnection();
       fetchUnreadCount();
     } else {
       stopDirectMessageConnection();
     }
     return () => stopDirectMessageConnection();
-  }, [isAuthenticated, token, fetchUnreadCount]);
+  }, [isAuthenticated, fetchUnreadCount]);
 
   const PanelComponent = activePanel ? PANEL_COMPONENTS[activePanel] : null;
 

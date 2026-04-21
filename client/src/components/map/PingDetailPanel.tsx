@@ -3,6 +3,7 @@ import {
   X,
   AlertCircle,
   AlertTriangle,
+  ArrowUpRight,
   Gift,
   CheckCircle2,
   Heart,
@@ -108,6 +109,7 @@ export default function PingDetailPanel() {
   const hasSensitiveContact = Boolean(contactPhone || contactEmail);
   const incidentSummary = ping.description || (ping.type === 'need_help' ? t('ping.needsHelpGeneral') : t(config.label));
   const locationLabel = ping.address || `${ping.lat.toFixed(5)}, ${ping.lng.toFixed(5)}`;
+  const googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${ping.lat},${ping.lng}`;
   const initials = contactName
     .split(' ')
     .map((segment) => segment[0])
@@ -197,10 +199,18 @@ export default function PingDetailPanel() {
 
       {/* Location + time */}
       <div className="ping-detail-info-row">
-        <span className="ping-detail-info-item">
+        <a
+          href={googleMapsUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="ping-detail-info-item ping-detail-info-item--link"
+          title={t('ping.openInGoogleMaps')}
+          aria-label={t('ping.openInGoogleMaps')}
+        >
           <MapPin size={12} />
-          {locationLabel}
-        </span>
+          <span>{locationLabel}</span>
+          <ArrowUpRight size={11} />
+        </a>
         <span className="ping-detail-info-sep">·</span>
         <span className="ping-detail-info-item">
           <Clock size={12} />

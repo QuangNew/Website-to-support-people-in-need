@@ -6,11 +6,11 @@ const HUB_URL = API_BASE_URL.replace(/\/api\/?$/, '') + '/hubs/direct-messages';
 
 let connection: signalR.HubConnection | null = null;
 
-export function startDirectMessageConnection(token: string) {
+export function startDirectMessageConnection() {
   if (connection) return;
 
   connection = new signalR.HubConnectionBuilder()
-    .withUrl(HUB_URL, { accessTokenFactory: () => token })
+    .withUrl(HUB_URL, { withCredentials: true })
     .withAutomaticReconnect()
     .configureLogging(signalR.LogLevel.Warning)
     .build();

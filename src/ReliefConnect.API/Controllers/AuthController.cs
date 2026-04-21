@@ -20,6 +20,7 @@ namespace ReliefConnect.API.Controllers;
 [Route("api/[controller]")]
 public class AuthController : ControllerBase
 {
+    private const string AuthCookieName = "auth_token";
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly SignInManager<ApplicationUser> _signInManager;
     private readonly IConfiguration _config;
@@ -93,6 +94,7 @@ public class AuthController : ControllerBase
         _logger.LogInformation("User registered: {Username} ({Email}) — verification code sent", dto.Username, dto.Email);
 
         var token = GenerateJwtToken(user);
+        AppendAuthCookie(token.Token, token.ExpiresAt);
         return Ok(new AuthResponseDto
         {
             Token = token.Token,
@@ -293,6 +295,7 @@ public class AuthController : ControllerBase
         _logger.LogInformation("User logged in: {Username}", user.UserName);
 
         var token = GenerateJwtToken(user);
+        AppendAuthCookie(token.Token, token.ExpiresAt);
         return Ok(new AuthResponseDto
         {
             Token = token.Token,
@@ -404,6 +407,7 @@ public class AuthController : ControllerBase
         _logger.LogInformation("Google login: {Username}", user.UserName);
 
         var token = GenerateJwtToken(user);
+        AppendAuthCookie(token.Token, token.ExpiresAt);
         return Ok(new AuthResponseDto
         {
             Token = token.Token,
@@ -438,6 +442,7 @@ public class AuthController : ControllerBase
         }
 
         await _signInManager.SignOutAsync();
+        DeleteAuthCookie();
         _logger.LogInformation("User logged out: {Username}", User.Identity?.Name);
 
         return Ok(new { message = "Đăng xuất thành công." });
@@ -476,6 +481,34 @@ public class AuthController : ControllerBase
             TelegramUrl = user.TelegramUrl,
             CreatedAt = user.CreatedAt
         });
+    }
+
+    /// <summary>
+    /// Get a user's basic public profile for community previews.
+    /// </summary>
+    [HttpGet("users/{userId}/basic-profile")]
+    [AllowAnonymous]
+    public async Task<ActionResult<BasicUserProfileDto>> GetBasicProfile(string userId)
+    {
+        var profile = await _userManager.Users
+            .AsNoTracking()
+            .Where(u => u.Id == userId)
+            .Select(u => new BasicUserProfileDto
+            {
+                Id = u.Id,
+                UserName = u.UserName!,
+                FullName = u.FullName,
+                Role = u.Role.ToString(),
+                VerificationStatus = u.VerificationStatus.ToString(),
+                AvatarUrl = u.AvatarUrl,
+                CreatedAt = u.CreatedAt,
+            })
+            .FirstOrDefaultAsync();
+
+        if (profile == null)
+            return NotFound(new ApiErrorResponse { StatusCode = 404, Message = "Người dùng không tồn tại." });
+
+        return Ok(profile);
     }
 
     /// <summary>
@@ -648,6 +681,41 @@ public class AuthController : ControllerBase
         );
 
         return (new JwtSecurityTokenHandler().WriteToken(token), expiresAt);
+    }
+
+    private void AppendAuthCookie(string token, DateTime expiresAt)
+    {
+        Response.Cookies.Append(AuthCookieName, token, new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = IsSecureRequest(),
+            SameSite = SameSiteMode.Lax,
+            Expires = new DateTimeOffset(expiresAt),
+            MaxAge = expiresAt - DateTime.UtcNow,
+            Path = "/",
+            IsEssential = true,
+        });
+    }
+
+    private void DeleteAuthCookie()
+    {
+        Response.Cookies.Delete(AuthCookieName, new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = IsSecureRequest(),
+            SameSite = SameSiteMode.Lax,
+            Path = "/",
+            IsEssential = true,
+        });
+    }
+
+    private bool IsSecureRequest()
+    {
+        if (Request.IsHttps)
+            return true;
+
+        var forwardedProto = Request.Headers["X-Forwarded-Proto"].ToString();
+        return string.Equals(forwardedProto, "https", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string GenerateVerificationCode()

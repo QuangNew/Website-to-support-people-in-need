@@ -20,7 +20,6 @@ export interface User {
 
 interface AuthState {
     user: User | null;
-    token: string | null;
     isAuthenticated: boolean;
     isLoading: boolean;
     authResolved: boolean;
@@ -30,7 +29,7 @@ interface AuthState {
     googleLogin: (credential: string) => Promise<void>;
     verifyEmail: (code: string) => Promise<void>;
     resendCode: () => Promise<void>;
-    logout: () => void;
+    logout: (options?: { localOnly?: boolean }) => Promise<void>;
     loadUser: () => Promise<void>;
     setUser: (user: User) => void;
 }
@@ -62,9 +61,7 @@ function applyAuthResponse(
     data: AuthResponse,
     verificationStatus = ''
 ) {
-    localStorage.setItem('token', data.token);
     set({
-        token: data.token,
         isAuthenticated: true,
         authResolved: true,
         user: {
@@ -84,7 +81,6 @@ function applyAuthResponse(
 
 export const useAuthStore = create<AuthState>((set, get) => ({
     user: null,
-    token: localStorage.getItem('token'),
     isAuthenticated: false,
     isLoading: false,
     authResolved: false,
@@ -160,20 +156,21 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         }
     },
 
-    logout: () => {
+    logout: async (options) => {
+        if (!options?.localOnly) {
+            try {
+                await authApi.logout();
+            } catch {
+                // Clear local state even if the server-side logout request fails.
+            }
+        }
+
         clearPersistedAuth();
         useMessageStore.getState().reset();
-        set({ user: null, token: null, isAuthenticated: false, authResolved: true });
+        set({ user: null, isAuthenticated: false, authResolved: true });
     },
 
     loadUser: async () => {
-        const token = localStorage.getItem('token');
-        if (!token) {
-            clearPersistedAuth();
-            set({ user: null, token: null, isAuthenticated: false, authResolved: true });
-            return;
-        }
-
         if (pendingLoadUserPromise) {
             return pendingLoadUserPromise;
         }
@@ -181,16 +178,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         pendingLoadUserPromise = (async () => {
             try {
                 const res = await authApi.getMe();
-                set({ user: res.data, isAuthenticated: true, token, authResolved: true });
+                set({ user: res.data, isAuthenticated: true, authResolved: true });
             } catch (err: unknown) {
                 const axiosErr = err as { response?: { status?: number } };
                 if (axiosErr?.response?.status === 401) {
                     clearPersistedAuth();
-                    set({ user: null, token: null, isAuthenticated: false, authResolved: true });
+                    set({ user: null, isAuthenticated: false, authResolved: true });
                     return;
                 }
 
-                set({ token, authResolved: true });
+                set({ authResolved: true });
             } finally {
                 pendingLoadUserPromise = null;
             }

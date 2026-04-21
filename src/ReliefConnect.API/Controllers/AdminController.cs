@@ -218,6 +218,8 @@ public class AdminController : ControllerBase
             IsSuspended = baseDto.IsSuspended,
             SuspendedUntil = baseDto.SuspendedUntil,
             BanReason = baseDto.BanReason,
+            FacebookUrl = baseDto.FacebookUrl,
+            TelegramUrl = baseDto.TelegramUrl,
             PostCount = postCount,
             CommentCount = commentCount,
             PingCount = pingCount,

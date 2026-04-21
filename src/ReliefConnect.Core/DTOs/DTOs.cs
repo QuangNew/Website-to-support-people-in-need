@@ -60,6 +60,17 @@ public class UserProfileDto
     public DateTime CreatedAt { get; set; }
 }
 
+public class BasicUserProfileDto
+{
+    public string Id { get; set; } = string.Empty;
+    public string UserName { get; set; } = string.Empty;
+    public string FullName { get; set; } = string.Empty;
+    public string Role { get; set; } = string.Empty;
+    public string VerificationStatus { get; set; } = string.Empty;
+    public string? AvatarUrl { get; set; }
+    public DateTime CreatedAt { get; set; }
+}
+
 public class UpdateProfileDto
 {
     public string? FullName { get; set; }
@@ -483,6 +494,8 @@ public class SystemLogDto
     public string? Details { get; set; }
     public string? UserId { get; set; }
     public string? UserName { get; set; }
+    public string? TargetUserId { get; set; }
+    public string? TargetUserName { get; set; }
     public DateTime CreatedAt { get; set; }
     public Guid? BatchId { get; set; }
     public bool HasChildren { get; set; }

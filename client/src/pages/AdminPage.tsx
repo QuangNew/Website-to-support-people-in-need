@@ -11,6 +11,7 @@ import {
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
 import { adminApi, getImageUrl, mapApi, supplyApi } from '../services/api';
+import { toExternalHref, toTelegramHref } from '../utils/contactLinks';
 import { VIETNAM_PROVINCES } from '../utils/vietnamProvinces';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuthStore } from '../stores/authStore';
@@ -103,14 +104,14 @@ type Tab = 'stats' | 'verifications' | 'users' | 'posts' | 'reports' | 'logs' | 
 
 export default function AdminPage() {
   const { t } = useLanguage();
-  const { user, token, authResolved, loadUser } = useAuthStore();
+  const { user, isAuthenticated, authResolved, loadUser } = useAuthStore();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<Tab>('stats');
 
   useEffect(() => {
     if (!authResolved) return;
 
-    if (!token) {
+    if (!isAuthenticated) {
       navigate('/');
       return;
     }
@@ -118,7 +119,7 @@ export default function AdminPage() {
     if (user && user.role !== 'Admin') {
       navigate('/');
     }
-  }, [authResolved, navigate, token, user]);
+  }, [authResolved, isAuthenticated, navigate, user]);
 
   if (!authResolved) {
     return (
@@ -133,7 +134,7 @@ export default function AdminPage() {
     );
   }
 
-  if (!token) {
+  if (!isAuthenticated) {
     return null;
   }
 
@@ -840,12 +841,62 @@ function UsersPanel() {
                         </strong>
                       </div>
                       <div className="admin-verification-card">
-                        <span className="admin-verification-card__label">{t('admin.phoneNumber')}</span>
-                        <strong>{detailUser.phoneNumber || '-'}</strong>
+                        <span className="admin-verification-card__label">{t('profile.joinDate')}</span>
+                        <strong>{new Date(detailUser.createdAt).toLocaleDateString()}</strong>
                       </div>
                       <div className="admin-verification-card admin-verification-card--wide">
                         <span className="admin-verification-card__label">{t('admin.addressLabel')}</span>
                         <strong>{detailUser.address || '-'}</strong>
+                      </div>
+                    </div>
+
+                    <div className="admin-user-history">
+                      <div className="admin-user-history__header">
+                        <div>
+                          <h5>{t('admin.contactInfo')}</h5>
+                          <p>{detailUser.email}</p>
+                        </div>
+                      </div>
+
+                      <div className="admin-user-summary-grid">
+                        <div className="admin-verification-card">
+                          <span className="admin-verification-card__label">{t('profile.email')}</span>
+                          <strong>
+                            <a className="admin-contact-link" href={`mailto:${detailUser.email}`}>
+                              {detailUser.email}
+                            </a>
+                          </strong>
+                        </div>
+                        <div className="admin-verification-card">
+                          <span className="admin-verification-card__label">{t('admin.phoneNumber')}</span>
+                          <strong>
+                            {detailUser.phoneNumber ? (
+                              <a className="admin-contact-link" href={`tel:${detailUser.phoneNumber}`}>
+                                {detailUser.phoneNumber}
+                              </a>
+                            ) : '-'}
+                          </strong>
+                        </div>
+                        <div className="admin-verification-card">
+                          <span className="admin-verification-card__label">{t('profile.facebookUrl')}</span>
+                          <strong>
+                            {detailUser.facebookUrl ? (
+                              <a className="admin-contact-link" href={toExternalHref(detailUser.facebookUrl)} target="_blank" rel="noreferrer">
+                                {detailUser.facebookUrl}
+                              </a>
+                            ) : '-'}
+                          </strong>
+                        </div>
+                        <div className="admin-verification-card">
+                          <span className="admin-verification-card__label">{t('profile.telegramUrl')}</span>
+                          <strong>
+                            {detailUser.telegramUrl ? (
+                              <a className="admin-contact-link" href={toTelegramHref(detailUser.telegramUrl)} target="_blank" rel="noreferrer">
+                                {detailUser.telegramUrl}
+                              </a>
+                            ) : '-'}
+                          </strong>
+                        </div>
                       </div>
                     </div>
 
@@ -1206,8 +1257,36 @@ function ReportsPanel() {
 //  LOGS PANEL  (expandable batch rows)
 // ═══════════════════════════════════════════
 
+type AdminLogMode = 'admin-team' | 'user-individual';
+
+const ADMIN_LOG_ACTIONS = [
+  'AnnouncementCreated',
+  'AnnouncementUpdated',
+  'AnnouncementDeleted',
+  'BatchActions',
+  'CommentHidden',
+  'CommentRestored',
+  'DirectMessage',
+  'MessageCleanup',
+  'PostDeleted',
+  'PostPinned',
+  'PostRestored',
+  'PostUnpinned',
+  'ReportDismissed',
+  'ReportReviewed',
+  'RoleApproved',
+  'SOSForceResolved',
+  'UserBanned',
+  'UserForceLogout',
+  'UserSuspended',
+  'UserUnsuspended',
+  'VerificationRejected',
+  'VerificationReset',
+];
+
 function LogsPanel() {
   const { t } = useLanguage();
+  const { user: currentUser } = useAuthStore();
   const [logs, setLogs] = useState<SystemLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -1215,6 +1294,11 @@ function LogsPanel() {
   const [actionFilter, setActionFilter] = useState('');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
+  const [logMode, setLogMode] = useState<AdminLogMode>('admin-team');
+  const [logUsers, setLogUsers] = useState<AdminUser[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(true);
+  const [selectedUserId, setSelectedUserId] = useState('');
+  const [userSearch, setUserSearch] = useState('');
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [childrenMap, setChildrenMap] = useState<Record<number, SystemLog[]>>({});
   const [loadingChildren, setLoadingChildren] = useState<Set<number>>(new Set());
@@ -1223,7 +1307,60 @@ function LogsPanel() {
   const [detailLog, setDetailLog] = useState<SystemLog | null>(null);
   const pageSize = 30;
 
+  const resetDrilldown = useCallback(() => {
+    setExpandedIds(new Set());
+    setChildrenMap({});
+    setLoadingChildren(new Set());
+    setDetailLog(null);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingUsers(true);
+
+    const timer = setTimeout(() => {
+      adminApi.getUsers({ search: userSearch || undefined, page: 1, pageSize: 100 })
+        .then((res) => {
+          if (cancelled) return;
+
+          const data = res.data as PagedResponse<AdminUser>;
+          const nextUsers = data.items;
+          setLogUsers(nextUsers);
+          setSelectedUserId((currentSelection) => {
+            if (currentSelection && nextUsers.some((candidate) => candidate.id === currentSelection)) {
+              return currentSelection;
+            }
+
+            const currentViewerId = nextUsers.find((candidate) => candidate.id === currentUser?.id)?.id;
+            return currentViewerId ?? nextUsers[0]?.id ?? '';
+          });
+        })
+        .catch(() => {
+          if (!cancelled) {
+            toast.error(t('common.error'));
+          }
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setLoadingUsers(false);
+          }
+        });
+    }, 200);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [currentUser?.id, t, userSearch]);
+
   const load = useCallback(() => {
+    if (logMode === 'user-individual' && !selectedUserId) {
+      setLogs([]);
+      setTotal(0);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     adminApi.getLogs({
       page,
@@ -1231,6 +1368,8 @@ function LogsPanel() {
       action: actionFilter || undefined,
       from: fromDate || undefined,
       to: toDate || undefined,
+      adminsOnly: logMode === 'admin-team',
+      userId: logMode === 'user-individual' ? selectedUserId : undefined,
     })
       .then((res) => {
         const data: PagedResponse<SystemLog> = res.data;
@@ -1239,11 +1378,30 @@ function LogsPanel() {
       })
       .catch(() => toast.error(t('common.error')))
       .finally(() => setLoading(false));
-  }, [page, actionFilter, fromDate, toDate, t]);
+  }, [page, actionFilter, fromDate, toDate, logMode, selectedUserId, t]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    if (logMode === 'user-individual' && loadingUsers) {
+      return;
+    }
+
+    load();
+  }, [load, logMode, loadingUsers]);
 
   const totalPages = Math.ceil(total / pageSize);
+  const selectedUser = logUsers.find((candidate) => candidate.id === selectedUserId);
+
+  const handleModeChange = (nextMode: AdminLogMode) => {
+    setLogMode(nextMode);
+    setPage(1);
+    resetDrilldown();
+  };
+
+  const handleUserChange = (userId: string) => {
+    setSelectedUserId(userId);
+    setPage(1);
+    resetDrilldown();
+  };
 
   const toggleExpand = async (logId: number) => {
     const next = new Set(expandedIds);
@@ -1299,6 +1457,48 @@ function LogsPanel() {
   return (
     <div className="animate-fade-in-up">
       <div className="admin-filters" style={{ flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 'var(--sp-2)' }}>
+          <button
+            className={`btn ${logMode === 'admin-team' ? 'btn-secondary' : 'btn-ghost'} btn-sm`}
+            onClick={() => handleModeChange('admin-team')}
+          >
+            {t('admin.adminOverview')}
+          </button>
+          <button
+            className={`btn ${logMode === 'user-individual' ? 'btn-secondary' : 'btn-ghost'} btn-sm`}
+            onClick={() => handleModeChange('user-individual')}
+          >
+            {t('admin.userIndividual')}
+          </button>
+        </div>
+        {logMode === 'user-individual' && (
+          <>
+            <div style={{ position: 'relative', minWidth: 220 }}>
+              <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+              <input
+                type="text"
+                className="admin-select"
+                value={userSearch}
+                onChange={(e) => { setUserSearch(e.target.value); setPage(1); }}
+                placeholder={t('admin.searchPlaceholder')}
+                style={{ paddingLeft: 32, width: '100%' }}
+              />
+            </div>
+            <select
+              className="admin-select"
+              value={selectedUserId}
+              disabled={loadingUsers || logUsers.length === 0}
+              onChange={(e) => handleUserChange(e.target.value)}
+            >
+              <option value="">{t('admin.selectUser')}</option>
+              {logUsers.map((candidate) => (
+                <option key={candidate.id} value={candidate.id}>
+                  {candidate.fullName || candidate.userName}
+                </option>
+              ))}
+            </select>
+          </>
+        )}
         <input
           type="date"
           className="admin-select"
@@ -1319,14 +1519,9 @@ function LogsPanel() {
           onChange={(e) => { setActionFilter(e.target.value); setPage(1); }}
         >
           <option value="">{t('admin.allActions')}</option>
-          <option value="Login">Login</option>
-          <option value="Register">Register</option>
-          <option value="CreatePost">CreatePost</option>
-          <option value="DeletePost">DeletePost</option>
-          <option value="ApproveRole">ApproveRole</option>
-          <option value="RejectVerification">RejectVerification</option>
-          <option value="SuspendUser">SuspendUser</option>
-          <option value="BanUser">BanUser</option>
+          {ADMIN_LOG_ACTIONS.map((action) => (
+            <option key={action} value={action}>{action}</option>
+          ))}
         </select>
         <button className="btn btn-ghost btn-sm" onClick={load}><RefreshCw size={16} /></button>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 'var(--sp-2)' }}>
@@ -1357,21 +1552,25 @@ function LogsPanel() {
               <th>ID</th>
               <th>{t('admin.action')}</th>
               <th>{t('admin.details')}</th>
-              <th>{t('admin.user')}</th>
+              <th>{t('admin.actorUser')}</th>
+              <th>{t('admin.relatedUser')}</th>
               <th>{t('admin.date')}</th>
             </tr>
           </thead>
           <tbody>
             {logs.map((l) => (
-              <>
-                <tr key={l.id} style={{ cursor: 'pointer' }}
+              <Fragment key={l.id}>
+                <tr style={{ cursor: 'pointer' }}
                   onClick={() => { setDetailLog(l); if (l.hasChildren && !childrenMap[l.id]) toggleExpand(l.id); }}>
                   <td>
                     {l.hasChildren && (
                       <button
                         className="btn btn-ghost btn-sm"
                         style={{ padding: '2px 4px' }}
-                        onClick={() => toggleExpand(l.id)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void toggleExpand(l.id);
+                        }}
                         title={expandedIds.has(l.id) ? 'Collapse' : 'Expand children'}
                       >
                         {loadingChildren.has(l.id)
@@ -1386,6 +1585,7 @@ function LogsPanel() {
                   <td><span className="admin-badge admin-badge--action">{l.action}</span></td>
                   <td className="admin-td-content">{l.details || '-'}</td>
                   <td>{l.userName || '-'}</td>
+                  <td>{l.targetUserName || (l.targetUserId ? `ID: ${l.targetUserId}` : '-')}</td>
                   <td className="admin-td-date">{new Date(l.createdAt).toLocaleString()}</td>
                 </tr>
                 {expandedIds.has(l.id) && childrenMap[l.id]?.map((child) => (
@@ -1417,15 +1617,20 @@ function LogsPanel() {
                         : '-'}
                     </td>
                     <td style={{ color: 'var(--text-muted)' }}>{child.userName || '-'}</td>
+                    <td style={{ color: 'var(--text-muted)' }}>{child.targetUserName || (child.targetUserId ? `ID: ${child.targetUserId}` : '-')}</td>
                     <td className="admin-td-date" style={{ color: 'var(--text-muted)' }}>
                       {new Date(child.createdAt).toLocaleString()}
                     </td>
                   </tr>
                 ))}
-              </>
+              </Fragment>
             ))}
             {logs.length === 0 && (
-              <tr><td colSpan={6} style={{ textAlign: 'center', padding: 'var(--sp-8)', color: 'var(--text-muted)' }}>{t('admin.noData')}</td></tr>
+              <tr><td colSpan={7} style={{ textAlign: 'center', padding: 'var(--sp-8)', color: 'var(--text-muted)' }}>
+                {logMode === 'user-individual' && !selectedUser
+                  ? t('admin.selectUser')
+                  : t('admin.noData')}
+              </td></tr>
             )}
           </tbody>
         </table>
@@ -1468,9 +1673,15 @@ function LogsPanel() {
                 <span className="admin-badge admin-badge--action">{detailLog.action}</span>
               </div>
               <div>
-                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginBottom: 2 }}>{t('admin.user')}</div>
+                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginBottom: 2 }}>{t('admin.actorUser')}</div>
                 <div style={{ fontWeight: 500 }}>{detailLog.userName || '-'}</div>
               </div>
+              {(detailLog.targetUserName || detailLog.targetUserId) && (
+                <div>
+                  <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginBottom: 2 }}>{t('admin.relatedUser')}</div>
+                  <div style={{ fontWeight: 500 }}>{detailLog.targetUserName || `ID: ${detailLog.targetUserId}`}</div>
+                </div>
+              )}
               <div>
                 <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginBottom: 2 }}>{t('admin.date')}</div>
                 <div>{new Date(detailLog.createdAt).toLocaleString()}</div>
@@ -1515,6 +1726,11 @@ function LogsPanel() {
                         <div style={{ marginTop: 'var(--sp-1)', fontFamily: 'monospace', fontSize: 'var(--text-xs)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                           {child.details || '-'}
                         </div>
+                        {(child.targetUserName || child.targetUserId) && (
+                          <div style={{ marginTop: 2, fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+                            {t('admin.relatedUser')}: {child.targetUserName || `ID: ${child.targetUserId}`}
+                          </div>
+                        )}
                         {child.userName && (
                           <div style={{ marginTop: 2, fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
                             by {child.userName}
