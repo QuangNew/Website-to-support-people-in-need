@@ -754,6 +754,7 @@
   letter-spacing: 0.06em;
   font-weight: 700;
   color: var(--text-tertiary);
+  text-align: left;
 }
 
 .ping-detail-name {

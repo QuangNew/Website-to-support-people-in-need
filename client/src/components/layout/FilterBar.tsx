@@ -30,8 +30,15 @@ export default function FilterBar() {
   const searchResults = useMemo(() => {
     if (!search.trim()) return [];
     const q = search.toLowerCase();
+    const qDigits = q.replace(/\D/g, '');
     return pings
-      .filter(p => p.title.toLowerCase().includes(q) || p.description.toLowerCase().includes(q) || p.address.toLowerCase().includes(q))
+      .filter(p =>
+        p.title.toLowerCase().includes(q)
+        || p.description.toLowerCase().includes(q)
+        || p.address.toLowerCase().includes(q)
+        || p.contactName?.toLowerCase().includes(q)
+        || (qDigits.length >= 4 && p.contactPhone?.replace(/\D/g, '').includes(qDigits))
+      )
       .slice(0, 8);
   }, [search, pings]);
 
@@ -118,7 +125,7 @@ export default function FilterBar() {
       )}
 
       {/* Search input with ping search dropdown */}
-      <div className="filter-search" ref={searchWrapperRef} style={{ position: 'relative' }}>
+      <div className="filter-search" ref={searchWrapperRef}>
         <input
           type="text"
           className="filter-search-input"
@@ -137,30 +144,17 @@ export default function FilterBar() {
 
         {/* Search results dropdown */}
         {showResults && search.trim() && (
-          <div style={{
-            position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 8,
-            minWidth: 320, maxHeight: 360, overflowY: 'auto',
-            background: 'var(--bg-primary)', borderRadius: 12,
-            border: '1px solid color-mix(in srgb, var(--text-muted) 15%, transparent)',
-            boxShadow: '0 12px 48px rgba(0,0,0,0.22), 0 2px 8px rgba(0,0,0,0.08)',
-            zIndex: 1000,
-          }}>
+          <div className="filter-search-results">
             {searchResults.length === 0 ? (
-              <div style={{ padding: '12px 16px', fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
+              <div className="filter-search-results-empty">
                 {t('filter.noResults')}
               </div>
             ) : (
               searchResults.map(ping => (
                 <button
                   key={ping.id}
-                  style={{
-                    display: 'flex', flexDirection: 'column', gap: 2, width: '100%',
-                    padding: '10px 16px', background: 'none', border: 'none',
-                    borderBottom: '1px solid color-mix(in srgb, var(--text-muted) 10%, transparent)',
-                    cursor: 'pointer', textAlign: 'left', transition: 'background 0.15s',
-                  }}
-                  onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-secondary)')}
-                  onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                  type="button"
+                  className="filter-search-result"
                   onClick={() => {
                     setFlyTo({ lat: ping.lat, lng: ping.lng, zoom: 14 });
                     selectPing(ping.id);
@@ -168,19 +162,22 @@ export default function FilterBar() {
                     setSearch('');
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{
-                      fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 4,
-                      background: TYPE_COLORS[ping.type] ?? '#888', color: '#fff',
-                    }}>
+                  <div className="filter-search-result-row">
+                    <span
+                      className="filter-search-result-type"
+                      style={{ backgroundColor: TYPE_COLORS[ping.type] ?? '#888' }}
+                    >
                       {TYPE_LABELS[ping.type] ?? ping.type}
                     </span>
-                    <span style={{ fontSize: 'var(--text-sm)', fontWeight: 500, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <span className="filter-search-result-title">
                       {ping.title}
                     </span>
                   </div>
-                  <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <span className="filter-search-result-address">
                     {ping.address}
+                    {ping.contactPhone && (
+                      <span style={{ opacity: 0.7, marginLeft: '0.4em' }}>· {ping.contactPhone}</span>
+                    )}
                   </span>
                 </button>
               ))
@@ -190,7 +187,9 @@ export default function FilterBar() {
       </div>
 
       {/* Notification bell */}
-      <NotificationBell />
+      <div className="filter-bar-notifications">
+        <NotificationBell />
+      </div>
     </div>
   );
 }

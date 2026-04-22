@@ -56,6 +56,30 @@ Start-Process powershell -WorkingDirectory $apiPath -ArgumentList @(
     'dotnet run'
 )
 
+# Wait for backend /health before starting frontend
+Write-Host 'Doi backend khoi dong...' -ForegroundColor Yellow
+$maxWait = 60  # seconds
+$waited = 0
+$ready = $false
+while ($waited -lt $maxWait) {
+    try {
+        $resp = Invoke-WebRequest -Uri 'http://localhost:5164/health' -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop
+        if ($resp.StatusCode -eq 200) {
+            $ready = $true
+            break
+        }
+    } catch { }
+    Start-Sleep -Seconds 1
+    $waited++
+    Write-Host "." -NoNewline -ForegroundColor DarkGray
+}
+Write-Host ''
+if (-not $ready) {
+    Write-Warning 'Backend chua san sang sau 60s — van khoi dong frontend (co the bi loi ban dau).'
+} else {
+    Write-Host "Backend san sang sau ${waited}s." -ForegroundColor Green
+}
+
 Write-Host 'Khoi dong frontend: http://localhost:5173' -ForegroundColor Green
 Start-Process powershell -WorkingDirectory $clientPath -ArgumentList @(
     '-NoExit',

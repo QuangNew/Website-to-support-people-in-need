@@ -22,6 +22,7 @@ import { mapBackendPing } from '../../stores/mapStore';
 import { useAuthStore } from '../../stores/authStore';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { getImageUrl, mapApi } from '../../services/api';
+import UserPreviewModal from '../ui/UserPreviewModal';
 import toast from 'react-hot-toast';
 
 const TYPE_CONFIG: Record<PingType, { label: string; icon: typeof AlertTriangle; colorClass: string }> = {
@@ -51,6 +52,7 @@ export default function PingDetailPanel() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [imgError, setImgError] = useState(false);
+  const [showReporterPreview, setShowReporterPreview] = useState(false);
 
   const ping = useMemo(
     () => pings.find((p) => p.id === selectedPingId),
@@ -77,6 +79,7 @@ export default function PingDetailPanel() {
       return;
     }
     setImgError(false);
+    setShowReporterPreview(false);
 
     let cancelled = false;
 
@@ -110,6 +113,7 @@ export default function PingDetailPanel() {
   const incidentSummary = ping.description || (ping.type === 'need_help' ? t('ping.needsHelpGeneral') : t(config.label));
   const locationLabel = ping.address || `${ping.lat.toFixed(5)}, ${ping.lng.toFixed(5)}`;
   const googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${ping.lat},${ping.lng}`;
+  const canOpenReporterProfile = Boolean(ping.userId);
   const initials = contactName
     .split(' ')
     .map((segment) => segment[0])
@@ -183,13 +187,38 @@ export default function PingDetailPanel() {
       </div>
 
       {/* Reporter row — compact */}
-      <div className="ping-detail-reporter">
-        <div className="ping-detail-avatar">{initials || 'RC'}</div>
-        <div className="ping-detail-reporter-copy">
-          <span className="ping-detail-eyebrow">{t('ping.reportedBy')}</span>
-          <strong className="ping-detail-name">{contactName}</strong>
+      {canOpenReporterProfile ? (
+        <button
+          type="button"
+          className="ping-detail-reporter ping-detail-reporter-btn"
+          onClick={() => setShowReporterPreview(true)}
+        >
+          <div className="ping-detail-avatar">
+            {ping.userAvatarUrl ? (
+              <img
+                src={getImageUrl(ping.userAvatarUrl)}
+                alt=""
+                className="ping-detail-avatar-image"
+                loading="lazy"
+              />
+            ) : (
+              initials || 'RC'
+            )}
+          </div>
+          <div className="ping-detail-reporter-copy">
+            <span className="ping-detail-eyebrow">{t('ping.reportedBy')}</span>
+            <strong className="ping-detail-name">{contactName}</strong>
+          </div>
+        </button>
+      ) : (
+        <div className="ping-detail-reporter">
+          <div className="ping-detail-avatar">{initials || 'RC'}</div>
+          <div className="ping-detail-reporter-copy">
+            <span className="ping-detail-eyebrow">{t('ping.reportedBy')}</span>
+            <strong className="ping-detail-name">{contactName}</strong>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Emergency message — inline */}
       <div className="ping-detail-incident">
@@ -391,6 +420,16 @@ export default function PingDetailPanel() {
             </button>
           </div>
         </div>
+      )}
+
+      {canOpenReporterProfile && (
+        <UserPreviewModal
+          isOpen={showReporterPreview}
+          userId={ping.userId ?? ''}
+          fallbackName={contactName}
+          fallbackAvatar={ping.userAvatarUrl}
+          onClose={() => setShowReporterPreview(false)}
+        />
       )}
     </div>
   );

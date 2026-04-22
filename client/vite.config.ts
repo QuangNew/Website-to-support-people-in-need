@@ -1,9 +1,40 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+const BACKEND = 'http://localhost:5164';
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  server: {
+    // Allow VS Code dev tunnels (devtunnels.ms) and GitHub Codespaces
+    allowedHosts: ['.devtunnels.ms', '.github.dev', '.githubpreview.dev'],
+    proxy: {
+      '/api': {
+        target: BACKEND,
+        changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on('error', (_err, _req, res) => {
+            // res can be ServerResponse or Socket depending on the request type
+            const httpRes = res as import('http').ServerResponse;
+            if (typeof httpRes.writeHead === 'function' && !httpRes.headersSent) {
+              httpRes.writeHead(503, { 'Content-Type': 'application/json' });
+              httpRes.end(JSON.stringify({ message: 'Backend starting, please wait…' }));
+            }
+          });
+        },
+      },
+      '/hubs': {
+        target: BACKEND,
+        changeOrigin: true,
+        ws: true,
+        configure: (proxy) => {
+          proxy.on('error', () => { /* suppress ECONNREFUSED noise while backend boots */ });
+        },
+      },
+      '/health': { target: BACKEND, changeOrigin: true },
+    },
+  },
   build: {
     rollupOptions: {
       output: {

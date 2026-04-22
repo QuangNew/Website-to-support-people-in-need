@@ -202,6 +202,7 @@ public class PingResponseDto
     public string? ContactEmail { get; set; }
     public string? ConditionImageUrl { get; set; }
     public bool IsBlinking { get; set; }
+    public string? AvatarUrl { get; set; }
 }
 
 public class UpdatePingStatusDto

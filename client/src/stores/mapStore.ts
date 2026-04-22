@@ -21,6 +21,8 @@ export interface PingData {
     status: 'active' | 'resolved' | 'expired';
     isBlinking?: boolean;
     sosCategory?: string;
+    userId?: string;
+    userAvatarUrl?: string;
 }
 
 export interface ZoneData {
@@ -701,6 +703,8 @@ export function mapBackendPing(payload: Record<string, unknown>): PingData {
         conditionImageUrl: typeof payload.conditionImageUrl === 'string' ? payload.conditionImageUrl : undefined,
         isBlinking: Boolean(payload.isBlinking),
         sosCategory: typeof payload.sosCategory === 'string' ? payload.sosCategory : undefined,
+        userId: typeof payload.userId === 'string' && payload.userId.trim().length > 0 ? payload.userId : undefined,
+        userAvatarUrl: typeof payload.avatarUrl === 'string' && payload.avatarUrl.trim().length > 0 ? payload.avatarUrl : undefined,
     };
 }
 

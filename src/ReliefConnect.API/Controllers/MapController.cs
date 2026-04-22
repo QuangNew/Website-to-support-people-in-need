@@ -357,6 +357,7 @@ public class MapController : ControllerBase
         ContactEmail = includeSensitiveContact ? ping.User?.Email : null,
         ConditionImageUrl = ping.ConditionImageUrl,
         IsBlinking = ping.PingFlag?.IsBlinking ?? false,
+        AvatarUrl = ping.User?.AvatarUrl,
     };
 
     private RoleEnum? GetViewerRole()

@@ -1,0 +1,32 @@
+- generic [ref=e3]:
+  - complementary [ref=e7]:
+    - button "Toggle sidebar" [ref=e9] [cursor=pointer]:
+      - img [ref=e10]
+    - navigation [ref=e11]:
+      - button "Danh sách" [ref=e12] [cursor=pointer]:
+        - img [ref=e13]
+      - button "Cộng đồng" [ref=e16] [cursor=pointer]:
+        - img [ref=e17]
+      - button "Tin nhắn" [ref=e22] [cursor=pointer]:
+        - img [ref=e23]
+      - button "Chatbot AI" [ref=e26] [cursor=pointer]:
+        - img [ref=e27]
+      - button "Hồ sơ" [ref=e29] [cursor=pointer]:
+        - img [ref=e30]
+      - button "Xác minh" [ref=e34] [cursor=pointer]:
+        - img [ref=e35]
+      - button "Hướng dẫn" [ref=e39] [cursor=pointer]:
+        - img [ref=e40]
+    - generic [ref=e43]:
+      - button "Sáng" [ref=e44] [cursor=pointer]:
+        - img [ref=e45]
+      - button "English" [ref=e51] [cursor=pointer]:
+        - img [ref=e52]
+      - button "Đăng nhập" [ref=e55] [cursor=pointer]:
+        - img [ref=e56]
+  - generic [ref=e59]:
+    - button "Bộ lọc" [ref=e60] [cursor=pointer]:
+      - img [ref=e61]
+    - generic [ref=e62]:
+      - textbox "Tìm kiếm vị trí hoặc SĐT..." [ref=e63]
+      - img [ref=e64]
