@@ -14,6 +14,7 @@ import {
   ChevronRight,
   Menu,
   BookOpen,
+  Heart,
   HeartPulse,
   ClipboardCheck,
   HandHeart,
@@ -27,7 +28,7 @@ import { useLanguage } from '../../contexts/LanguageContext';
 
 
 interface NavItem {
-  id: PanelType | 'theme' | 'locale' | 'login' | 'logout' | 'admin' | 'guide';
+  id: PanelType | 'theme' | 'locale' | 'login' | 'logout' | 'admin' | 'guide' | 'donate';
   icon: LucideIcon;
   labelKey: string;
   action?: () => void;
@@ -63,6 +64,7 @@ export default function Sidebar() {
   const midBottomItems: NavItem[] = [
     { id: 'verify', icon: UserCheck, labelKey: 'sidebar.verify' },
     { id: 'guide', icon: BookOpen, labelKey: 'sidebar.guide' },
+    { id: 'donate', icon: Heart, labelKey: 'sidebar.donate' },
   ];
 
   // ─── Role-specific nav items (only for verified users) ───
@@ -83,11 +85,11 @@ export default function Sidebar() {
   const renderNavButton = (item: NavItem, isActive: boolean = false) => {
     const iconSize = 20;
 
-    if (item.id === 'admin') {
+    if (item.id === 'admin' || item.id === 'donate') {
       return (
         <a
-          key="admin"
-          href="/admin"
+          key={item.id}
+          href={item.id === 'donate' ? '/donate' : '/admin'}
           className="sidebar-nav-item"
           title={!sidebarExpanded ? t(item.labelKey) : undefined}
         >

@@ -588,6 +588,10 @@ interface MapState {
     selectRouteIndex: (index: number) => void;
     toggleSupplyPoints: () => void;
     fetchSupplyItems: () => Promise<void>;
+
+    // Mobile SOS trigger (incremented by MobileNav to fire SOSCreationFlow)
+    sosTriggerCount: number;
+    triggerSOS: () => void;
 }
 
 // Mock data for Vietnam map
@@ -724,6 +728,10 @@ export const useMapStore = create<MapState>((set, get) => ({
     showZones: true,
     supplyItems: [],
     showSupplyPoints: true,
+
+    // Mobile SOS trigger
+    sosTriggerCount: 0,
+    triggerSOS: () => set((state) => ({ sosTriggerCount: state.sosTriggerCount + 1 })),
 
     // FlyTo
     flyToTarget: null,

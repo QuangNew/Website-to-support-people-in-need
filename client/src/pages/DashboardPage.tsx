@@ -83,7 +83,7 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 'var(--sp-6)' }}>
+      <div className="dashboard-page-layout">
         {/* Recent Activity */}
         <div className="glass-card" style={{ padding: 'var(--sp-6)' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--sp-5)' }}>

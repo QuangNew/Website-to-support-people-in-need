@@ -2,6 +2,8 @@ import { useEffect } from 'react';
 import { X } from 'lucide-react';
 import Sidebar from './Sidebar';
 import FilterBar from './FilterBar';
+import MobileTopBar from './MobileTopBar';
+import MobileNav from './MobileNav';
 import MapView from '../map/MapView';
 import PingDetailPanel from '../map/PingDetailPanel';
 import SOSCreationFlow from '../map/SOSCreationFlow';
@@ -75,8 +77,14 @@ export default function MapShell() {
       {/* Sidebar navigation */}
       <Sidebar />
 
-      {/* Floating filter bar */}
+      {/* Floating filter bar (desktop) */}
       <FilterBar />
+
+      {/* Mobile top bar — search + count chips (mobile only) */}
+      <MobileTopBar />
+
+      {/* Mobile bottom navigation (mobile only) */}
+      <MobileNav />
 
       {/* Side panel */}
       {PanelComponent && (

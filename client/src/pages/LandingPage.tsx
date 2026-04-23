@@ -252,11 +252,7 @@ export default function LandingPage() {
                     width: 1, height: '100%', background: 'var(--border-subtle)', pointerEvents: 'none',
                 }} />
 
-                <div style={{
-                    maxWidth: 1000, margin: '0 auto',
-                    display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)',
-                    gap: 'var(--sp-6)',
-                }}>
+                <div className="landing-stats-grid">
                     {stats.map(({ value, label, icon: Icon }, i) => (
                         <div key={value}
                             className="animate-fade-in-up"
@@ -323,7 +319,7 @@ export default function LandingPage() {
                     </div>
 
                     {/* Grid */}
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 'var(--sp-5)' }}>
+                    <div className="landing-features-grid">
                         {features.map((f, i) => (
                             <div
                                 key={f.title}
@@ -391,7 +387,7 @@ export default function LandingPage() {
                 borderTop: '1px solid var(--border-subtle)',
                 borderBottom: '1px solid var(--border-subtle)',
             }}>
-                <div style={{ maxWidth: 900, margin: '0 auto', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--sp-10)' }}>
+                <div className="landing-pillars-grid">
                     {[
                         {
                             icon: Shield,

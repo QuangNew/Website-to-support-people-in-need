@@ -206,7 +206,7 @@ export default function PersonInNeedPanel() {
                     </div>
                   </div>
 
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', paddingLeft: '2.75rem' }}>
+                  <div className="list-item-actions" style={{ alignItems: 'center' }}>
                     <span className="list-item-time" style={{ fontSize: '0.75rem', opacity: 0.6 }}>
                       <Clock size={11} /> {getShortTime(ping.createdAt)}
                     </span>
@@ -216,7 +216,7 @@ export default function PersonInNeedPanel() {
                     </span>
                   </div>
 
-                  <div style={{ display: 'flex', gap: '0.5rem', paddingLeft: '2.75rem' }}>
+                  <div className="list-item-actions">
                     <button
                       className="btn btn-sm btn-ghost"
                       onClick={() => handleViewOnMap(ping)}
@@ -287,17 +287,17 @@ export default function PersonInNeedPanel() {
                   </div>
 
                   {offer.pingDetails && (
-                    <p className="list-item-subtitle" style={{ margin: 0, paddingLeft: '2.75rem' }}>
+                    <p className="list-item-subtitle list-item-indent" style={{ margin: 0 }}>
                       {offer.pingDetails}
                     </p>
                   )}
 
-                  <div style={{ paddingLeft: '2.75rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                  <div className="list-item-indent" style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                     <strong>{t('sponsorPanel.offerMessageLabel')}:</strong> {offer.message}
                   </div>
 
                   {isPending && (
-                    <div style={{ display: 'flex', gap: '0.5rem', paddingLeft: '2.75rem' }}>
+                  <div className="list-item-actions">
                       <button
                         className="btn btn-sm btn-success"
                         onClick={() => handleRespondToOffer(offer.id, 'Accepted')}

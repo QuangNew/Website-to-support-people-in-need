@@ -33,6 +33,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<VerificationHistory> VerificationHistories => Set<VerificationHistory>();
     public DbSet<DirectConversation> DirectConversations => Set<DirectConversation>();
     public DbSet<DirectMessage> DirectMessages => Set<DirectMessage>();
+    public DbSet<DonationRecord> DonationRecords => Set<DonationRecord>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -475,6 +476,25 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
                   .WithMany()
                   .HasForeignKey(m => m.SenderId)
                   .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ═══════ DONATION ═══════
+        builder.Entity<DonationRecord>(entity =>
+        {
+            entity.HasKey(d => d.Id);
+            entity.HasIndex(d => d.OrderCode).IsUnique();
+            entity.HasIndex(d => d.Status);
+            entity.HasIndex(d => d.PaidAt);
+            entity.Property(d => d.DisplayName).HasMaxLength(200).IsRequired();
+            entity.Property(d => d.MaskedPhone).HasMaxLength(20);
+            entity.Property(d => d.Message).HasMaxLength(200);
+            entity.Property(d => d.PaymentLinkId).HasMaxLength(100);
+            entity.Property(d => d.Status).HasConversion<int>();
+
+            entity.HasOne(d => d.User)
+                  .WithMany()
+                  .HasForeignKey(d => d.UserId)
+                  .OnDelete(DeleteBehavior.SetNull);
         });
     }
 }

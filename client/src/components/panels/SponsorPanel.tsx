@@ -282,7 +282,7 @@ export default function SponsorPanel() {
           <BarChart3 size={14} />
           <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>{t('sponsorPanel.impactTitle')}</span>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '0.5rem' }}>
+        <div className="panel-stat-grid">
           {impactCards.map((card) => {
             const Icon = card.icon;
             return (
@@ -333,7 +333,7 @@ export default function SponsorPanel() {
       </div>
 
       {/* Tabs */}
-      <div style={{ display: 'flex', gap: '0.25rem', padding: '0 1rem', marginBottom: '0.75rem' }}>
+      <div className="panel-tab-row">
         <button
           className={`btn btn-sm ${tab === 'sos' ? 'btn-primary' : 'btn-ghost'}`}
           onClick={() => setTab('sos')}

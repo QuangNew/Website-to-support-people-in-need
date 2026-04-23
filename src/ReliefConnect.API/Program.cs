@@ -231,6 +231,7 @@ builder.Services.AddSingleton<IGeminiService, GeminiService>();
 builder.Services.AddScoped<ITokenBlacklistService, TokenBlacklistService>();
 builder.Services.AddSingleton<Ganss.Xss.HtmlSanitizer>();
 builder.Services.AddSingleton<IContentModerationService, ContentModerationService>();
+builder.Services.AddHttpClient<IPayOSService, PayOSService>();
 
 // ═══════════════════════════════════════════
 //  HANGFIRE

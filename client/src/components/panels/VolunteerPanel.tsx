@@ -208,7 +208,7 @@ export default function VolunteerPanel() {
       </div>
 
       <div style={{ padding: '0 1rem', marginBottom: '0.75rem' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '0.5rem' }}>
+        <div className="panel-stat-grid">
           {statCards.map((card) => {
             const Icon = card.icon;
             return (
@@ -229,7 +229,7 @@ export default function VolunteerPanel() {
       </div>
 
       {/* Tabs */}
-      <div style={{ display: 'flex', gap: '0.25rem', padding: '0 1rem', marginBottom: '0.75rem' }}>
+      <div className="panel-tab-row">
         <button
           className={`btn btn-sm ${tab === 'available' ? 'btn-primary' : 'btn-ghost'}`}
           onClick={() => setTab('available')}
@@ -312,7 +312,7 @@ export default function VolunteerPanel() {
                 </div>
               </div>
 
-              <div style={{ display: 'flex', gap: '0.5rem', paddingLeft: '2.75rem' }}>
+              <div className="list-item-actions">
                 <button
                   className="btn btn-sm btn-ghost"
                   onClick={() => handleViewOnMap(task)}
@@ -356,7 +356,7 @@ export default function VolunteerPanel() {
               </div>
 
               {tab === 'history' && task.completionNotes && (
-                <div style={{ paddingLeft: '2.75rem', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                <div className="list-item-actions" style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
                   <strong>{t('volunteerPanel.completionNotes')}:</strong> {task.completionNotes}
                 </div>
               )}

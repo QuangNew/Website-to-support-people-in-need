@@ -38,7 +38,7 @@ function isValidPhoneNumber(phone: string) {
 
 export default function SOSCreationFlow() {
   const { t } = useLanguage();
-  const { fetchPings, setFlyTo, setSosDraftLocation } = useMapStore();
+  const { fetchPings, setFlyTo, setSosDraftLocation, sosTriggerCount } = useMapStore();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const user = useAuthStore((s) => s.user);
   const userRole = user?.role;
@@ -166,6 +166,17 @@ export default function SOSCreationFlow() {
       setStep('form');
     }
   }, [isAuthenticated, primeContactFields, setAuthModal, setFlyTo, setSosDraftLocation, t]);
+
+  // MobileNav "Cần giúp" tab fires triggerSOS() which increments sosTriggerCount.
+  // Declared after handleSOSClick to satisfy the temporal dead zone rule for useCallback.
+  const sosTriggerRef = useRef(sosTriggerCount);
+  useEffect(() => {
+    if (sosTriggerCount === sosTriggerRef.current) return;
+    sosTriggerRef.current = sosTriggerCount;
+    if (step === 'idle') {
+      handleSOSClick();
+    }
+  }, [sosTriggerCount, step, handleSOSClick]);
 
   // Toggle a tag
   const toggleTag = useCallback((tag: SOSTag) => {

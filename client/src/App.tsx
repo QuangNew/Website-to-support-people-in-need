@@ -14,6 +14,7 @@ import PendingBar from './components/layout/PendingBar';
 // Lazy-loaded pages (not needed on initial map load)
 const AdminPage = lazy(() => import('./pages/AdminPage'));
 const MyWallPage = lazy(() => import('./pages/MyWallPage'));
+const DonatePage = lazy(() => import('./pages/DonatePage'));
 
 // Stores
 import { useAuthStore } from './stores/authStore';
@@ -59,6 +60,7 @@ function App() {
               {/* Lazy-loaded routes — only fetched when navigated to */}
               <Route path="/admin/*" element={<Suspense fallback={<div className="map-fallback"><div className="spinner spinner-lg" /></div>}><AdminPage /></Suspense>} />
               <Route path="/wall/:userId" element={<Suspense fallback={<div className="map-fallback"><div className="spinner spinner-lg" /></div>}><MyWallPage /></Suspense>} />
+              <Route path="/donate" element={<Suspense fallback={<div className="map-fallback"><div className="spinner spinner-lg" /></div>}><DonatePage /></Suspense>} />
             </Routes>
           </BrowserRouter>
 
