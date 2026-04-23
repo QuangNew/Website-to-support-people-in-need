@@ -685,11 +685,14 @@ public class AuthController : ControllerBase
 
     private void AppendAuthCookie(string token, DateTime expiresAt)
     {
+        var secure = IsSecureRequest();
         Response.Cookies.Append(AuthCookieName, token, new CookieOptions
         {
             HttpOnly = true,
-            Secure = IsSecureRequest(),
-            SameSite = SameSiteMode.Lax,
+            Secure = secure,
+            // SameSite=None is required for cross-origin requests (frontend on Azure Static Web Apps,
+            // backend on Azure App Service are different origins). None requires Secure=true.
+            SameSite = secure ? SameSiteMode.None : SameSiteMode.Lax,
             Expires = new DateTimeOffset(expiresAt),
             MaxAge = expiresAt - DateTime.UtcNow,
             Path = "/",
@@ -699,11 +702,12 @@ public class AuthController : ControllerBase
 
     private void DeleteAuthCookie()
     {
+        var secure = IsSecureRequest();
         Response.Cookies.Delete(AuthCookieName, new CookieOptions
         {
             HttpOnly = true,
-            Secure = IsSecureRequest(),
-            SameSite = SameSiteMode.Lax,
+            Secure = secure,
+            SameSite = secure ? SameSiteMode.None : SameSiteMode.Lax,
             Path = "/",
             IsEssential = true,
         });

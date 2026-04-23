@@ -5,7 +5,26 @@ const BACKEND = 'http://localhost:5164';
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    // Fix: leaflet.markercluster is a UMD plugin whose browser-global branch calls
+    // factory(globalThis.L). Rolldown (Vite 8) outputs ESM chunks where `module` is
+    // undefined, so the CJS branch is never taken and globalThis.L is never set →
+    // ReferenceError: L is not defined at startup.
+    // Solution: prepend an ESM import of leaflet + globalThis.L assignment to the
+    // markercluster source so the global is set before the UMD IIFE executes.
+    {
+      name: 'fix-leaflet-markercluster-umd',
+      transform(code: string, id: string) {
+        if (id.includes('/node_modules/leaflet.markercluster/') && id.endsWith('.js')) {
+          return {
+            code: `import _L from 'leaflet';\nif (typeof globalThis !== 'undefined') globalThis.L = _L;\n` + code,
+            map: null,
+          };
+        }
+      },
+    },
+  ],
   server: {
     // Allow VS Code dev tunnels (devtunnels.ms) and GitHub Codespaces
     allowedHosts: ['.devtunnels.ms', '.github.dev', '.githubpreview.dev'],

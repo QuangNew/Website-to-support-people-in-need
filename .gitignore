@@ -497,6 +497,7 @@ client/dist/
 client/node_modules/
 client/.env
 client/.env.local
+client/.env.production
 client/.env.*.local
 *.tsbuildinfo
 package-lock.json
@@ -531,3 +532,7 @@ client/env
 src/ReliefConnect.API/appsettings.json
 .vscode/
 .artifacts/
+docs/AZURE_DEPLOYMENT_GUIDE.md
+docs/RELEASE_CHECKLIST.md
+src/ReliefConnect.API/publish.zip
+client/.env.production

@@ -1321,6 +1321,10 @@
   overflow: auto;
   border-radius: 24px;
   padding: var(--sp-5);
+  /* Override glass-card semi-transparency so the profile panel is fully opaque */
+  background: var(--glass-bg-solid);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .user-preview-modal__header {

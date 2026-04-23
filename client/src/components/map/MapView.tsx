@@ -202,8 +202,8 @@ export default function MapView() {
         maxZoom: 18,
         maxBounds: VIETNAM_BOUNDS,
         maxBoundsViscosity: 0.8,
-        zoomControl: true,
-        attributionControl: true,
+        zoomControl: false,
+        attributionControl: false,
       });
 
       const tileUrl = isDark ? DARK_TILES : LIGHT_TILES;
