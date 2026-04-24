@@ -221,6 +221,30 @@
   padding: var(--sp-3) var(--sp-2);
   overflow-y: auto;
   overflow-x: hidden;
+  /* Allow this section to shrink so the bottom section always stays visible,
+     but use min-height:0 to enable flex-based scrolling instead of icon shrinkage */
+  min-height: 0;
+  flex: 1 1 0;
+  /* Thin, unobtrusive scrollbar for nav overflow */
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text-muted) 30%, transparent) transparent;
+}
+
+.sidebar-nav::-webkit-scrollbar {
+  width: 4px;
+}
+
+.sidebar-nav::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sidebar-nav::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text-muted) 30%, transparent);
+  border-radius: 4px;
+}
+
+.sidebar-nav::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--text-muted) 50%, transparent);
 }
 
 .sidebar-nav-item {
@@ -229,7 +253,10 @@
   justify-content: flex-start;
   gap: var(--sp-3);
   width: 100%;
-  padding: var(--sp-2-5) var(--sp-3);
+  /* Force a fixed height so items NEVER compress regardless of container size */
+  min-height: 36px;
+  height: 36px;
+  padding: 0 var(--sp-3);
   border-radius: var(--radius-lg);
   color: var(--text-tertiary);
   font-size: var(--text-sm);
@@ -242,13 +269,18 @@
   background: none;
   font-family: inherit;
   text-decoration: none;
+  /* Prevent nav items from being compressed when sidebar overflows */
+  flex: 0 0 36px;
+  box-sizing: border-box;
 }
 
 /* Ensure icons never shrink when sidebar collapses */
 .sidebar-nav-item > svg {
   flex-shrink: 0;
-  width: 20px;
-  height: 20px;
+  min-width: 20px;
+  min-height: 20px;
+  width: 20px !important;
+  height: 20px !important;
   transition: transform 0.22s ease, color 0.22s ease, filter 0.22s ease;
 }
 
@@ -312,10 +344,14 @@
   background: var(--border-subtle);
   margin: var(--sp-2) var(--sp-2);
   flex-shrink: 0;
+  /* Prevent divider from disappearing in tight spaces */
+  min-height: 1px;
 }
 
 .sidebar-spacer {
-  flex: 1;
+  /* No longer needed — sidebar-nav now uses flex:1 to fill remaining space.
+     Keep element in DOM for backwards compatibility but remove flex growth. */
+  flex: 0 0 0;
 }
 
 /* Bottom section (Admin, Verify, Guide) */
@@ -360,6 +396,8 @@
   transition: all var(--transition-slow);
   min-width: 360px;
   max-width: 520px;
+  /* Allow search results dropdown to overflow */
+  overflow: visible;
 }
 
 .filter-bar-expanded {
@@ -407,6 +445,91 @@
   flex: 1;
   min-width: 140px;
   position: relative;
+}
+
+/* ── Search results dropdown ── */
+.filter-search-results {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: -12px;
+  right: -12px;
+  min-width: 320px;
+  max-height: 360px;
+  overflow-y: auto;
+  background: var(--glass-bg-solid);
+  backdrop-filter: blur(24px) saturate(1.4);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.18), 0 2px 6px rgba(0,0,0,0.08);
+  z-index: 100;
+  padding: var(--sp-1);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  animation: fadeIn 150ms ease;
+}
+
+.filter-search-results-empty {
+  padding: var(--sp-3) var(--sp-4);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.filter-search-result {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  text-align: left;
+  font-family: inherit;
+  color: var(--text-primary);
+  transition: background 0.12s ease;
+  width: 100%;
+}
+
+.filter-search-result:hover {
+  background: var(--bg-hover);
+}
+
+.filter-search-result-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.filter-search-result-type {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: var(--radius-full);
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+
+.filter-search-result-title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.filter-search-result-address {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .filter-search-icon {
@@ -4308,18 +4431,37 @@
   overflow-y: auto;
 }
 
-/* Bookmark-style tabs */
+/* Bookmark-style tabs — horizontal scroll only */
 .guide-tabs {
   display: flex;
+  flex-direction: row;
   gap: 0;
   padding: 0 var(--sp-4);
   border-bottom: 2px solid var(--border-subtle);
   overflow-x: auto;
-  scrollbar-width: none;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text-muted) 25%, transparent) transparent;
+  flex-shrink: 0;
+  /* Enable horizontal touch scrolling */
+  -webkit-overflow-scrolling: touch;
 }
 
 .guide-tabs::-webkit-scrollbar {
-  display: none;
+  height: 3px;
+}
+
+.guide-tabs::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.guide-tabs::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text-muted) 25%, transparent);
+  border-radius: 3px;
+}
+
+.guide-tabs::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--text-muted) 45%, transparent);
 }
 
 .guide-tab {
@@ -4646,8 +4788,12 @@
 .donate-header {
   background: linear-gradient(135deg, var(--color-primary, #e53e3e) 0%, #c53030 100%);
   color: #fff;
-  padding: var(--sp-6) var(--sp-6) var(--sp-5);
+  padding: var(--sp-3) var(--sp-5) var(--sp-3);
   position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
 }
 
 .donate-back-btn {
@@ -4656,12 +4802,12 @@
   color: rgba(255,255,255,0.85);
   cursor: pointer;
   padding: var(--sp-1);
-  margin-bottom: var(--sp-3);
   display: inline-flex;
   align-items: center;
   gap: var(--sp-1);
   font-size: var(--text-sm);
   transition: color 0.15s;
+  flex-shrink: 0;
 }
 .donate-back-btn:hover { color: #fff; }
 
@@ -4669,10 +4815,9 @@
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  margin-bottom: var(--sp-2);
 }
 .donate-header-title h1 {
-  font-size: var(--text-xl);
+  font-size: var(--text-lg);
   font-weight: 700;
   margin: 0;
 }
@@ -4686,9 +4831,10 @@
 }
 
 .donate-header-subtitle {
-  font-size: var(--text-sm);
-  opacity: 0.88;
+  font-size: var(--text-xs);
+  opacity: 0.8;
   margin: 0;
+  width: 100%;
   max-width: 480px;
 }
 
@@ -5102,10 +5248,13 @@
     gap: var(--sp-4);
   }
   .donate-header {
-    padding: var(--sp-4);
+    padding: var(--sp-2) var(--sp-4);
   }
   .donate-header-title h1 {
-    font-size: var(--text-lg);
+    font-size: var(--text-base);
+  }
+  .donate-header-subtitle {
+    font-size: 10px;
   }
   .donate-history-list {
     max-height: 320px;

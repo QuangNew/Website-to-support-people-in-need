@@ -405,11 +405,13 @@ static ForwardedHeadersOptions BuildForwardedHeadersOptions(IConfiguration confi
     var knownProxies = configuration.GetSection("ReverseProxy:KnownProxies").Get<string[]>() ?? [];
     var knownNetworks = configuration.GetSection("ReverseProxy:KnownNetworks").Get<string[]>() ?? [];
 
-    if (knownProxies.Length == 0 && knownNetworks.Length == 0)
-        return options;
-
+    // Always clear defaults — the default KnownProxies only trusts 127.0.0.1,
+    // which breaks X-Forwarded-Proto on Azure where the load balancer isn't localhost.
     options.KnownProxies.Clear();
     options.KnownIPNetworks.Clear();
+
+    if (knownProxies.Length == 0 && knownNetworks.Length == 0)
+        return options;
 
     foreach (var proxy in knownProxies)
     {

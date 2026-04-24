@@ -83,6 +83,15 @@ function getInitials(name: string): string {
   return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
 }
 
+/** Handle avatar load error — hide img and show initials fallback sibling */
+function handleAvatarError(e: React.SyntheticEvent<HTMLImageElement>) {
+  const img = e.currentTarget;
+  img.style.display = 'none';
+  // Show the next sibling which is the initials fallback
+  const fallback = img.nextElementSibling as HTMLElement | null;
+  if (fallback) fallback.style.display = '';
+}
+
 export default function SocialPanel() {
   const { isAuthenticated, user } = useAuthStore();
   const { setAuthModal } = useMapStore();
@@ -408,7 +417,12 @@ export default function SocialPanel() {
                 onClick={() => openUserPreview(post.authorId, post.authorName, post.authorAvatar)}
               >
                 {post.authorAvatar ? (
-                  <img src={getImageUrl(post.authorAvatar)} alt="" className="avatar avatar-sm" style={{ objectFit: 'cover' }} />
+                  <>
+                    <img src={getImageUrl(post.authorAvatar)} alt="" className="avatar avatar-sm" style={{ objectFit: 'cover' }} onError={handleAvatarError} />
+                    <div className="avatar avatar-sm" style={{ display: 'none' }}>
+                      <span>{getInitials(post.authorName)}</span>
+                    </div>
+                  </>
                 ) : (
                   <div className="avatar avatar-sm">
                     <span>{getInitials(post.authorName)}</span>
@@ -497,12 +511,18 @@ export default function SocialPanel() {
                       onClick={() => openUserPreview(c.userId, c.userName, c.userAvatar)}
                     >
                       {c.userAvatar ? (
-                        <img
-                          src={getImageUrl(c.userAvatar)}
-                          alt=""
-                          className="avatar"
-                          style={{ width: 24, height: 24, fontSize: '0.6rem', objectFit: 'cover' }}
-                        />
+                        <>
+                          <img
+                            src={getImageUrl(c.userAvatar)}
+                            alt=""
+                            className="avatar"
+                            style={{ width: 24, height: 24, fontSize: '0.6rem', objectFit: 'cover' }}
+                            onError={handleAvatarError}
+                          />
+                          <div className="avatar" style={{ width: 24, height: 24, fontSize: '0.6rem', display: 'none' }}>
+                            <span>{getInitials(c.userName)}</span>
+                          </div>
+                        </>
                       ) : (
                         <div className="avatar" style={{ width: 24, height: 24, fontSize: '0.6rem' }}>
                           <span>{getInitials(c.userName)}</span>

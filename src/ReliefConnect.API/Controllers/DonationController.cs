@@ -76,6 +76,7 @@ public class DonationController : ControllerBase
             return Unauthorized();
 
         var user = await _db.Users
+            .AsNoTracking()
             .Where(u => u.Id == userId)
             .Select(u => new { u.FullName, u.Email, u.PhoneNumber })
             .FirstOrDefaultAsync();
@@ -123,6 +124,7 @@ public class DonationController : ControllerBase
             Message = dto.Message?.Trim().Length > 200 ? dto.Message.Trim()[..200] : dto.Message?.Trim(),
             Status = DonationStatus.Pending,
         };
+        _db.ChangeTracker.Clear();
         _db.DonationRecords.Add(record);
         await _db.SaveChangesAsync();
 
@@ -143,6 +145,7 @@ public class DonationController : ControllerBase
     public async Task<ActionResult> GetStatus(long orderCode)
     {
         var record = await _db.DonationRecords
+            .AsTracking()
             .FirstOrDefaultAsync(d => d.OrderCode == orderCode);
 
         if (record == null) return NotFound();
@@ -190,6 +193,7 @@ public class DonationController : ControllerBase
 
         var orderCode = payload.Data.OrderCode;
         var record = await _db.DonationRecords
+            .AsTracking()
             .FirstOrDefaultAsync(d => d.OrderCode == orderCode);
 
         if (record == null || record.Status == DonationStatus.Paid) return Ok();
@@ -293,11 +297,11 @@ public class DonationController : ControllerBase
 
     private static long GenerateOrderCode()
     {
-        // Use current unix ms % a large prime to stay within safe integer range
-        // Add random component to reduce collision
-        var ms = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        // PayOS orderCode must be a positive integer.
+        // Use current unix seconds * 1000 + random 3-digit suffix → stays within safe range.
+        var secs = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         var rand = Random.Shared.Next(100, 999);
-        return (ms % 10_000_000_000L) * 1000 + rand;
+        return (secs % 10_000_000L) * 1000 + rand;
     }
 
     private static string? MaskPhone(string? phone)

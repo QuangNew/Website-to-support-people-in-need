@@ -98,7 +98,7 @@ export default function DonatePage() {
   const fetchHistory = useCallback(async () => {
     try {
       setHistoryLoading(true);
-      const { data } = await api.get<DonationHistoryItem[]>('/api/donation/history');
+      const { data } = await api.get<DonationHistoryItem[]>('/donation/history');
       setHistory(data);
     } catch {
       // non-critical
@@ -118,7 +118,7 @@ export default function DonatePage() {
     setPollStatus('pending');
     pollRef.current = setInterval(async () => {
       try {
-        const { data } = await api.get<{ status: string }>(`/api/donation/status/${qrData.orderCode}`);
+        const { data } = await api.get<{ status: string }>(`/donation/status/${qrData.orderCode}`);
         if (data.status === 'Paid') {
           setPollStatus('paid');
           clearInterval(pollRef.current!);
@@ -151,7 +151,7 @@ export default function DonatePage() {
     setFormError(null);
     setSubmitting(true);
     try {
-      const { data } = await api.post<CreateDonationResponse>('/api/donation/create', {
+      const { data } = await api.post<CreateDonationResponse>('/donation/create', {
         amount: effectiveAmount,
         message: message.trim() || null,
       });
@@ -177,14 +177,14 @@ export default function DonatePage() {
       {/* ─── Header ─── */}
       <div className="donate-header">
         <button type="button" className="donate-back-btn" onClick={() => navigate(-1)} aria-label="Quay lại">
-          <ArrowLeft size={20} />
+          <ArrowLeft size={18} />
         </button>
         <div className="donate-header-title">
-          <Heart size={22} className="donate-heart-icon" />
+          <Heart size={18} className="donate-heart-icon" />
           <h1>Ủng hộ ReliefConnect</h1>
         </div>
         <p className="donate-header-subtitle">
-          Mỗi đóng góp của bạn giúp chúng tôi duy trì nền tảng kết nối cứu trợ miễn phí.
+          Mỗi đóng góp giúp duy trì nền tảng cứu trợ miễn phí.
         </p>
       </div>
 

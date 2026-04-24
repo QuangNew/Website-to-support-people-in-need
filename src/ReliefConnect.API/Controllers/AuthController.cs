@@ -686,13 +686,20 @@ public class AuthController : ControllerBase
     private void AppendAuthCookie(string token, DateTime expiresAt)
     {
         var secure = IsSecureRequest();
+        var sameSite = secure ? SameSiteMode.None : SameSiteMode.Lax;
+        var origin = Request.Headers["Origin"].ToString();
+
+        _logger.LogInformation(
+            "Setting auth cookie: Secure={Secure}, SameSite={SameSite}, Origin={Origin}, IsHttps={IsHttps}, X-Forwarded-Proto={XFP}",
+            secure, sameSite, origin, Request.IsHttps, Request.Headers["X-Forwarded-Proto"].ToString());
+
         Response.Cookies.Append(AuthCookieName, token, new CookieOptions
         {
             HttpOnly = true,
             Secure = secure,
             // SameSite=None is required for cross-origin requests (frontend on Azure Static Web Apps,
             // backend on Azure App Service are different origins). None requires Secure=true.
-            SameSite = secure ? SameSiteMode.None : SameSiteMode.Lax,
+            SameSite = sameSite,
             Expires = new DateTimeOffset(expiresAt),
             MaxAge = expiresAt - DateTime.UtcNow,
             Path = "/",
@@ -719,7 +726,23 @@ public class AuthController : ControllerBase
             return true;
 
         var forwardedProto = Request.Headers["X-Forwarded-Proto"].ToString();
-        return string.Equals(forwardedProto, "https", StringComparison.OrdinalIgnoreCase);
+        if (string.Equals(forwardedProto, "https", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // Azure App Service always terminates SSL at the load balancer, so the
+        // internal request is plain HTTP even though the client connected over HTTPS.
+        // If the ForwardedHeaders middleware didn't trust the Azure proxy (KnownProxies
+        // mismatch), Request.IsHttps stays false — detect this via environment instead.
+        var env = _config["ASPNETCORE_ENVIRONMENT"] ?? Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
+        if (string.Equals(env, "Production", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // Azure also sets the X-Forwarded-Ssl and X-ARR-SSL headers
+        var arrSsl = Request.Headers["X-ARR-SSL"].ToString();
+        if (!string.IsNullOrEmpty(arrSsl))
+            return true;
+
+        return false;
     }
 
     private static string GenerateVerificationCode()
