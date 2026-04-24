@@ -101,6 +101,19 @@
   --text-inverse:   #080b11;
   --text-on-primary: #ffffff;
   --text-on-danger:  #ffffff;
+   --message-mine-bg: #cf5a11;
+   --message-mine-text: #fff8f2;
+   --message-mine-meta: rgba(255, 245, 236, 0.84);
+   --message-theirs-bg: #171f2e;
+   --message-theirs-text: #eef1f7;
+   --message-theirs-meta: #93a0bb;
+   --message-theirs-border: rgba(255, 255, 255, 0.07);
+   --message-failed-bg: #4d2020;
+   --message-failed-text: #ffe8e8;
+   --message-failed-border: rgba(252, 99, 99, 0.28);
+   --message-status-sending: rgba(255, 232, 210, 0.95);
+   --message-status-sent: rgba(255, 246, 239, 0.9);
+   --message-status-failed: #ffd1d1;
 
   /* ── Shadows ── */
   --shadow-xs: 0 1px 2px rgba(0,0,0,0.4);
@@ -164,6 +177,19 @@
   --text-secondary: #4a5568;
   --text-tertiary:  #6b7a94;
   --text-muted:     #9aa5bc;
+   --message-mine-bg: #c74f0d;
+   --message-mine-text: #fffaf5;
+   --message-mine-meta: rgba(255, 247, 240, 0.94);
+   --message-theirs-bg: #f3f6fb;
+   --message-theirs-text: #152033;
+   --message-theirs-meta: #61708b;
+   --message-theirs-border: rgba(15, 21, 33, 0.08);
+   --message-failed-bg: #fff3f3;
+   --message-failed-text: #7a1f1f;
+   --message-failed-border: rgba(220, 20, 20, 0.18);
+   --message-status-sending: rgba(255, 247, 240, 0.94);
+   --message-status-sent: rgba(255, 250, 245, 0.98);
+   --message-status-failed: #b42318;
 
   --shadow-xs: 0 1px 2px rgba(0,0,0,0.05);
   --shadow-sm: 0 2px 6px rgba(0,0,0,0.07), 0 1px 2px rgba(0,0,0,0.04);

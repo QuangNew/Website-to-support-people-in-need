@@ -7,9 +7,9 @@ test.describe('Admin API', () => {
 
   test.beforeAll(async ({ request }) => {
     api = new ApiHelper(request);
-    const email = `admin${Date.now()}@example.com`;
-    await api.register(email, 'Password123', 'Admin');
-    adminToken = await api.login(email, 'Password123');
+    const email = process.env.ADMIN_EMAIL ?? 'admin_test@reliefconnect.vn';
+    const password = process.env.ADMIN_PASSWORD ?? 'Admin@123';
+    adminToken = await api.login(email, password);
   });
 
   test('get all users', async ({ request }) => {

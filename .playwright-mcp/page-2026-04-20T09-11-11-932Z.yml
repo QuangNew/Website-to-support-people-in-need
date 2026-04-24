@@ -1,0 +1,230 @@
+- generic [ref=e1]:
+  - generic [ref=e3]:
+    - generic [ref=e5]:
+      - generic:
+        - generic:
+          - button [ref=e6] [cursor=pointer]:
+            - img [ref=e8]
+          - button [ref=e10] [cursor=pointer]:
+            - img [ref=e12]
+          - button "2" [ref=e94] [cursor=pointer]:
+            - generic [ref=e95]: "2"
+          - button "10" [ref=e96] [cursor=pointer]:
+            - generic [ref=e97]: "10"
+          - button "13" [ref=e98] [cursor=pointer]:
+            - generic [ref=e99]: "13"
+          - button "2" [ref=e100] [cursor=pointer]:
+            - generic [ref=e101]: "2"
+      - generic:
+        - generic [ref=e14]:
+          - button "Zoom in" [ref=e15] [cursor=pointer]: +
+          - button "Zoom out" [ref=e16] [cursor=pointer]: −
+        - generic [ref=e17]:
+          - link "Leaflet" [ref=e18] [cursor=pointer]:
+            - /url: https://leafletjs.com
+            - img [ref=e19]
+            - text: Leaflet
+          - text: "| ©"
+          - link "OpenStreetMap" [ref=e23] [cursor=pointer]:
+            - /url: https://www.openstreetmap.org/copyright
+    - complementary [ref=e24]:
+      - button "Toggle sidebar" [ref=e26] [cursor=pointer]:
+        - img [ref=e27]
+      - navigation [ref=e28]:
+        - button "Danh sách" [ref=e29] [cursor=pointer]:
+          - img [ref=e30]
+        - button "Cộng đồng" [ref=e33] [cursor=pointer]:
+          - img [ref=e34]
+        - button "Tin nhắn" [ref=e39] [cursor=pointer]:
+          - img [ref=e40]
+        - button "Chatbot AI" [ref=e43] [cursor=pointer]:
+          - img [ref=e44]
+        - button "Hồ sơ" [ref=e46] [cursor=pointer]:
+          - img [ref=e47]
+        - button "Xác minh" [ref=e51] [cursor=pointer]:
+          - img [ref=e52]
+        - button "Hướng dẫn" [ref=e56] [cursor=pointer]:
+          - img [ref=e57]
+        - link "Quản trị" [ref=e151] [cursor=pointer]:
+          - /url: /admin
+          - img [ref=e152]
+      - generic [ref=e60]:
+        - button "Tối" [active] [ref=e334] [cursor=pointer]:
+          - img [ref=e335]
+        - button "English" [ref=e64] [cursor=pointer]:
+          - img [ref=e65]
+        - button "Đăng xuất" [ref=e154] [cursor=pointer]:
+          - img [ref=e155]
+    - generic [ref=e72]:
+      - button "Bộ lọc" [ref=e73] [cursor=pointer]:
+        - img [ref=e74]
+      - generic [ref=e75]:
+        - textbox "Tìm kiếm vị trí hoặc SĐT..." [ref=e76]
+        - img [ref=e77]
+      - button "Thông báo" [ref=e159] [cursor=pointer]:
+        - img [ref=e160]
+    - generic [ref=e170]:
+      - button "Close panel" [ref=e171] [cursor=pointer]:
+        - img [ref=e172]
+      - generic [ref=e287]:
+        - generic [ref=e288]:
+          - button [ref=e289] [cursor=pointer]:
+            - img [ref=e290]
+          - generic [ref=e292]:
+            - generic [ref=e294]: M
+            - strong [ref=e295]: Map Volunteer
+        - generic [ref=e296]:
+          - generic [ref=e297]:
+            - paragraph [ref=e298]: copilot smoke test 080953
+            - generic [ref=e299]:
+              - generic [ref=e300]: Đã gửi
+              - generic [ref=e301]: 03:09 PM
+          - generic [ref=e302]:
+            - paragraph [ref=e303]: optimistic smoke test
+            - generic [ref=e304]:
+              - generic [ref=e305]: Đã gửi
+              - generic [ref=e306]: 03:50 PM
+          - generic [ref=e307]:
+            - paragraph [ref=e308]: optimized smoke test
+            - generic [ref=e309]:
+              - generic [ref=e310]: Đã gửi
+              - generic [ref=e311]: 03:53 PM
+          - generic [ref=e312]:
+            - paragraph [ref=e313]: final optimized smoke test
+            - generic [ref=e314]:
+              - generic [ref=e315]: Đã gửi
+              - generic [ref=e316]: 03:56 PM
+          - generic [ref=e317]:
+            - paragraph [ref=e318]: yo mmb
+            - generic [ref=e319]:
+              - generic [ref=e320]: Đã gửi
+              - generic [ref=e321]: 04:06 PM
+          - generic [ref=e322]:
+            - paragraph [ref=e323]: ui optimistic 1776676034797
+            - generic [ref=e324]:
+              - generic [ref=e325]: Đã gửi
+              - generic [ref=e326]: 04:07 PM
+        - generic [ref=e327]:
+          - textbox "Nhập tin nhắn..." [ref=e328]
+          - button [disabled] [ref=e329]:
+            - img [ref=e330]
+        - paragraph [ref=e333]: Tin nhắn được lưu trữ trong 30 ngày.
+    - button "S-O-S" [ref=e81] [cursor=pointer]:
+      - img [ref=e82]
+      - generic [ref=e84]: S-O-S
+  - button "/agentation v2.3.3 Output Detail Standard React Components Hide Until Restart Marker Color Indigo Blue Cyan Green Yellow Orange Red Clear on copy/send Block page interactions Manage MCP & Webhooks Manage MCP & Webhooks MCP Connection MCP connection allows agents to receive and act on annotations. Learn more Webhooks Auto-Send The webhook URL will receive live annotation changes and annotation data." [ref=e86] [cursor=pointer]:
+    - img [ref=e88]
+    - generic:
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button:
+          - img
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic: /agentation
+            - generic: v2.3.3
+            - button "Switch to light mode":
+              - generic:
+                - generic:
+                  - img
+          - generic:
+            - generic:
+              - generic:
+                - text: Output Detail
+                - generic:
+                  - img
+              - button "Standard":
+                - generic: Standard
+            - generic:
+              - generic:
+                - text: React Components
+                - generic:
+                  - img
+              - generic:
+                - checkbox [checked]
+            - generic:
+              - generic:
+                - text: Hide Until Restart
+                - generic:
+                  - img
+              - generic:
+                - checkbox
+          - generic:
+            - generic: Marker Color
+            - generic:
+              - button "Indigo":
+                - generic "Indigo"
+              - button "Blue":
+                - generic "Blue"
+              - button "Cyan":
+                - generic "Cyan"
+              - button "Green":
+                - generic "Green"
+              - button "Yellow":
+                - generic "Yellow"
+              - button "Orange":
+                - generic "Orange"
+              - button "Red":
+                - generic "Red"
+          - generic:
+            - generic:
+              - checkbox "Clear on copy/send"
+              - generic:
+                - text: Clear on copy/send
+                - generic:
+                  - img
+            - generic:
+              - checkbox "Block page interactions" [checked]
+              - generic:
+                - img
+              - generic: Block page interactions
+          - generic:
+            - button "Manage MCP & Webhooks":
+              - generic: Manage MCP & Webhooks
+              - generic:
+                - img
+        - generic:
+          - button "Manage MCP & Webhooks":
+            - img
+            - generic: Manage MCP & Webhooks
+          - generic:
+            - generic:
+              - generic:
+                - text: MCP Connection
+                - generic:
+                  - img
+            - paragraph:
+              - text: MCP connection allows agents to receive and act on annotations.
+              - link "Learn more":
+                - /url: https://agentation.dev/mcp
+          - generic:
+            - generic:
+              - generic:
+                - text: Webhooks
+                - generic:
+                  - img
+              - generic:
+                - generic: Auto-Send
+                - generic:
+                  - checkbox [checked] [disabled]
+            - paragraph: The webhook URL will receive live annotation changes and annotation data.
+            - textbox "Webhook URL"

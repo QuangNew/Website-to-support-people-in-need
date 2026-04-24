@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Sparkles } from 'lucide-react';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { Send, Bot, User, Sparkles, RotateCcw } from 'lucide-react';
 import { useLanguage } from '../contexts/LanguageContext';
 
 interface Message {
@@ -9,24 +9,75 @@ interface Message {
     time: string;
 }
 
+const STORAGE_KEY = 'chatbot_messages';
+const MAX_MESSAGES = 200;
+
 export default function ChatbotPage() {
     const { t, locale } = useLanguage();
     const [input, setInput] = useState('');
-    const [messages, setMessages] = useState<Message[]>([
-        {
-            id: 1,
-            role: 'assistant',
-            content: locale === 'vi'
-                ? 'Xin chào! Tôi là trợ lý AI của ReliefConnect. Tôi có thể giúp bạn tìm kiếm thông tin cứu trợ, hướng dẫn sử dụng nền tảng, hoặc trả lời câu hỏi. Hãy hỏi tôi bất kỳ điều gì!'
-                : 'Hello! I am ReliefConnect\'s AI assistant. I can help you find relief information, guide you through the platform, or answer questions. Ask me anything!',
-            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        },
-    ]);
+
+    const getInitialGreeting = (): Message => ({
+        id: Date.now(),
+        role: 'assistant',
+        content: locale === 'vi'
+            ? 'Xin chào! Tôi là trợ lý AI của ReliefConnect. Tôi có thể giúp bạn tìm kiếm thông tin cứu trợ, hướng dẫn sử dụng nền tảng, hoặc trả lời câu hỏi. Hãy hỏi tôi bất kỳ điều gì!'
+            : 'Hello! I am ReliefConnect\'s AI assistant. I can help you find relief information, guide you through the platform, or answer questions. Ask me anything!',
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    });
+
+    const [messages, setMessages] = useState<Message[]>(() => {
+        try {
+            const stored = localStorage.getItem(STORAGE_KEY);
+            if (stored) {
+                const parsed = JSON.parse(stored);
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                    return parsed;
+                }
+            }
+        } catch (error) {
+            console.error('Failed to load messages from localStorage:', error);
+        }
+        return [getInitialGreeting()];
+    });
+
     const bottomRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages]);
+
+    const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const saveMessages = useCallback((msgs: Message[]) => {
+        if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = setTimeout(() => {
+            try {
+                // Keep only last MAX_MESSAGES to prevent unbounded storage growth
+                const toSave = msgs.slice(-MAX_MESSAGES);
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+            } catch (error) {
+                console.error('Failed to save messages to localStorage:', error);
+            }
+        }, 500);
+    }, []);
+
+    useEffect(() => {
+        saveMessages(messages);
+        return () => {
+            if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+        };
+    }, [messages, saveMessages]);
+
+    const handleNewChat = () => {
+        const confirmMessage = locale === 'vi'
+            ? 'Bạn có muốn bắt đầu cuộc trò chuyện mới? Tin nhắn cũ sẽ bị xóa.'
+            : 'Start a new conversation? Old messages will be cleared.';
+
+        if (window.confirm(confirmMessage)) {
+            localStorage.removeItem(STORAGE_KEY);
+            setMessages([getInitialGreeting()]);
+        }
+    };
 
     const handleSend = () => {
         if (!input.trim()) return;
@@ -60,10 +111,17 @@ export default function ChatbotPage() {
                 <div style={{ width: 44, height: 44, borderRadius: 'var(--radius-lg)', background: 'linear-gradient(135deg, var(--primary-500), var(--accent-500))', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: 'var(--shadow-glow-primary)' }}>
                     <Sparkles size={22} color="white" />
                 </div>
-                <div>
+                <div style={{ flex: 1 }}>
                     <h2 style={{ fontSize: 'var(--text-xl)' }}>{t('chatbot.title')}</h2>
                     <span className="badge badge-success badge-sm">Online</span>
                 </div>
+                <button
+                    className="btn btn-ghost btn-icon"
+                    onClick={handleNewChat}
+                    title={locale === 'vi' ? 'Cuộc trò chuyện mới' : 'New Chat'}
+                >
+                    <RotateCcw size={18} />
+                </button>
             </div>
 
             {/* Messages */}

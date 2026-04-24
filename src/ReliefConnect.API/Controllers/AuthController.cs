@@ -3,7 +3,6 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using Google.Apis.Auth;
-using Hangfire;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -13,6 +12,7 @@ using ReliefConnect.Core.DTOs;
 using ReliefConnect.Core.Entities;
 using ReliefConnect.Core.Enums;
 using ReliefConnect.Core.Interfaces;
+using ReliefConnect.Infrastructure.Data;
 
 namespace ReliefConnect.API.Controllers;
 
@@ -20,12 +20,14 @@ namespace ReliefConnect.API.Controllers;
 [Route("api/[controller]")]
 public class AuthController : ControllerBase
 {
+    private const string AuthCookieName = "auth_token";
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly SignInManager<ApplicationUser> _signInManager;
     private readonly IConfiguration _config;
     private readonly ILogger<AuthController> _logger;
     private readonly IEmailService _emailService;
     private readonly ITokenBlacklistService _tokenBlacklist;
+    private readonly AppDbContext _db;
 
     public AuthController(
         UserManager<ApplicationUser> userManager,
@@ -33,7 +35,8 @@ public class AuthController : ControllerBase
         IConfiguration config,
         ILogger<AuthController> logger,
         IEmailService emailService,
-        ITokenBlacklistService tokenBlacklist)
+        ITokenBlacklistService tokenBlacklist,
+        AppDbContext db)
     {
         _userManager = userManager;
         _signInManager = signInManager;
@@ -41,6 +44,7 @@ public class AuthController : ControllerBase
         _logger = logger;
         _emailService = emailService;
         _tokenBlacklist = tokenBlacklist;
+        _db = db;
     }
 
     // ═══════════════════════════════════════════
@@ -85,11 +89,12 @@ public class AuthController : ControllerBase
         }
 
         // Send verification email
-        BackgroundJob.Enqueue<IEmailService>(x => x.SendVerificationCodeAsync(dto.Email, verificationCode));
+        await _emailService.SendVerificationCodeAsync(dto.Email, verificationCode);
 
         _logger.LogInformation("User registered: {Username} ({Email}) — verification code sent", dto.Username, dto.Email);
 
         var token = GenerateJwtToken(user);
+        AppendAuthCookie(token.Token, token.ExpiresAt);
         return Ok(new AuthResponseDto
         {
             Token = token.Token,
@@ -163,7 +168,7 @@ public class AuthController : ControllerBase
         user.EmailVerificationCodeExpiry = DateTime.UtcNow.AddMinutes(15);
         await _userManager.UpdateAsync(user);
 
-        BackgroundJob.Enqueue<IEmailService>(x => x.SendVerificationCodeAsync(user.Email!, code));
+        await _emailService.SendVerificationCodeAsync(user.Email!, code);
 
         return Ok(new { message = "Mã xác nhận mới đã được gửi." });
     }
@@ -187,10 +192,10 @@ public class AuthController : ControllerBase
         user.PasswordResetTokenExpiry = DateTime.UtcNow.AddMinutes(15);
         await _userManager.UpdateAsync(user);
 
-        BackgroundJob.Enqueue<IEmailService>(x => x.SendEmailAsync(
+        await _emailService.SendEmailAsync(
             dto.Email,
             "Đặt lại mật khẩu - ReliefConnect",
-            $"<p>Mã đặt lại mật khẩu của bạn là: <strong>{resetToken}</strong></p><p>Mã có hiệu lực trong 15 phút.</p>"));
+            $"<p>Mã đặt lại mật khẩu của bạn là: <strong>{resetToken}</strong></p><p>Mã có hiệu lực trong 15 phút.</p>");
 
         _logger.LogInformation("Password reset requested: {Email}", dto.Email);
 
@@ -234,6 +239,35 @@ public class AuthController : ControllerBase
     }
 
     // ═══════════════════════════════════════════
+    //  CHANGE PASSWORD (authenticated)
+    // ═══════════════════════════════════════════
+
+    [HttpPost("change-password")]
+    [Authorize]
+    public async Task<ActionResult> ChangePassword([FromBody] ChangePasswordDto dto)
+    {
+        var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized();
+
+        var user = await _userManager.FindByIdAsync(userId);
+        if (user == null)
+            return Unauthorized();
+
+        var result = await _userManager.ChangePasswordAsync(user, dto.CurrentPassword, dto.NewPassword);
+        if (!result.Succeeded)
+            return BadRequest(new ApiErrorResponse
+            {
+                StatusCode = 400,
+                Message = "Đổi mật khẩu thất bại.",
+                Errors = result.Errors.Select(e => e.Description)
+            });
+
+        _logger.LogInformation("Password changed for user: {UserId}", userId);
+        return Ok(new { message = "Đổi mật khẩu thành công!" });
+    }
+
+    // ═══════════════════════════════════════════
     //  LOGIN
     // ═══════════════════════════════════════════
 
@@ -261,6 +295,7 @@ public class AuthController : ControllerBase
         _logger.LogInformation("User logged in: {Username}", user.UserName);
 
         var token = GenerateJwtToken(user);
+        AppendAuthCookie(token.Token, token.ExpiresAt);
         return Ok(new AuthResponseDto
         {
             Token = token.Token,
@@ -307,7 +342,7 @@ public class AuthController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Google OAuth: token validation failed — {Message}", ex.Message);
-            return Unauthorized(new ApiErrorResponse { StatusCode = 401, Message = $"Google xác thực thất bại: {ex.Message}" });
+            return Unauthorized(new ApiErrorResponse { StatusCode = 401, Message = "Google xác thực thất bại. Vui lòng thử lại." });
         }
 
         // Find existing user by Google ID or email
@@ -372,6 +407,7 @@ public class AuthController : ControllerBase
         _logger.LogInformation("Google login: {Username}", user.UserName);
 
         var token = GenerateJwtToken(user);
+        AppendAuthCookie(token.Token, token.ExpiresAt);
         return Ok(new AuthResponseDto
         {
             Token = token.Token,
@@ -406,6 +442,7 @@ public class AuthController : ControllerBase
         }
 
         await _signInManager.SignOutAsync();
+        DeleteAuthCookie();
         _logger.LogInformation("User logged out: {Username}", User.Identity?.Name);
 
         return Ok(new { message = "Đăng xuất thành công." });
@@ -438,8 +475,40 @@ public class AuthController : ControllerBase
             VerificationStatus = user.VerificationStatus.ToString(),
             EmailVerified = user.EmailConfirmed,
             AvatarUrl = user.AvatarUrl,
+            PhoneNumber = user.PhoneNumber,
+            Address = user.Address,
+            FacebookUrl = user.FacebookUrl,
+            TelegramUrl = user.TelegramUrl,
             CreatedAt = user.CreatedAt
         });
+    }
+
+    /// <summary>
+    /// Get a user's basic public profile for community previews.
+    /// </summary>
+    [HttpGet("users/{userId}/basic-profile")]
+    [AllowAnonymous]
+    public async Task<ActionResult<BasicUserProfileDto>> GetBasicProfile(string userId)
+    {
+        var profile = await _userManager.Users
+            .AsNoTracking()
+            .Where(u => u.Id == userId)
+            .Select(u => new BasicUserProfileDto
+            {
+                Id = u.Id,
+                UserName = u.UserName!,
+                FullName = u.FullName,
+                Role = u.Role.ToString(),
+                VerificationStatus = u.VerificationStatus.ToString(),
+                AvatarUrl = u.AvatarUrl,
+                CreatedAt = u.CreatedAt,
+            })
+            .FirstOrDefaultAsync();
+
+        if (profile == null)
+            return NotFound(new ApiErrorResponse { StatusCode = 404, Message = "Người dùng không tồn tại." });
+
+        return Ok(profile);
     }
 
     /// <summary>
@@ -457,6 +526,9 @@ public class AuthController : ControllerBase
 
         if (dto.FullName != null) user.FullName = dto.FullName;
         if (dto.AvatarUrl != null) user.AvatarUrl = dto.AvatarUrl;
+        if (dto.PhoneNumber != null) user.PhoneNumber = dto.PhoneNumber;
+        if (dto.FacebookUrl != null) user.FacebookUrl = dto.FacebookUrl;
+        if (dto.TelegramUrl != null) user.TelegramUrl = dto.TelegramUrl;
 
         await _userManager.UpdateAsync(user);
         _logger.LogInformation("Profile updated: {Username}", user.UserName);
@@ -471,6 +543,10 @@ public class AuthController : ControllerBase
             VerificationStatus = user.VerificationStatus.ToString(),
             EmailVerified = user.EmailConfirmed,
             AvatarUrl = user.AvatarUrl,
+            PhoneNumber = user.PhoneNumber,
+            Address = user.Address,
+            FacebookUrl = user.FacebookUrl,
+            TelegramUrl = user.TelegramUrl,
             CreatedAt = user.CreatedAt
         });
     }
@@ -502,11 +578,71 @@ public class AuthController : ControllerBase
         user.VerificationStatus = VerificationStatus.Pending;
         user.RequestedRole = dto.RequestedRole;
         user.VerificationReason = dto.Reason;
+        user.PhoneNumber = dto.PhoneNumber;
+        if (dto.Address != null) user.Address = dto.Address;
+        user.VerificationImageUrls = dto.ImageUrls != null && dto.ImageUrls.Count > 0
+            ? string.Join(",", dto.ImageUrls.Take(5))
+            : null;
+        user.RequestedRoleExpiry = DateTime.UtcNow.AddYears(1).AddMonths(6);
         await _userManager.UpdateAsync(user);
+
+        _db.VerificationHistories.Add(new VerificationHistory
+        {
+            UserId = user.Id,
+            RequestedRole = dto.RequestedRole,
+            VerificationReason = dto.Reason,
+            VerificationImageUrls = user.VerificationImageUrls,
+            PhoneNumber = dto.PhoneNumber,
+            Address = dto.Address,
+            Status = VerificationStatus.Pending,
+            SubmittedAt = DateTime.UtcNow,
+        });
+        await _db.SaveChangesAsync();
 
         _logger.LogInformation("Verification requested: {Username} → {Role}", user.UserName, dto.RequestedRole);
 
         return Ok(new { message = "Yêu cầu xác minh đã được gửi. Admin sẽ duyệt sớm nhất." });
+    }
+
+    // ═══════════════════════════════════════════
+    //  CONTACT INFO (support button)
+    // ═══════════════════════════════════════════
+
+    /// <summary>
+    /// Get contact info of a PersonInNeed user. Only Sponsors, Volunteers, and Admins can access.
+    /// </summary>
+    [HttpGet("users/{userId}/contact")]
+    [Authorize]
+    public async Task<ActionResult<ContactInfoDto>> GetContactInfo(string userId)
+    {
+        var callerId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (callerId == null) return Unauthorized();
+
+        var caller = await _userManager.FindByIdAsync(callerId);
+        if (caller == null) return Unauthorized();
+
+        // Only Sponsor, Volunteer, or Admin can see contact info
+        if (caller.Role != RoleEnum.Sponsor && caller.Role != RoleEnum.Volunteer && caller.Role != RoleEnum.Admin)
+            return Forbid();
+
+        var target = await _userManager.FindByIdAsync(userId);
+        if (target == null)
+            return NotFound(new ApiErrorResponse { StatusCode = 404, Message = "Người dùng không tồn tại." });
+
+        // Non-admin can only see PersonInNeed contact info
+        if (caller.Role != RoleEnum.Admin && target.Role != RoleEnum.PersonInNeed)
+            return Forbid();
+
+        return Ok(new ContactInfoDto
+        {
+            UserId = target.Id,
+            FullName = target.FullName,
+            Email = target.Email!,
+            PhoneNumber = target.PhoneNumber,
+            AvatarUrl = target.AvatarUrl,
+            FacebookUrl = target.FacebookUrl,
+            TelegramUrl = target.TelegramUrl
+        });
     }
 
     // ═══════════════════════════════════════════
@@ -545,6 +681,68 @@ public class AuthController : ControllerBase
         );
 
         return (new JwtSecurityTokenHandler().WriteToken(token), expiresAt);
+    }
+
+    private void AppendAuthCookie(string token, DateTime expiresAt)
+    {
+        var secure = IsSecureRequest();
+        var sameSite = secure ? SameSiteMode.None : SameSiteMode.Lax;
+        var origin = Request.Headers["Origin"].ToString();
+
+        _logger.LogInformation(
+            "Setting auth cookie: Secure={Secure}, SameSite={SameSite}, Origin={Origin}, IsHttps={IsHttps}, X-Forwarded-Proto={XFP}",
+            secure, sameSite, origin, Request.IsHttps, Request.Headers["X-Forwarded-Proto"].ToString());
+
+        Response.Cookies.Append(AuthCookieName, token, new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = secure,
+            // SameSite=None is required for cross-origin requests (frontend on Azure Static Web Apps,
+            // backend on Azure App Service are different origins). None requires Secure=true.
+            SameSite = sameSite,
+            Expires = new DateTimeOffset(expiresAt),
+            MaxAge = expiresAt - DateTime.UtcNow,
+            Path = "/",
+            IsEssential = true,
+        });
+    }
+
+    private void DeleteAuthCookie()
+    {
+        var secure = IsSecureRequest();
+        Response.Cookies.Delete(AuthCookieName, new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = secure,
+            SameSite = secure ? SameSiteMode.None : SameSiteMode.Lax,
+            Path = "/",
+            IsEssential = true,
+        });
+    }
+
+    private bool IsSecureRequest()
+    {
+        if (Request.IsHttps)
+            return true;
+
+        var forwardedProto = Request.Headers["X-Forwarded-Proto"].ToString();
+        if (string.Equals(forwardedProto, "https", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // Azure App Service always terminates SSL at the load balancer, so the
+        // internal request is plain HTTP even though the client connected over HTTPS.
+        // If the ForwardedHeaders middleware didn't trust the Azure proxy (KnownProxies
+        // mismatch), Request.IsHttps stays false — detect this via environment instead.
+        var env = _config["ASPNETCORE_ENVIRONMENT"] ?? Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
+        if (string.Equals(env, "Production", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // Azure also sets the X-Forwarded-Ssl and X-ARR-SSL headers
+        var arrSsl = Request.Headers["X-ARR-SSL"].ToString();
+        if (!string.IsNullOrEmpty(arrSsl))
+            return true;
+
+        return false;
     }
 
     private static string GenerateVerificationCode()

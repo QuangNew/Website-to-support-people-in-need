@@ -17,9 +17,10 @@ namespace ReliefConnect.Infrastructure.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.3")
+                .HasAnnotation("ProductVersion", "10.0.4")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
+            NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "postgis");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRole", b =>
@@ -154,6 +155,50 @@ namespace ReliefConnect.Infrastructure.Migrations
                     b.ToTable("AspNetUserTokens", (string)null);
                 });
 
+            modelBuilder.Entity("ReliefConnect.Core.Entities.ApiKey", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("KeyValue")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime?>("LastUsedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Model")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<int>("UsageCount")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("ApiKeys");
+                });
+
             modelBuilder.Entity("ReliefConnect.Core.Entities.ApplicationUser", b =>
                 {
                     b.Property<string>("Id")
@@ -162,9 +207,15 @@ namespace ReliefConnect.Infrastructure.Migrations
                     b.Property<int>("AccessFailedCount")
                         .HasColumnType("integer");
 
+                    b.Property<string>("Address")
+                        .HasColumnType("text");
+
                     b.Property<string>("AvatarUrl")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
+
+                    b.Property<string>("BanReason")
+                        .HasColumnType("text");
 
                     b.Property<string>("ConcurrencyStamp")
                         .IsConcurrencyToken()
@@ -186,12 +237,22 @@ namespace ReliefConnect.Infrastructure.Migrations
                     b.Property<DateTime?>("EmailVerificationCodeExpiry")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("FacebookUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
                     b.Property<string>("FullName")
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
                     b.Property<string>("GoogleId")
+                        .HasColumnType("text");
+
+                    b.Property<bool>("IsSuspended")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("LastTokenJti")
                         .HasColumnType("text");
 
                     b.Property<bool>("LockoutEnabled")
@@ -226,11 +287,21 @@ namespace ReliefConnect.Infrastructure.Migrations
                     b.Property<string>("RequestedRole")
                         .HasColumnType("text");
 
+                    b.Property<DateTime?>("RequestedRoleExpiry")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<int>("Role")
                         .HasColumnType("integer");
 
                     b.Property<string>("SecurityStamp")
                         .HasColumnType("text");
+
+                    b.Property<DateTime?>("SuspendedUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("TelegramUrl")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
 
                     b.Property<bool>("TwoFactorEnabled")
                         .HasColumnType("boolean");
@@ -239,13 +310,23 @@ namespace ReliefConnect.Infrastructure.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
 
+                    b.Property<string>("VerificationImageUrls")
+                        .HasColumnType("text");
+
                     b.Property<string>("VerificationReason")
                         .HasColumnType("text");
 
                     b.Property<int>("VerificationStatus")
                         .HasColumnType("integer");
 
+                    b.Property<int>("ViolationCount")
+                        .HasColumnType("integer");
+
                     b.HasKey("Id");
+
+                    b.HasIndex("GoogleId");
+
+                    b.HasIndex("IsSuspended");
 
                     b.HasIndex("NormalizedEmail")
                         .HasDatabaseName("EmailIndex");
@@ -254,7 +335,36 @@ namespace ReliefConnect.Infrastructure.Migrations
                         .IsUnique()
                         .HasDatabaseName("UserNameIndex");
 
+                    b.HasIndex("Role");
+
+                    b.HasIndex("VerificationStatus");
+
                     b.ToTable("AspNetUsers", (string)null);
+                });
+
+            modelBuilder.Entity("ReliefConnect.Core.Entities.BlacklistedToken", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("Expiry")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Jti")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Expiry");
+
+                    b.HasIndex("Jti")
+                        .IsUnique();
+
+                    b.ToTable("BlacklistedTokens");
                 });
 
             modelBuilder.Entity("ReliefConnect.Core.Entities.Comment", b =>
@@ -273,7 +383,78 @@ namespace ReliefConnect.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateTime?>("HiddenAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("HiddenByAdminId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("HiddenReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime?>("HiddenUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsHidden")
+                        .HasColumnType("boolean");
+
                     b.Property<int>("PostId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<bool>("UserWasNotified")
+                        .HasColumnType("boolean");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt")
+                        .IsDescending();
+
+                    b.HasIndex("HiddenAt");
+
+                    b.HasIndex("HiddenUntil");
+
+                    b.HasIndex("IsHidden");
+
+                    b.HasIndex("PostId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("Comments");
+                });
+
+            modelBuilder.Entity("ReliefConnect.Core.Entities.ContentViolation", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("CommentId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsAutoDetected")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<int>("StrikeNumber")
                         .HasColumnType("integer");
 
                     b.Property<string>("UserId")
@@ -282,11 +463,14 @@ namespace ReliefConnect.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("PostId");
+                    b.HasIndex("CommentId");
+
+                    b.HasIndex("CreatedAt")
+                        .IsDescending();
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("Comments");
+                    b.ToTable("ContentViolations");
                 });
 
             modelBuilder.Entity("ReliefConnect.Core.Entities.Conversation", b =>
@@ -309,6 +493,203 @@ namespace ReliefConnect.Infrastructure.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("Conversations");
+                });
+
+            modelBuilder.Entity("ReliefConnect.Core.Entities.DirectConversation", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LastMessageAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("User1Id")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("User2Id")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LastMessageAt")
+                        .IsDescending();
+
+                    b.HasIndex("User1Id");
+
+                    b.HasIndex("User2Id");
+
+                    b.HasIndex("User1Id", "User2Id")
+                        .IsUnique();
+
+                    b.ToTable("DirectConversations", t =>
+                        {
+                            t.HasCheckConstraint("CK_DirectConversation_NoSelf", "\"User1Id\" <> \"User2Id\"");
+
+                            t.HasCheckConstraint("CK_DirectConversation_UserOrder", "\"User1Id\" < \"User2Id\"");
+                        });
+                });
+
+            modelBuilder.Entity("ReliefConnect.Core.Entities.DirectMessage", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<int>("ConversationId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsRead")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("SenderId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("SentAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SenderId");
+
+                    b.HasIndex("SentAt")
+                        .HasFilter("\"DeletedAt\" IS NULL");
+
+                    b.HasIndex("ConversationId", "IsRead")
+                        .HasFilter("\"IsRead\" = false");
+
+                    b.HasIndex("ConversationId", "SentAt")
+                        .IsDescending();
+
+                    b.ToTable("DirectMessages", t =>
+                        {
+                            t.HasCheckConstraint("CK_DirectMessage_Content_MaxLen", "char_length(\"Content\") <= 2000");
+
+                            t.HasCheckConstraint("CK_DirectMessage_Content_NotBlank", "char_length(btrim(\"Content\")) > 0");
+                        });
+                });
+
+            modelBuilder.Entity("ReliefConnect.Core.Entities.DonationRecord", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<long>("Amount")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("MaskedPhone")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Message")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<long>("OrderCode")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime?>("PaidAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PaymentLinkId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("UserId")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrderCode")
+                        .IsUnique();
+
+                    b.HasIndex("PaidAt");
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("DonationRecords");
+                });
+
+            modelBuilder.Entity("ReliefConnect.Core.Entities.HelpOffer", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<int?>("PingId")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("PostId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("SponsorId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("TargetUserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PingId");
+
+                    b.HasIndex("PostId");
+
+                    b.HasIndex("SponsorId");
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex("TargetUserId");
+
+                    b.ToTable("HelpOffers");
                 });
 
             modelBuilder.Entity("ReliefConnect.Core.Entities.Message", b =>
@@ -341,9 +722,9 @@ namespace ReliefConnect.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ConversationId");
-
                     b.HasIndex("SenderId");
+
+                    b.HasIndex("ConversationId", "SentAt");
 
                     b.ToTable("Messages");
                 });
@@ -373,6 +754,9 @@ namespace ReliefConnect.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("CreatedAt")
+                        .IsDescending();
+
                     b.HasIndex("UserId", "IsRead");
 
                     b.ToTable("Notifications");
@@ -385,6 +769,24 @@ namespace ReliefConnect.Infrastructure.Migrations
                         .HasColumnType("integer");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("AssignedVolunteerId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("CompletionNotes")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ConditionImageUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("ContactName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("ContactPhone")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
 
                     b.Property<double>("CoordinatesLat")
                         .HasColumnType("double precision");
@@ -402,6 +804,9 @@ namespace ReliefConnect.Infrastructure.Migrations
                     b.Property<int>("PriorityLevel")
                         .HasColumnType("integer");
 
+                    b.Property<int?>("SOSCategory")
+                        .HasColumnType("integer");
+
                     b.Property<int>("Status")
                         .HasColumnType("integer");
 
@@ -414,9 +819,23 @@ namespace ReliefConnect.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("AssignedVolunteerId");
+
+                    b.HasIndex("CreatedAt")
+                        .IsDescending();
+
+                    b.HasIndex("PriorityLevel");
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex("Type");
+
                     b.HasIndex("UserId");
 
                     b.HasIndex("CoordinatesLat", "CoordinatesLong");
+
+                    b.HasIndex("Type", "Status", "CreatedAt")
+                        .IsDescending();
 
                     b.ToTable("Pings");
                 });
@@ -475,17 +894,38 @@ namespace ReliefConnect.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DeletedByAdminId")
+                        .HasColumnType("text");
+
                     b.Property<string>("ImageUrl")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsPinned")
+                        .HasColumnType("boolean");
 
                     b.HasKey("Id");
 
                     b.HasIndex("AuthorId");
 
+                    b.HasIndex("Category");
+
                     b.HasIndex("CategoryId");
 
                     b.HasIndex("CreatedAt")
+                        .IsDescending();
+
+                    b.HasIndex("DeletedAt");
+
+                    b.HasIndex("IsDeleted");
+
+                    b.HasIndex("CreatedAt", "Id")
                         .IsDescending();
 
                     b.ToTable("Posts");
@@ -522,6 +962,43 @@ namespace ReliefConnect.Infrastructure.Migrations
                     b.ToTable("Reactions");
                 });
 
+            modelBuilder.Entity("ReliefConnect.Core.Entities.Report", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("PostId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("ReporterId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PostId");
+
+                    b.HasIndex("ReporterId");
+
+                    b.HasIndex("Status");
+
+                    b.ToTable("Reports");
+                });
+
             modelBuilder.Entity("ReliefConnect.Core.Entities.SupplyItem", b =>
                 {
                     b.Property<int>("Id")
@@ -554,6 +1031,43 @@ namespace ReliefConnect.Infrastructure.Migrations
                     b.ToTable("SupplyItems");
                 });
 
+            modelBuilder.Entity("ReliefConnect.Core.Entities.SystemAnnouncement", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("AdminId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasMaxLength(5000)
+                        .HasColumnType("character varying(5000)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AdminId");
+
+                    b.HasIndex("ExpiresAt");
+
+                    b.ToTable("SystemAnnouncements");
+                });
+
             modelBuilder.Entity("ReliefConnect.Core.Entities.SystemLog", b =>
                 {
                     b.Property<int>("Id")
@@ -567,12 +1081,18 @@ namespace ReliefConnect.Infrastructure.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<Guid?>("BatchId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Details")
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)");
+
+                    b.Property<int?>("ParentLogId")
+                        .HasColumnType("integer");
 
                     b.Property<string>("UserId")
                         .HasColumnType("text");
@@ -583,8 +1103,14 @@ namespace ReliefConnect.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("Action");
+
+                    b.HasIndex("BatchId");
+
                     b.HasIndex("CreatedAt")
                         .IsDescending();
+
+                    b.HasIndex("ParentLogId");
 
                     b.ToTable("SystemLogs");
                 });
@@ -629,6 +1155,65 @@ namespace ReliefConnect.Infrastructure.Migrations
                             CategoryName = "Giáo dục",
                             Description = "Education Support — Hỗ trợ giáo dục"
                         });
+                });
+
+            modelBuilder.Entity("ReliefConnect.Core.Entities.VerificationHistory", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Address")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("PhoneNumber")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("RequestedRole")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime?>("ReviewedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ReviewedByAdminId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ReviewedByAdminName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("SubmittedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("VerificationImageUrls")
+                        .HasMaxLength(3000)
+                        .HasColumnType("character varying(3000)");
+
+                    b.Property<string>("VerificationReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "Status");
+
+                    b.HasIndex("UserId", "SubmittedAt")
+                        .IsDescending();
+
+                    b.ToTable("VerificationHistories");
                 });
 
             modelBuilder.Entity("ReliefConnect.Core.Entities.Zone", b =>
@@ -729,6 +1314,24 @@ namespace ReliefConnect.Infrastructure.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("ReliefConnect.Core.Entities.ContentViolation", b =>
+                {
+                    b.HasOne("ReliefConnect.Core.Entities.Comment", "Comment")
+                        .WithMany()
+                        .HasForeignKey("CommentId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("ReliefConnect.Core.Entities.ApplicationUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Comment");
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("ReliefConnect.Core.Entities.Conversation", b =>
                 {
                     b.HasOne("ReliefConnect.Core.Entities.ApplicationUser", "User")
@@ -738,6 +1341,87 @@ namespace ReliefConnect.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("ReliefConnect.Core.Entities.DirectConversation", b =>
+                {
+                    b.HasOne("ReliefConnect.Core.Entities.ApplicationUser", "User1")
+                        .WithMany("DirectConversationsAsUser1")
+                        .HasForeignKey("User1Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("ReliefConnect.Core.Entities.ApplicationUser", "User2")
+                        .WithMany("DirectConversationsAsUser2")
+                        .HasForeignKey("User2Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User1");
+
+                    b.Navigation("User2");
+                });
+
+            modelBuilder.Entity("ReliefConnect.Core.Entities.DirectMessage", b =>
+                {
+                    b.HasOne("ReliefConnect.Core.Entities.DirectConversation", "Conversation")
+                        .WithMany("Messages")
+                        .HasForeignKey("ConversationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("ReliefConnect.Core.Entities.ApplicationUser", "Sender")
+                        .WithMany()
+                        .HasForeignKey("SenderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Conversation");
+
+                    b.Navigation("Sender");
+                });
+
+            modelBuilder.Entity("ReliefConnect.Core.Entities.DonationRecord", b =>
+                {
+                    b.HasOne("ReliefConnect.Core.Entities.ApplicationUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("ReliefConnect.Core.Entities.HelpOffer", b =>
+                {
+                    b.HasOne("ReliefConnect.Core.Entities.Ping", "Ping")
+                        .WithMany()
+                        .HasForeignKey("PingId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("ReliefConnect.Core.Entities.Post", "Post")
+                        .WithMany()
+                        .HasForeignKey("PostId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("ReliefConnect.Core.Entities.ApplicationUser", "Sponsor")
+                        .WithMany()
+                        .HasForeignKey("SponsorId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("ReliefConnect.Core.Entities.ApplicationUser", "TargetUser")
+                        .WithMany()
+                        .HasForeignKey("TargetUserId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.Navigation("Ping");
+
+                    b.Navigation("Post");
+
+                    b.Navigation("Sponsor");
+
+                    b.Navigation("TargetUser");
                 });
 
             modelBuilder.Entity("ReliefConnect.Core.Entities.Message", b =>
@@ -771,11 +1455,18 @@ namespace ReliefConnect.Infrastructure.Migrations
 
             modelBuilder.Entity("ReliefConnect.Core.Entities.Ping", b =>
                 {
+                    b.HasOne("ReliefConnect.Core.Entities.ApplicationUser", "AssignedVolunteer")
+                        .WithMany()
+                        .HasForeignKey("AssignedVolunteerId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("ReliefConnect.Core.Entities.ApplicationUser", "User")
                         .WithMany("Pings")
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.Navigation("AssignedVolunteer");
 
                     b.Navigation("User");
                 });
@@ -828,11 +1519,66 @@ namespace ReliefConnect.Infrastructure.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("ReliefConnect.Core.Entities.Report", b =>
+                {
+                    b.HasOne("ReliefConnect.Core.Entities.Post", "Post")
+                        .WithMany()
+                        .HasForeignKey("PostId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("ReliefConnect.Core.Entities.ApplicationUser", "Reporter")
+                        .WithMany()
+                        .HasForeignKey("ReporterId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.Navigation("Post");
+
+                    b.Navigation("Reporter");
+                });
+
+            modelBuilder.Entity("ReliefConnect.Core.Entities.SystemAnnouncement", b =>
+                {
+                    b.HasOne("ReliefConnect.Core.Entities.ApplicationUser", "Admin")
+                        .WithMany()
+                        .HasForeignKey("AdminId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.Navigation("Admin");
+                });
+
+            modelBuilder.Entity("ReliefConnect.Core.Entities.SystemLog", b =>
+                {
+                    b.HasOne("ReliefConnect.Core.Entities.SystemLog", "ParentLog")
+                        .WithMany("ChildLogs")
+                        .HasForeignKey("ParentLogId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.Navigation("ParentLog");
+                });
+
+            modelBuilder.Entity("ReliefConnect.Core.Entities.VerificationHistory", b =>
+                {
+                    b.HasOne("ReliefConnect.Core.Entities.ApplicationUser", "User")
+                        .WithMany("VerificationHistories")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("ReliefConnect.Core.Entities.ApplicationUser", b =>
                 {
                     b.Navigation("Comments");
 
                     b.Navigation("Conversations");
+
+                    b.Navigation("DirectConversationsAsUser1");
+
+                    b.Navigation("DirectConversationsAsUser2");
 
                     b.Navigation("Notifications");
 
@@ -841,9 +1587,16 @@ namespace ReliefConnect.Infrastructure.Migrations
                     b.Navigation("Posts");
 
                     b.Navigation("Reactions");
+
+                    b.Navigation("VerificationHistories");
                 });
 
             modelBuilder.Entity("ReliefConnect.Core.Entities.Conversation", b =>
+                {
+                    b.Navigation("Messages");
+                });
+
+            modelBuilder.Entity("ReliefConnect.Core.Entities.DirectConversation", b =>
                 {
                     b.Navigation("Messages");
                 });
@@ -858,6 +1611,11 @@ namespace ReliefConnect.Infrastructure.Migrations
                     b.Navigation("Comments");
 
                     b.Navigation("Reactions");
+                });
+
+            modelBuilder.Entity("ReliefConnect.Core.Entities.SystemLog", b =>
+                {
+                    b.Navigation("ChildLogs");
                 });
 
             modelBuilder.Entity("ReliefConnect.Core.Entities.Tag", b =>

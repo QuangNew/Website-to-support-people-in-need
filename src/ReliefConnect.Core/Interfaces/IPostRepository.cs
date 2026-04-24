@@ -15,7 +15,8 @@ public interface IPostRepository : IRepository<Post>
     /// More efficient than GetPostsAsync when you need counts for each post.
     /// </summary>
     Task<(IEnumerable<PostWithCounts> Posts, string? NextCursor)> GetPostsWithCountsAsync(
-        string? cursor, int limit = 10, PostCategory? category = null, string? userId = null);
+        string? cursor, int limit = 10, PostCategory? category = null, string? userId = null,
+        RoleEnum? roleFilter = null, string? sort = null);
 }
 
 /// <summary>

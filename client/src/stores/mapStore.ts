@@ -1,8 +1,8 @@
 import { create } from 'zustand';
-import { mapApi } from '../services/api';
+import { mapApi, supplyApi } from '../services/api';
 
 export type PingType = 'need_help' | 'offering' | 'received' | 'support_point';
-export type PanelType = 'list' | 'social' | 'chat' | 'profile' | 'verify' | 'guide' | null;
+export type PanelType = 'list' | 'social' | 'chat' | 'profile' | 'verify' | 'guide' | 'my-sos' | 'volunteer' | 'sponsor' | 'messages' | null;
 
 export interface PingData {
     id: string;
@@ -14,8 +14,15 @@ export interface PingData {
     address: string;
     createdAt: string;
     items?: string[];
+    contactName?: string;
     contactPhone?: string;
+    contactEmail?: string;
+    conditionImageUrl?: string;
     status: 'active' | 'resolved' | 'expired';
+    isBlinking?: boolean;
+    sosCategory?: string;
+    userId?: string;
+    userAvatarUrl?: string;
 }
 
 export interface ZoneData {
@@ -23,6 +30,14 @@ export interface ZoneData {
     name: string;
     riskLevel: number;
     boundary: Array<{ lat: number; lng: number }>;
+}
+
+export interface SupplyData {
+    id: number;
+    name: string;
+    quantity: number;
+    lat: number;
+    lng: number;
 }
 
 export interface RouteInfo {
@@ -33,16 +48,492 @@ export interface RouteInfo {
 export interface RouteData {
     /** Primary route coordinates */
     coordinates: Array<[number, number]>;
-    /** Alternative route coordinates (if available) */
-    alternative: Array<[number, number]> | null;
+    /** Alternative routes coordinates (up to 1) */
+    alternatives: Array<{ coordinates: Array<[number, number]>; info: RouteInfo }>;
     /** Route summary */
     info: RouteInfo;
-    /** Alternative route summary */
-    alternativeInfo: RouteInfo | null;
+    /** Currently selected route index (0 = primary, 1 = alt1) */
+    selectedIndex: number;
     /** Origin point */
     origin: { lat: number; lng: number };
     /** Destination point */
     destination: { lat: number; lng: number };
+}
+
+interface OsrmPoint {
+    lat: number;
+    lng: number;
+}
+
+interface OsrmRoute {
+    distance: number;
+    duration: number;
+    geometry: {
+        coordinates: Array<[number, number]>;
+    };
+    legs?: Array<{
+        annotation?: {
+            nodes?: number[];
+        };
+    }>;
+}
+
+interface OsrmResponse {
+    code?: string;
+    message?: string;
+    routes?: OsrmRoute[];
+}
+
+interface CachedRouteOrigin {
+    lat: number;
+    lng: number;
+    timestamp: number;
+}
+
+type RouteVariant = { coordinates: Array<[number, number]>; info: RouteInfo };
+type RouteCandidate = RouteVariant & { nodeIds: number[]; signature: string };
+
+const OSRM_ROUTE_URL = 'https://router.project-osrm.org/route/v1/driving';
+const MAX_TOTAL_ROUTES = 2;
+const MAX_ROUTE_ALTERNATIVES = MAX_TOTAL_ROUTES - 1;
+const NATIVE_ALTERNATIVE_CANDIDATES = 3;
+const MAX_FALLBACK_ROUTE_REQUESTS = 4;
+const FALLBACK_ROUTE_BATCH_SIZE = 2;
+const FALLBACK_ROUTE_TIME_BUDGET_MS = 2200;
+const ROUTE_SAMPLE_POINTS = 16;
+const PRIMARY_OSRM_TIMEOUT_MS = 4500;
+const FALLBACK_OSRM_TIMEOUT_MS = 1800;
+const ROUTE_GEOLOCATION_TIMEOUT_MS = 3500;
+const ROUTE_GEOLOCATION_MAXIMUM_AGE_MS = 180000;
+const ROUTE_ORIGIN_CACHE_TTL_MS = 180000;
+
+let cachedRouteOrigin: CachedRouteOrigin | null = null;
+
+function clamp(value: number, min: number, max: number): number {
+    return Math.min(max, Math.max(min, value));
+}
+
+function toLeafletCoordinates(coordinates: Array<[number, number]>): Array<[number, number]> {
+    return coordinates.map((coord) => [coord[1], coord[0]]);
+}
+
+function toRouteInfo(route: OsrmRoute): RouteInfo {
+    return {
+        distanceKm: Math.round((route.distance / 1000) * 10) / 10,
+        durationMin: Math.round(route.duration / 60),
+    };
+}
+
+function extractRouteNodeIds(route: OsrmRoute): number[] {
+    return (route.legs ?? [])
+        .flatMap((leg) => leg.annotation?.nodes ?? [])
+        .filter((node): node is number => Number.isFinite(node));
+}
+
+function toRouteCandidate(route: OsrmRoute): RouteCandidate {
+    const coordinates = toLeafletCoordinates(route.geometry.coordinates);
+    return {
+        coordinates,
+        info: toRouteInfo(route),
+        nodeIds: extractRouteNodeIds(route),
+        signature: buildRouteSignature(coordinates),
+    };
+}
+
+function buildOsrmUrl(points: OsrmPoint[], alternatives: boolean | number): string {
+    const waypointString = points.map((point) => `${point.lng},${point.lat}`).join(';');
+    const params = new URLSearchParams({
+        overview: 'full',
+        geometries: 'geojson',
+        alternatives: String(alternatives),
+        annotations: 'nodes',
+        continue_straight: 'false',
+    });
+
+    return `${OSRM_ROUTE_URL}/${waypointString}?${params.toString()}`;
+}
+
+function extractAlternativeLimit(message?: string): number | null {
+    if (!message) return null;
+
+    const match = message.match(/maximum\s*\((\d+)\)/i);
+    if (!match) return null;
+
+    const parsed = Number(match[1]);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+async function fetchOsrmRoutes(points: OsrmPoint[], alternatives: boolean | number): Promise<OsrmRoute[]> {
+    const timeoutMs = alternatives === false ? FALLBACK_OSRM_TIMEOUT_MS : PRIMARY_OSRM_TIMEOUT_MS;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    let response: Response;
+    try {
+        response = await fetch(buildOsrmUrl(points, alternatives), { signal: controller.signal });
+    } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') {
+            throw new Error('OSRM request timed out');
+        }
+
+        throw error;
+    } finally {
+        clearTimeout(timeoutId);
+    }
+
+    const data = await response.json().catch(() => null) as OsrmResponse | null;
+
+    if (!response.ok) {
+        const cappedAlternatives = typeof alternatives === 'number'
+            ? extractAlternativeLimit(data?.message)
+            : null;
+
+        if (
+            typeof alternatives === 'number'
+            && cappedAlternatives !== null
+            && cappedAlternatives > 0
+            && cappedAlternatives < alternatives
+        ) {
+            return fetchOsrmRoutes(points, cappedAlternatives);
+        }
+
+        throw new Error(data?.message || data?.code || `OSRM request failed (${response.status})`);
+    }
+
+    if (!data || data.code !== 'Ok' || !data.routes?.length) {
+        throw new Error(data?.message || data?.code || 'No route found');
+    }
+
+    return data.routes;
+}
+
+function buildRouteSignature(coordinates: Array<[number, number]>): string {
+    if (coordinates.length === 0) return '';
+
+    const maxSamples = Math.min(8, coordinates.length);
+    if (maxSamples === 1) {
+        const [lat, lng] = coordinates[0];
+        return `${lat.toFixed(3)}:${lng.toFixed(3)}`;
+    }
+
+    const sampled: string[] = [];
+    for (let index = 0; index < maxSamples; index += 1) {
+        const coordIndex = Math.round((index / (maxSamples - 1)) * (coordinates.length - 1));
+        const [lat, lng] = coordinates[coordIndex];
+        sampled.push(`${lat.toFixed(3)}:${lng.toFixed(3)}`);
+    }
+
+    return sampled.join('|');
+}
+
+function sampleCoordinates(coordinates: Array<[number, number]>, sampleCount = ROUTE_SAMPLE_POINTS): Array<[number, number]> {
+    if (coordinates.length <= sampleCount) return coordinates;
+
+    const sampled: Array<[number, number]> = [];
+    for (let index = 0; index < sampleCount; index += 1) {
+        const coordIndex = Math.round((index / (sampleCount - 1)) * (coordinates.length - 1));
+        sampled.push(coordinates[coordIndex]);
+    }
+
+    return sampled;
+}
+
+function haversineDistanceKm(first: [number, number], second: [number, number]): number {
+    const toRadians = (value: number) => (value * Math.PI) / 180;
+    const earthRadiusKm = 6371;
+    const latDiff = toRadians(second[0] - first[0]);
+    const lngDiff = toRadians(second[1] - first[1]);
+    const lat1 = toRadians(first[0]);
+    const lat2 = toRadians(second[0]);
+
+    const a = Math.sin(latDiff / 2) ** 2
+        + Math.cos(lat1) * Math.cos(lat2) * Math.sin(lngDiff / 2) ** 2;
+
+    return 2 * earthRadiusKm * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function computeAverageNearestDistanceKm(source: Array<[number, number]>, target: Array<[number, number]>): number {
+    if (source.length === 0 || target.length === 0) return 0;
+
+    let totalDistance = 0;
+    for (const sourcePoint of source) {
+        let nearestDistance = Number.POSITIVE_INFINITY;
+        for (const targetPoint of target) {
+            nearestDistance = Math.min(nearestDistance, haversineDistanceKm(sourcePoint, targetPoint));
+        }
+        totalDistance += nearestDistance;
+    }
+
+    return totalDistance / source.length;
+}
+
+function computeRouteDeviationKm(primaryCoordinates: Array<[number, number]>, candidateCoordinates: Array<[number, number]>): number {
+    const primarySamples = sampleCoordinates(primaryCoordinates);
+    const candidateSamples = sampleCoordinates(candidateCoordinates);
+
+    return (
+        computeAverageNearestDistanceKm(primarySamples, candidateSamples)
+        + computeAverageNearestDistanceKm(candidateSamples, primarySamples)
+    ) / 2;
+}
+
+function computeRouteNodeOverlapRatio(primaryNodeIds: number[], candidateNodeIds: number[]): number | null {
+    const primaryNodes = new Set(primaryNodeIds);
+    const candidateNodes = new Set(candidateNodeIds);
+
+    if (primaryNodes.size === 0 || candidateNodes.size === 0) {
+        return null;
+    }
+
+    const [smaller, larger] = primaryNodes.size <= candidateNodes.size
+        ? [primaryNodes, candidateNodes]
+        : [candidateNodes, primaryNodes];
+
+    let shared = 0;
+    for (const nodeId of smaller) {
+        if (larger.has(nodeId)) {
+            shared += 1;
+        }
+    }
+
+    return shared / Math.min(primaryNodes.size, candidateNodes.size);
+}
+
+function isAcceptableAlternative(primary: RouteVariant, candidate: RouteVariant): boolean {
+    const maxDistanceKm = Math.max(primary.info.distanceKm * 1.65, primary.info.distanceKm + 25);
+    const maxDurationMin = Math.max(primary.info.durationMin * 1.75, primary.info.durationMin + 20);
+
+    return candidate.info.distanceKm <= maxDistanceKm && candidate.info.durationMin <= maxDurationMin;
+}
+
+function scoreAlternativeCandidate(primary: RouteCandidate, candidate: RouteCandidate): { deviationKm: number; overlapRatio: number | null; score: number } {
+    const overlapRatio = computeRouteNodeOverlapRatio(primary.nodeIds, candidate.nodeIds);
+    const deviationKm = computeRouteDeviationKm(primary.coordinates, candidate.coordinates);
+    const normalizedDeviation = clamp(deviationKm / Math.max(0.25, Math.min(primary.info.distanceKm * 0.08, 3)), 0, 1.2);
+    const overlapPenalty = overlapRatio ?? 0.55;
+    const distancePenalty = clamp(
+        (candidate.info.distanceKm - primary.info.distanceKm) / Math.max(6, primary.info.distanceKm * 0.45),
+        0,
+        1.5
+    );
+    const durationPenalty = clamp(
+        (candidate.info.durationMin - primary.info.durationMin) / Math.max(5, primary.info.durationMin * 0.45),
+        0,
+        1.5
+    );
+
+    return {
+        deviationKm,
+        overlapRatio,
+        score: (1 - overlapPenalty) * 0.7 + normalizedDeviation * 0.45 - distancePenalty * 0.2 - durationPenalty * 0.2,
+    };
+}
+
+function rankAlternativeCandidates(primary: RouteCandidate, candidates: RouteCandidate[]) {
+    const seen = new Set<string>([primary.signature]);
+    const deduped = candidates.filter((candidate) => {
+        if (!candidate.signature || seen.has(candidate.signature)) return false;
+        seen.add(candidate.signature);
+        return true;
+    });
+
+    const scored = deduped
+        .filter((candidate) => isAcceptableAlternative(primary, candidate))
+        .map((candidate) => {
+            const { deviationKm, overlapRatio, score } = scoreAlternativeCandidate(primary, candidate);
+            return {
+                candidate,
+                deviationKm,
+                overlapRatio,
+                score,
+            };
+        });
+
+    const distinctEnough = scored.filter((entry) => {
+        if (entry.overlapRatio !== null && entry.overlapRatio >= 0.92 && entry.deviationKm < 0.18) {
+            return false;
+        }
+
+        return entry.score >= 0.1 || entry.deviationKm >= 0.2 || (entry.overlapRatio ?? 1) < 0.9;
+    });
+
+    return (distinctEnough.length > 0 ? distinctEnough : scored)
+        .sort((first, second) => second.score - first.score || first.candidate.info.durationMin - second.candidate.info.durationMin);
+}
+
+function selectBestAlternatives(primary: RouteCandidate, candidates: RouteCandidate[]): RouteVariant[] {
+    return rankAlternativeCandidates(primary, candidates)
+        .slice(0, MAX_ROUTE_ALTERNATIVES)
+        .map(({ candidate }) => ({
+            coordinates: candidate.coordinates,
+            info: candidate.info,
+        }));
+}
+
+function shouldExpandWithFallback(primary: RouteCandidate, candidates: RouteCandidate[]): boolean {
+    if (candidates.length >= MAX_ROUTE_ALTERNATIVES) return false;
+    if (candidates.length > 0) return false;
+
+    return primary.info.distanceKm <= 45 && primary.info.durationMin <= 70;
+}
+
+function getFreshRouteOrigin(): OsrmPoint | null {
+    if (!cachedRouteOrigin) return null;
+    if (Date.now() - cachedRouteOrigin.timestamp > ROUTE_ORIGIN_CACHE_TTL_MS) return null;
+
+    return {
+        lat: cachedRouteOrigin.lat,
+        lng: cachedRouteOrigin.lng,
+    };
+}
+
+async function resolveRouteOrigin(): Promise<OsrmPoint> {
+    const freshOrigin = getFreshRouteOrigin();
+    if (freshOrigin) {
+        return freshOrigin;
+    }
+
+    const staleOrigin = cachedRouteOrigin
+        ? { lat: cachedRouteOrigin.lat, lng: cachedRouteOrigin.lng }
+        : null;
+
+    try {
+        const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+            if (!navigator.geolocation) {
+                reject(new Error('Geolocation is not supported'));
+                return;
+            }
+
+            navigator.geolocation.getCurrentPosition(resolve, reject, {
+                enableHighAccuracy: false,
+                timeout: ROUTE_GEOLOCATION_TIMEOUT_MS,
+                maximumAge: ROUTE_GEOLOCATION_MAXIMUM_AGE_MS,
+            });
+        });
+
+        cachedRouteOrigin = {
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+            timestamp: Date.now(),
+        };
+
+        return {
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+        };
+    } catch (error) {
+        if (staleOrigin) {
+            return staleOrigin;
+        }
+
+        throw error;
+    }
+}
+
+function offsetCoordinate(anchor: [number, number], direction: [number, number], offsetKm: number): OsrmPoint {
+    const [lat, lng] = anchor;
+    const meters = offsetKm * 1000;
+    const metersPerDegreeLat = 111_320;
+    const metersPerDegreeLng = Math.max(1, 111_320 * Math.cos((lat * Math.PI) / 180));
+
+    return {
+        lat: lat + ((direction[0] * meters) / metersPerDegreeLat),
+        lng: lng + ((direction[1] * meters) / metersPerDegreeLng),
+    };
+}
+
+function buildAlternativeWaypointCandidates(primaryCoordinates: Array<[number, number]>, distanceKm: number): OsrmPoint[] {
+    if (primaryCoordinates.length < 3) return [];
+
+    const anchorFractions = distanceKm < 8
+        ? [0.28, 0.5, 0.72]
+        : [0.22, 0.4, 0.6, 0.78];
+    const baseOffsetKm = clamp(distanceKm * 0.035, 0.3, 4.5);
+    const offsetMultipliers = distanceKm < 8 ? [0.85, 1.35] : [0.75, 1.15];
+    const candidates: OsrmPoint[] = [];
+
+    for (const fraction of anchorFractions) {
+        const index = clamp(Math.round((primaryCoordinates.length - 1) * fraction), 1, primaryCoordinates.length - 2);
+        const prev = primaryCoordinates[Math.max(0, index - 6)];
+        const anchor = primaryCoordinates[index];
+        const next = primaryCoordinates[Math.min(primaryCoordinates.length - 1, index + 6)];
+
+        const latDelta = next[0] - prev[0];
+        const lngDelta = next[1] - prev[1];
+        const vectorLength = Math.hypot(latDelta, lngDelta);
+        if (vectorLength === 0) continue;
+
+        const perpendicular: [number, number] = [
+            -lngDelta / vectorLength,
+            latDelta / vectorLength,
+        ];
+
+        for (const multiplier of offsetMultipliers) {
+            const offsetKm = baseOffsetKm * multiplier;
+            candidates.push(offsetCoordinate(anchor, perpendicular, offsetKm));
+            candidates.push(offsetCoordinate(anchor, [-perpendicular[0], -perpendicular[1]], offsetKm));
+        }
+    }
+
+    const seen = new Set<string>();
+    return candidates.filter((candidate) => {
+        const key = `${candidate.lat.toFixed(5)}:${candidate.lng.toFixed(5)}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    }).slice(0, MAX_FALLBACK_ROUTE_REQUESTS);
+}
+
+async function buildFallbackAlternatives(
+    origin: OsrmPoint,
+    destination: OsrmPoint,
+    primary: RouteCandidate,
+    existingAlternatives: RouteCandidate[]
+): Promise<RouteCandidate[]> {
+    const existingSignatures = new Set<string>([
+        primary.signature,
+        ...existingAlternatives.map((route) => route.signature),
+    ]);
+
+    const waypoints = buildAlternativeWaypointCandidates(primary.coordinates, primary.info.distanceKm);
+    if (waypoints.length === 0) return [];
+
+    const alternatives: RouteCandidate[] = [];
+
+    const startedAt = Date.now();
+    for (let index = 0; index < waypoints.length; index += FALLBACK_ROUTE_BATCH_SIZE) {
+        if (alternatives.length >= MAX_ROUTE_ALTERNATIVES) break;
+        if (Date.now() - startedAt >= FALLBACK_ROUTE_TIME_BUDGET_MS) break;
+
+        const batch = waypoints.slice(index, index + FALLBACK_ROUTE_BATCH_SIZE);
+        const candidateResponses = await Promise.all(batch.map(async (waypoint) => {
+            try {
+                const routes = await fetchOsrmRoutes([origin, waypoint, destination], false);
+                return routes[0] ?? null;
+            } catch {
+                return null;
+            }
+        }));
+
+        for (const candidate of candidateResponses) {
+            if (!candidate) continue;
+
+            const route = toRouteCandidate(candidate);
+            const signature = route.signature;
+            if (!signature || existingSignatures.has(signature)) continue;
+
+            if (!isAcceptableAlternative(primary, route)) continue;
+
+            existingSignatures.add(signature);
+            alternatives.push(route);
+
+            if (alternatives.length >= MAX_ROUTE_ALTERNATIVES) {
+                break;
+            }
+        }
+    }
+
+    return alternatives;
 }
 
 interface MapState {
@@ -52,12 +543,15 @@ interface MapState {
     activePanel: PanelType;
     selectedPingId: string | null;
     showAuthModal: 'login' | 'register' | 'forgot-password' | 'reset-password' | null;
+    resetPasswordEmail: string | null;
     showWelcome: boolean;
     sidebarExpanded: boolean;
     pings: PingData[];
     pingsLoading: boolean;
     zones: ZoneData[];
     showZones: boolean;
+    supplyItems: SupplyData[];
+    showSupplyPoints: boolean;
 
     // FlyTo
     flyToTarget: { lat: number; lng: number; zoom?: number } | null;
@@ -79,9 +573,11 @@ interface MapState {
     setActivePanel: (panel: PanelType) => void;
     selectPing: (id: string | null) => void;
     setAuthModal: (modal: 'login' | 'register' | 'forgot-password' | 'reset-password' | null) => void;
+    setResetPasswordEmail: (email: string | null) => void;
     setShowWelcome: (show: boolean) => void;
     setSidebarExpanded: (expanded: boolean) => void;
     setPings: (pings: PingData[]) => void;
+    upsertPing: (ping: PingData) => void;
     removePing: (id: string) => void;
     toggleZones: () => void;
     fetchPings: () => Promise<void>;
@@ -89,6 +585,13 @@ interface MapState {
     fetchZones: () => Promise<void>;
     fetchRoute: (destLat: number, destLng: number) => Promise<void>;
     clearRoute: () => void;
+    selectRouteIndex: (index: number) => void;
+    toggleSupplyPoints: () => void;
+    fetchSupplyItems: () => Promise<void>;
+
+    // Mobile SOS trigger (incremented by MobileNav to fire SOSCreationFlow)
+    sosTriggerCount: number;
+    triggerSOS: () => void;
 }
 
 // Mock data for Vietnam map
@@ -160,19 +663,75 @@ export const MOCK_PINGS: PingData[] = [
     },
 ];
 
-export const useMapStore = create<MapState>((set) => ({
+const BACKEND_PING_TYPE_MAP: Record<string, PingType> = {
+    SOS: 'need_help',
+    Supply: 'offering',
+    Shelter: 'support_point',
+};
+
+const BACKEND_PING_STATUS_MAP: Record<string, 'active' | 'resolved' | 'expired'> = {
+    Pending: 'active',
+    InProgress: 'active',
+    Resolved: 'resolved',
+    VerifiedSafe: 'resolved',
+};
+
+function formatPingLocation(lat: number, lng: number): string {
+    return `GPS ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+}
+
+export function mapBackendPing(payload: Record<string, unknown>): PingData {
+    const lat = typeof payload.lat === 'number' ? payload.lat : 0;
+    const lng = typeof payload.lng === 'number' ? payload.lng : 0;
+    const details = typeof payload.details === 'string' ? payload.details : '';
+    const contactName = typeof payload.contactName === 'string' && payload.contactName.trim().length > 0
+        ? payload.contactName
+        : typeof payload.userName === 'string' && payload.userName.trim().length > 0
+            ? payload.userName
+            : undefined;
+
+    return {
+        id: String(payload.id),
+        lat,
+        lng,
+        type: BACKEND_PING_TYPE_MAP[payload.type as string] || 'need_help',
+        title: details || contactName || 'SOS',
+        description: details,
+        address: formatPingLocation(lat, lng),
+        createdAt: typeof payload.createdAt === 'string' ? payload.createdAt : new Date().toISOString(),
+        status: BACKEND_PING_STATUS_MAP[payload.status as string] || 'active',
+        items: [],
+        contactName,
+        contactPhone: typeof payload.contactPhone === 'string' ? payload.contactPhone : undefined,
+        contactEmail: typeof payload.contactEmail === 'string' ? payload.contactEmail : undefined,
+        conditionImageUrl: typeof payload.conditionImageUrl === 'string' ? payload.conditionImageUrl : undefined,
+        isBlinking: Boolean(payload.isBlinking),
+        sosCategory: typeof payload.sosCategory === 'string' ? payload.sosCategory : undefined,
+        userId: typeof payload.userId === 'string' && payload.userId.trim().length > 0 ? payload.userId : undefined,
+        userAvatarUrl: typeof payload.avatarUrl === 'string' && payload.avatarUrl.trim().length > 0 ? payload.avatarUrl : undefined,
+    };
+}
+
+export const useMapStore = create<MapState>((set, get) => ({
     center: { lat: 15.8, lng: 106.6 },
     zoom: 6,
     activeFilters: ['need_help', 'offering', 'received', 'support_point'],
     activePanel: null,
     selectedPingId: null,
     showAuthModal: null,
+    resetPasswordEmail: null,
     showWelcome: !localStorage.getItem('rc-welcome-seen'),
     sidebarExpanded: false,
     pings: [],               // empty until backend responds
     pingsLoading: true,
     zones: [],
     showZones: true,
+    supplyItems: [],
+    showSupplyPoints: true,
+
+    // Mobile SOS trigger
+    sosTriggerCount: 0,
+    triggerSOS: () => set((state) => ({ sosTriggerCount: state.sosTriggerCount + 1 })),
 
     // FlyTo
     flyToTarget: null,
@@ -199,53 +758,34 @@ export const useMapStore = create<MapState>((set) => ({
     })),
     selectPing: (id) => set({ selectedPingId: id }),
     setAuthModal: (modal) => set({ showAuthModal: modal }),
+    setResetPasswordEmail: (email) => set({ resetPasswordEmail: email }),
     setShowWelcome: (show) => {
         if (!show) localStorage.setItem('rc-welcome-seen', 'true');
         set({ showWelcome: show });
     },
     setSidebarExpanded: (expanded) => set({ sidebarExpanded: expanded }),
     setPings: (pings) => set({ pings, pingsLoading: false }),
+    upsertPing: (ping) => set((state) => {
+        const existingIndex = state.pings.findIndex((item) => item.id === ping.id);
+        if (existingIndex === -1) {
+            return { pings: [ping, ...state.pings] };
+        }
+
+        const nextPings = [...state.pings];
+        nextPings[existingIndex] = { ...nextPings[existingIndex], ...ping };
+        return { pings: nextPings };
+    }),
     toggleZones: () => set((state) => ({ showZones: !state.showZones })),
+    toggleSupplyPoints: () => set((state) => ({ showSupplyPoints: !state.showSupplyPoints })),
     fetchPings: async () => {
         set({ pingsLoading: true });
         try {
-            // Use current map center and a default radius for initial load
-            // This reduces payload by using server-side radius filtering
-            const res = await mapApi.getPings({
-                lat: useMapStore.getState().center.lat,
-                lng: useMapStore.getState().center.lng,
-                radius: 500, // 500km radius covers all of Vietnam
-            });
-            const backendPings: PingData[] = (res.data as Array<Record<string, unknown>>).map((p) => {
-                const typeMap: Record<string, PingType> = {
-                    SOS: 'need_help',
-                    Supply: 'offering',
-                    Shelter: 'support_point',
-                };
-                const statusMap: Record<string, 'active' | 'resolved' | 'expired'> = {
-                    Pending: 'active',
-                    InProgress: 'active',
-                    Resolved: 'resolved',
-                    VerifiedSafe: 'resolved',
-                };
-                return {
-                    id: String(p.id),
-                    lat: p.lat as number,
-                    lng: p.lng as number,
-                    type: typeMap[p.type as string] || 'need_help',
-                    title: (p.details as string) || 'SOS',
-                    description: (p.details as string) || '',
-                    address: '',
-                    createdAt: p.createdAt as string,
-                    status: statusMap[p.status as string] || 'active',
-                    items: [],
-                    contactPhone: undefined,
-                };
-            });
+            const res = await mapApi.getPings();
+            const backendPings = (res.data as Array<Record<string, unknown>>).map(mapBackendPing);
             set({ pings: backendPings, pingsLoading: false });
         } catch {
-            console.warn('[MapStore] Backend unavailable, keeping mock pings');
-            set({ pingsLoading: false }); // keep MOCK_PINGS already in state
+            console.warn('[MapStore] Backend unavailable, keeping current pings');
+            set({ pingsLoading: false });
         }
     },
 
@@ -256,46 +796,18 @@ export const useMapStore = create<MapState>((set) => ({
             // Calculate center and radius from visible bounds
             const centerLat = (bounds.north + bounds.south) / 2;
             const centerLng = (bounds.east + bounds.west) / 2;
-            // Use Haversine-inspired calculation: diagonal / 2 gives proper radius
-            // One degree of latitude ≈ 111km, one degree of longitude varies by latitude
-            const latDiff = bounds.north - bounds.south;
-            const lngDiff = bounds.east - bounds.west;
-            // Take the larger dimension, add margin, divide by 2 for radius
-            const maxDiff = Math.max(latDiff, lngDiff);
-            // Add 20% margin, convert to km, use half for radius
-            const radiusKm = (maxDiff * 111 * 0.6); // 60% of full span as radius
+            // Proper half-diagonal distance with longitude correction
+            const latKm = (bounds.north - bounds.south) * 111;
+            const lngKm = (bounds.east - bounds.west) * 111 * Math.cos(centerLat * Math.PI / 180);
+            // Half-diagonal + 15% margin to cover viewport corners
+            const radiusKm = Math.sqrt(latKm * latKm + lngKm * lngKm) / 2 * 1.15;
 
             const res = await mapApi.getPings({
                 lat: centerLat,
                 lng: centerLng,
-                radius: Math.min(Math.max(radiusKm, 20), 500), // 20km minimum, 500km maximum
+                radiusKm: Math.max(radiusKm, 20), // 20km minimum; backend validates ≤10000km
             });
-            const backendPings: PingData[] = (res.data as Array<Record<string, unknown>>).map((p) => {
-                const typeMap: Record<string, PingType> = {
-                    SOS: 'need_help',
-                    Supply: 'offering',
-                    Shelter: 'support_point',
-                };
-                const statusMap: Record<string, 'active' | 'resolved' | 'expired'> = {
-                    Pending: 'active',
-                    InProgress: 'active',
-                    Resolved: 'resolved',
-                    VerifiedSafe: 'resolved',
-                };
-                return {
-                    id: String(p.id),
-                    lat: p.lat as number,
-                    lng: p.lng as number,
-                    type: typeMap[p.type as string] || 'need_help',
-                    title: (p.details as string) || 'SOS',
-                    description: (p.details as string) || '',
-                    address: '',
-                    createdAt: p.createdAt as string,
-                    status: statusMap[p.status as string] || 'active',
-                    items: [],
-                    contactPhone: undefined,
-                };
-            });
+            const backendPings = (res.data as Array<Record<string, unknown>>).map(mapBackendPing);
             set({ pings: backendPings, pingsLoading: false });
         } catch {
             console.warn('[MapStore] Failed to fetch pings in bounds');
@@ -346,62 +858,31 @@ export const useMapStore = create<MapState>((set) => ({
     fetchRoute: async (destLat: number, destLng: number) => {
         set({ isRouting: true, routeError: null });
         try {
-            // Get user's current location via browser Geolocation API
-            const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-                if (!navigator.geolocation) {
-                    reject(new Error('Geolocation is not supported'));
-                    return;
-                }
-                navigator.geolocation.getCurrentPosition(resolve, reject, {
-                    enableHighAccuracy: true,
-                    timeout: 10000,
-                    maximumAge: 60000,
-                });
-            });
+            const origin = await resolveRouteOrigin();
+            const destination = { lat: destLat, lng: destLng };
 
-            const originLat = position.coords.latitude;
-            const originLng = position.coords.longitude;
+            // First ask OSRM for native alternatives. If it returns too few, add fallback
+            // routes by nudging a waypoint off the primary path so shorter trips still get choices.
+            const routes = await fetchOsrmRoutes([origin, destination], NATIVE_ALTERNATIVE_CANDIDATES);
+            const primary = toRouteCandidate(routes[0]);
+            const nativeCandidates = routes.slice(1).map((route) => toRouteCandidate(route));
 
-            // Call OSRM public API for driving directions
-            const url = `https://router.project-osrm.org/route/v1/driving/${originLng},${originLat};${destLng},${destLat}?overview=full&geometries=geojson&alternatives=true`;
-            const response = await fetch(url);
-            if (!response.ok) throw new Error('OSRM request failed');
-
-            const data = await response.json();
-            if (data.code !== 'Ok' || !data.routes?.length) {
-                throw new Error('No route found');
+            const routeCandidates = [...nativeCandidates];
+            if (shouldExpandWithFallback(primary, nativeCandidates)) {
+                const fallbackAlternatives = await buildFallbackAlternatives(origin, destination, primary, nativeCandidates);
+                routeCandidates.push(...fallbackAlternatives);
             }
 
-            const primary = data.routes[0];
-            const primaryCoords: Array<[number, number]> = primary.geometry.coordinates.map(
-                (c: [number, number]) => [c[1], c[0]] // GeoJSON [lng,lat] → Leaflet [lat,lng]
-            );
-            const primaryInfo: RouteInfo = {
-                distanceKm: Math.round((primary.distance / 1000) * 10) / 10,
-                durationMin: Math.round(primary.duration / 60),
-            };
-
-            let alternativeCoords: Array<[number, number]> | null = null;
-            let alternativeInfo: RouteInfo | null = null;
-            if (data.routes.length > 1) {
-                const alt = data.routes[1];
-                alternativeCoords = alt.geometry.coordinates.map(
-                    (c: [number, number]) => [c[1], c[0]]
-                );
-                alternativeInfo = {
-                    distanceKm: Math.round((alt.distance / 1000) * 10) / 10,
-                    durationMin: Math.round(alt.duration / 60),
-                };
-            }
+            const selectedAlternatives = selectBestAlternatives(primary, routeCandidates);
 
             set({
                 route: {
-                    coordinates: primaryCoords,
-                    alternative: alternativeCoords,
-                    info: primaryInfo,
-                    alternativeInfo,
-                    origin: { lat: originLat, lng: originLng },
-                    destination: { lat: destLat, lng: destLng },
+                    coordinates: primary.coordinates,
+                    alternatives: selectedAlternatives,
+                    info: primary.info,
+                    selectedIndex: 0,
+                    origin,
+                    destination,
                 },
                 isRouting: false,
             });
@@ -415,6 +896,30 @@ export const useMapStore = create<MapState>((set) => ({
     },
 
     clearRoute: () => set({ route: null, routeError: null }),
+
+    selectRouteIndex: (index: number) => {
+        const { route } = get();
+        if (!route) return;
+        const maxIndex = route.alternatives.length; // 0 = primary, 1..N = alternatives
+        if (index < 0 || index > maxIndex) return;
+        set({ route: { ...route, selectedIndex: index } });
+    },
+
+    fetchSupplyItems: async () => {
+        try {
+            const res = await supplyApi.getSupplies();
+            const items: SupplyData[] = (res.data as Array<Record<string, unknown>>).map((s) => ({
+                id: s.id as number,
+                name: (s.name as string) || '',
+                quantity: (s.quantity as number) || 0,
+                lat: s.lat as number,
+                lng: s.lng as number,
+            }));
+            set({ supplyItems: items });
+        } catch {
+            console.warn('[MapStore] Failed to fetch supply items');
+        }
+    },
 
     removePing: (id) => set((state) => ({ pings: state.pings.filter((p) => p.id !== id) })),
 }));

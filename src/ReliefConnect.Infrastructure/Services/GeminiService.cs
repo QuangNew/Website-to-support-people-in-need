@@ -1,17 +1,24 @@
+using System.Net;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using ReliefConnect.Core.Entities;
+using ReliefConnect.Core.Enums;
 using ReliefConnect.Core.Interfaces;
+using ReliefConnect.Infrastructure.Data;
 
 namespace ReliefConnect.Infrastructure.Services;
 
 public class GeminiService : IGeminiService
 {
     private readonly HttpClient _http;
-    private readonly string _apiKey;
-    private readonly string _model;
+    private readonly string _fallbackApiKey;
+    private readonly string _fallbackModel;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<GeminiService> _logger;
 
     private const string SYSTEM_PROMPT =
@@ -22,14 +29,66 @@ public class GeminiService : IGeminiService
         Không trả lời các nội dung nhạy cảm, chính trị, vi phạm pháp luật.
         """;
 
-    public GeminiService(IConfiguration config, ILogger<GeminiService> logger)
+    public GeminiService(IConfiguration config, IServiceScopeFactory scopeFactory, ILogger<GeminiService> logger)
     {
         _http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
-        _apiKey = config["Gemini:ApiKey"] ?? throw new InvalidOperationException("Gemini:ApiKey not configured");
-        _model = config["Gemini:Model"] ?? "gemini-2.5-flash";
+        _fallbackApiKey = config["Gemini:ApiKey"] ?? "";
+        _fallbackModel = config["Gemini:Model"] ?? "gemini-2.5-flash";
+        _scopeFactory = scopeFactory;
         _logger = logger;
 
-        _logger.LogInformation("GeminiService initialized with model: {Model}", _model);
+        _logger.LogInformation("GeminiService initialized with fallback model: {Model}", _fallbackModel);
+    }
+
+    /// <summary>
+    /// Get the best available API key from the pool (least-used active Gemini key).
+    /// Falls back to config key if pool is empty.
+    /// </summary>
+    private async Task<(string ApiKey, string Model, int? PoolKeyId)> GetApiKeyAsync()
+    {
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            var poolKey = await db.ApiKeys
+                .Where(k => k.Provider == AiProvider.Gemini && k.IsActive)
+                .OrderBy(k => k.UsageCount)
+                .FirstOrDefaultAsync();
+
+            if (poolKey != null)
+            {
+                return (poolKey.KeyValue, poolKey.Model, poolKey.Id);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to fetch API key from pool, using fallback");
+        }
+
+        if (string.IsNullOrEmpty(_fallbackApiKey))
+            throw new InvalidOperationException("No API key available (pool empty and Gemini:ApiKey not configured)");
+
+        return (_fallbackApiKey, _fallbackModel, null);
+    }
+
+    /// <summary>Track usage of a pool key after successful API call.</summary>
+    private async Task TrackUsageAsync(int keyId)
+    {
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await db.ApiKeys
+                .Where(k => k.Id == keyId)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(k => k.UsageCount, k => k.UsageCount + 1)
+                    .SetProperty(k => k.LastUsedAt, DateTime.UtcNow));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to track API key usage for key {KeyId}", keyId);
+        }
     }
 
     private static readonly string[] EmergencyKeywords =
@@ -38,15 +97,47 @@ public class GeminiService : IGeminiService
         "heart attack", "poisoning", "bleeding", "emergency", "stopped breathing", "accident"
     };
 
+    private static string MapProviderFailureMessage(HttpStatusCode statusCode)
+    {
+        return statusCode switch
+        {
+            HttpStatusCode.ServiceUnavailable or HttpStatusCode.BadGateway or HttpStatusCode.GatewayTimeout =>
+                "Trợ lý AI đang quá tải do dịch vụ bên thứ ba tạm thời không sẵn sàng. Vui lòng thử lại sau ít phút.",
+            (HttpStatusCode)429 =>
+                "Trợ lý AI đang bị giới hạn lưu lượng do nhu cầu cao. Vui lòng thử lại sau ít phút.",
+            HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden =>
+                "Trợ lý AI đang tạm thời bảo trì kết nối với dịch vụ bên thứ ba. Vui lòng thử lại sau.",
+            HttpStatusCode.BadRequest or HttpStatusCode.RequestEntityTooLarge =>
+                "Yêu cầu gửi tới trợ lý AI chưa phù hợp. Hãy rút gọn câu hỏi hoặc kiểm tra lại ảnh rồi thử lại.",
+            _ when (int)statusCode >= 500 =>
+                "Dịch vụ AI bên thứ ba đang gặp sự cố tạm thời. Vui lòng thử lại sau.",
+            _ =>
+                "Hiện chưa thể kết nối tới dịch vụ AI bên thứ ba. Vui lòng thử lại sau."
+        };
+    }
+
     public async Task<(string Response, bool HasSafetyWarning)> SendMessageAsync(
         string userMessage,
-        IEnumerable<(string Role, string Content)>? conversationHistory = null)
+        IEnumerable<(string Role, string Content)>? conversationHistory = null,
+        string? imageBase64 = null,
+        string? imageMimeType = null)
     {
+        // Validate image params
+        var hasImage = !string.IsNullOrEmpty(imageBase64) && !string.IsNullOrEmpty(imageMimeType);
+        var allowedImageTypes = new[] { "image/jpeg", "image/png", "image/webp" };
+        if (hasImage && !allowedImageTypes.Contains(imageMimeType))
+        {
+            return ("Ảnh chưa đúng định dạng hỗ trợ. Vui lòng dùng JPEG, PNG hoặc WebP.", false);
+        }
+
         // Check for emergency keywords
         var hasEmergencyKeyword = EmergencyKeywords.Any(keyword =>
             userMessage.Contains(keyword, StringComparison.OrdinalIgnoreCase));
 
-        var url = $"https://generativelanguage.googleapis.com/v1beta/models/{_model}:generateContent";
+        // Get API key from pool (with fallback to config)
+        var (apiKey, model, poolKeyId) = await GetApiKeyAsync();
+
+        var url = $"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent";
 
         var contents = new List<object>();
 
@@ -63,11 +154,25 @@ public class GeminiService : IGeminiService
             }
         }
 
-        // Add current message
+        // Add current message (with optional image)
+        var currentParts = new List<object>();
+        if (hasImage)
+        {
+            currentParts.Add(new
+            {
+                inline_data = new
+                {
+                    mime_type = imageMimeType!,
+                    data = imageBase64!
+                }
+            });
+        }
+        currentParts.Add(new { text = userMessage });
+
         contents.Add(new
         {
             role = "user",
-            parts = new[] { new { text = userMessage } }
+            parts = currentParts.ToArray()
         });
 
         var requestBody = new
@@ -93,10 +198,10 @@ public class GeminiService : IGeminiService
 
         try
         {
-            _logger.LogInformation("Calling Gemini API: model={Model}, msgLen={Length}", _model, userMessage.Length);
+            _logger.LogInformation("Calling Gemini API: model={Model}, msgLen={Length}, poolKey={PoolKeyId}", model, userMessage.Length, poolKeyId);
 
             var request = new HttpRequestMessage(HttpMethod.Post, url);
-            request.Headers.Add("x-goog-api-key", _apiKey);
+            request.Headers.Add("x-goog-api-key", apiKey);
             request.Content = JsonContent.Create(requestBody);
 
             var response = await _http.SendAsync(request);
@@ -105,7 +210,7 @@ public class GeminiService : IGeminiService
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogWarning("Gemini API error {StatusCode}: {Body}", response.StatusCode, json);
-                return ($"Xin lỗi, tôi đang gặp sự cố (HTTP {(int)response.StatusCode}). Vui lòng thử lại sau.", false);
+                return (MapProviderFailureMessage(response.StatusCode), false);
             }
 
             using var doc = JsonDocument.Parse(json);
@@ -148,12 +253,27 @@ public class GeminiService : IGeminiService
             }
 
             _logger.LogInformation("Gemini responded successfully, length={Length}", text.Length);
+
+            // Track pool key usage
+            if (poolKeyId.HasValue)
+                _ = TrackUsageAsync(poolKeyId.Value);
+
             return (text, hasSafetyWarning);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogError(ex, "Gemini API is not configured correctly");
+            return ("Trợ lý AI đang tạm thời bảo trì cấu hình dịch vụ. Vui lòng thử lại sau.", false);
         }
         catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException || !ex.CancellationToken.IsCancellationRequested)
         {
             _logger.LogWarning("Gemini API timeout after 30s");
             return ("Xin lỗi, phản hồi quá lâu. Vui lòng thử lại với câu hỏi ngắn hơn.", false);
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogWarning(ex, "Gemini API network failure");
+            return ("Không thể kết nối tới dịch vụ AI bên thứ ba. Vui lòng kiểm tra mạng và thử lại sau.", false);
         }
         catch (Exception ex)
         {

@@ -7,7 +7,7 @@ import { authApi } from '../../services/api';
 import { useLanguage } from '../../contexts/LanguageContext';
 
 export default function ForgotPasswordModal() {
-  const { showAuthModal, setAuthModal } = useMapStore();
+  const { showAuthModal, setAuthModal, setResetPasswordEmail } = useMapStore();
   const { t } = useLanguage();
   const [email, setEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -28,6 +28,7 @@ export default function ForgotPasswordModal() {
     try {
       await authApi.forgotPassword({ email });
       toast.success(t('auth.resetCodeSent'));
+      setResetPasswordEmail(email);
       setAuthModal('reset-password');
       setEmail('');
     } catch (err: unknown) {

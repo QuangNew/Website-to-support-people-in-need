@@ -38,7 +38,37 @@ public class ApplicationUser : IdentityUser
     /// <summary>Reason provided with the latest verification submission.</summary>
     public string? VerificationReason { get; set; }
 
+    /// <summary>Comma-separated image URLs submitted with verification request.</summary>
+    public string? VerificationImageUrls { get; set; }
+
+    /// <summary>When the user's current role verification expires. Null = never.</summary>
+    public DateTime? RequestedRoleExpiry { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    /// <summary>Whether user is currently suspended or banned.</summary>
+    public bool IsSuspended { get; set; }
+
+    /// <summary>When temporary suspension expires. Null = permanent ban.</summary>
+    public DateTime? SuspendedUntil { get; set; }
+
+    /// <summary>Admin-provided reason for ban.</summary>
+    public string? BanReason { get; set; }
+
+    /// <summary>Number of community guideline violations. 3 = permanent ban.</summary>
+    public int ViolationCount { get; set; }
+
+    /// <summary>JTI of user's most recent JWT token (for force-logout).</summary>
+    public string? LastTokenJti { get; set; }
+
+    /// <summary>User's address (nullable, set during role verification).</summary>
+    public string? Address { get; set; }
+
+    /// <summary>Optional Facebook profile URL.</summary>
+    public string? FacebookUrl { get; set; }
+
+    /// <summary>Optional Telegram URL or @username.</summary>
+    public string? TelegramUrl { get; set; }
 
     // Navigation properties
     public ICollection<Ping> Pings { get; set; } = new List<Ping>();
@@ -47,4 +77,7 @@ public class ApplicationUser : IdentityUser
     public ICollection<Reaction> Reactions { get; set; } = new List<Reaction>();
     public ICollection<Conversation> Conversations { get; set; } = new List<Conversation>();
     public ICollection<Notification> Notifications { get; set; } = new List<Notification>();
+    public ICollection<VerificationHistory> VerificationHistories { get; set; } = new List<VerificationHistory>();
+    public ICollection<DirectConversation> DirectConversationsAsUser1 { get; set; } = new List<DirectConversation>();
+    public ICollection<DirectConversation> DirectConversationsAsUser2 { get; set; } = new List<DirectConversation>();
 }

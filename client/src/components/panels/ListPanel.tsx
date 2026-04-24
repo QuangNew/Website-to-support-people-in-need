@@ -1,29 +1,55 @@
 import { useMemo } from 'react';
 import {
+  AlertCircle,
   AlertTriangle,
   Gift,
   CheckCircle2,
   MapPin,
   Clock,
   ChevronRight,
+  Heart,
+  Home,
   Inbox,
+  UtensilsCrossed,
 } from 'lucide-react';
 import { useMapStore, type PingData, type PingType } from '../../stores/mapStore';
 import { useLanguage } from '../../contexts/LanguageContext';
 
-const TYPE_ICON: Record<PingType, typeof AlertTriangle> = {
-  need_help: AlertTriangle,
-  offering: Gift,
-  received: CheckCircle2,
-  support_point: MapPin,
+const TYPE_META: Record<PingType, { icon: typeof AlertTriangle; color: string }> = {
+  need_help: { icon: AlertTriangle, color: 'var(--danger-500)' },
+  offering: { icon: Gift, color: 'var(--success-500)' },
+  received: { icon: CheckCircle2, color: 'var(--accent-500)' },
+  support_point: { icon: MapPin, color: 'var(--primary-500)' },
 };
 
-const TYPE_COLOR: Record<PingType, string> = {
-  need_help: 'var(--danger-500)',
-  offering: 'var(--success-500)',
-  received: 'var(--accent-500)',
-  support_point: 'var(--primary-500)',
+const SOS_CATEGORY_META: Record<string, { icon: typeof AlertTriangle; color: string; label: string }> = {
+  evacuate: { icon: AlertTriangle, color: '#f97316', label: 'sos.tagEvacuate' },
+  food: { icon: UtensilsCrossed, color: '#eab308', label: 'sos.tagFood' },
+  medical: { icon: Heart, color: '#ef4444', label: 'sos.tagMedical' },
+  shelter: { icon: Home, color: '#8b5cf6', label: 'sos.tagShelter' },
+  other: { icon: AlertCircle, color: '#dc2626', label: 'sos.tagOther' },
 };
+
+function getPingVisual(ping: PingData) {
+  if (ping.type === 'need_help') {
+    const category = ping.sosCategory?.toLowerCase() || 'other';
+    const categoryMeta = SOS_CATEGORY_META[category] || SOS_CATEGORY_META.other;
+    return {
+      icon: categoryMeta.icon,
+      color: categoryMeta.color,
+      categoryIcon: categoryMeta.icon,
+      categoryLabel: categoryMeta.label,
+    };
+  }
+
+  const typeMeta = TYPE_META[ping.type];
+  return {
+    icon: typeMeta.icon,
+    color: typeMeta.color,
+    categoryIcon: null,
+    categoryLabel: null,
+  };
+}
 
 export default function ListPanel() {
   const { pings, activeFilters, selectPing, setActivePanel } = useMapStore();
@@ -54,7 +80,9 @@ export default function ListPanel() {
       ) : (
         <div className="panel-list">
           {filteredPings.map((ping) => {
-            const Icon = TYPE_ICON[ping.type];
+            const visual = getPingVisual(ping);
+            const Icon = visual.icon;
+            const CategoryIcon = visual.categoryIcon;
             return (
               <button
                 key={ping.id}
@@ -63,12 +91,28 @@ export default function ListPanel() {
               >
                 <div
                   className="list-item-icon"
-                  style={{ color: TYPE_COLOR[ping.type], backgroundColor: `${TYPE_COLOR[ping.type]}15` }}
+                  style={{ color: visual.color, backgroundColor: `${visual.color}15` }}
                 >
                   <Icon size={18} />
                 </div>
                 <div className="list-item-content">
                   <h4 className="list-item-title">{ping.title}</h4>
+                  {CategoryIcon && visual.categoryLabel && (
+                    <div style={{ display: 'flex', marginBottom: 'var(--sp-1-5)' }}>
+                      <span
+                        className="mini-tag"
+                        style={{
+                          backgroundColor: `${visual.color}16`,
+                          borderColor: `${visual.color}33`,
+                          color: visual.color,
+                          gap: 'var(--sp-1)',
+                        }}
+                      >
+                        <CategoryIcon size={10} />
+                        {t(visual.categoryLabel)}
+                      </span>
+                    </div>
+                  )}
                   <p className="list-item-subtitle">
                     <MapPin size={12} />
                     {ping.address}

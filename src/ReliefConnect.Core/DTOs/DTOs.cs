@@ -53,6 +53,21 @@ public class UserProfileDto
     public string VerificationStatus { get; set; } = string.Empty;
     public bool EmailVerified { get; set; }
     public string? AvatarUrl { get; set; }
+    public string? PhoneNumber { get; set; }
+    public string? Address { get; set; }
+    public string? FacebookUrl { get; set; }
+    public string? TelegramUrl { get; set; }
+    public DateTime CreatedAt { get; set; }
+}
+
+public class BasicUserProfileDto
+{
+    public string Id { get; set; } = string.Empty;
+    public string UserName { get; set; } = string.Empty;
+    public string FullName { get; set; } = string.Empty;
+    public string Role { get; set; } = string.Empty;
+    public string VerificationStatus { get; set; } = string.Empty;
+    public string? AvatarUrl { get; set; }
     public DateTime CreatedAt { get; set; }
 }
 
@@ -60,6 +75,13 @@ public class UpdateProfileDto
 {
     public string? FullName { get; set; }
     public string? AvatarUrl { get; set; }
+    [Phone]
+    [StringLength(20)]
+    public string? PhoneNumber { get; set; }
+    [Url]
+    public string? FacebookUrl { get; set; }
+    [StringLength(200)]
+    public string? TelegramUrl { get; set; }
 }
 
 public class VerifyRoleDto
@@ -68,6 +90,16 @@ public class VerifyRoleDto
     public string RequestedRole { get; set; } = string.Empty;
 
     public string? Reason { get; set; }
+
+    /// <summary>Optional list of uploaded image URLs (max 5) for identity verification.</summary>
+    public List<string>? ImageUrls { get; set; }
+
+    /// <summary>Phone number (required for role verification).</summary>
+    [Required, Phone]
+    public string PhoneNumber { get; set; } = string.Empty;
+
+    /// <summary>Address (optional).</summary>
+    public string? Address { get; set; }
 }
 
 public class GoogleLoginDto
@@ -100,6 +132,15 @@ public class ResetPasswordDto
     public string NewPassword { get; set; } = string.Empty;
 }
 
+public class ChangePasswordDto
+{
+    [Required]
+    public string CurrentPassword { get; set; } = string.Empty;
+
+    [Required, StringLength(255, MinimumLength = 8)]
+    public string NewPassword { get; set; } = string.Empty;
+}
+
 public class AdminPostDto
 {
     public int Id { get; set; }
@@ -108,6 +149,9 @@ public class AdminPostDto
     public string AuthorId { get; set; } = string.Empty;
     public string AuthorName { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; }
+    public bool IsPinned { get; set; }
+    public int CommentCount { get; set; }
+    public int ReactionCount { get; set; }
 }
 
 // ═══════════════════════════════════════════
@@ -125,7 +169,19 @@ public class CreatePingDto
     [Required]
     public string Type { get; set; } = string.Empty; // "SOS", "Supply", "Shelter"
 
+    [StringLength(200)]
+    public string? ContactName { get; set; }
+
+    [StringLength(32)]
+    public string? ContactPhone { get; set; }
+
     public string? Details { get; set; }
+
+    [StringLength(500)]
+    public string? ConditionImageUrl { get; set; }
+
+    /// <summary>SOS category tag: evacuate, food, medical, shelter, other. Only used for SOS type pings.</summary>
+    public string? SOSCategory { get; set; }
 }
 
 public class PingResponseDto
@@ -137,10 +193,16 @@ public class PingResponseDto
     public string Status { get; set; } = string.Empty;
     public int PriorityLevel { get; set; }
     public string? Details { get; set; }
+    public string? SOSCategory { get; set; }
     public DateTime CreatedAt { get; set; }
     public string UserId { get; set; } = string.Empty;
     public string? UserName { get; set; }
+    public string? ContactName { get; set; }
+    public string? ContactPhone { get; set; }
+    public string? ContactEmail { get; set; }
+    public string? ConditionImageUrl { get; set; }
     public bool IsBlinking { get; set; }
+    public string? AvatarUrl { get; set; }
 }
 
 public class UpdatePingStatusDto
@@ -189,6 +251,7 @@ public class PostResponseDto
     public string AuthorId { get; set; } = string.Empty;
     public string AuthorName { get; set; } = string.Empty;
     public string? AuthorAvatar { get; set; }
+    public string AuthorRole { get; set; } = string.Empty;
     public int LikeCount { get; set; }
     public int LoveCount { get; set; }
     public int PrayCount { get; set; }
@@ -233,6 +296,15 @@ public class SendMessageDto
 {
     [Required, StringLength(4000)]
     public string Content { get; set; } = string.Empty;
+
+    /// <summary>Base64-encoded image data (max ~4MB after encoding). Supported: JPEG, PNG, WebP.</summary>
+    [StringLength(5_600_000)]
+    public string? ImageBase64 { get; set; }
+
+    /// <summary>MIME type of the image — must be image/jpeg, image/png, or image/webp.</summary>
+    [RegularExpression(@"^(image/jpeg|image/png|image/webp)$",
+        ErrorMessage = "Allowed MIME types: image/jpeg, image/png, image/webp.")]
+    public string? ImageMimeType { get; set; }
 }
 
 public class MessageResponseDto
@@ -266,7 +338,29 @@ public class AdminUserDto
     public string? VerificationReason { get; set; }
     public bool EmailVerified { get; set; }
     public string? AvatarUrl { get; set; }
+    public string? PhoneNumber { get; set; }
+    public string? Address { get; set; }
+    public List<string> VerificationImageUrls { get; set; } = [];
     public DateTime CreatedAt { get; set; }
+    public bool IsSuspended { get; set; }
+    public DateTime? SuspendedUntil { get; set; }
+    public string? BanReason { get; set; }
+    public string? FacebookUrl { get; set; }
+    public string? TelegramUrl { get; set; }
+}
+
+public class VerificationHistoryDto
+{
+    public int Id { get; set; }
+    public string RequestedRole { get; set; } = string.Empty;
+    public string? VerificationReason { get; set; }
+    public List<string> VerificationImageUrls { get; set; } = [];
+    public string? PhoneNumber { get; set; }
+    public string? Address { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public DateTime SubmittedAt { get; set; }
+    public DateTime? ReviewedAt { get; set; }
+    public string? ReviewedByAdminName { get; set; }
 }
 
 /// <summary>
@@ -323,6 +417,113 @@ public class SystemStatsDto
     public int TotalPostsLivelihood { get; set; }
     public int TotalPostsMedical { get; set; }
     public int TotalPostsEducation { get; set; }
+    public int PendingVerifications { get; set; }
+    public int PendingReports { get; set; }
+}
+
+public class SuspendUserDto
+{
+    [Required, StringLength(500)]
+    public string Reason { get; set; } = string.Empty;
+
+    /// <summary>Null = permanent suspension.</summary>
+    public DateTime? Until { get; set; }
+}
+
+public class BanUserDto
+{
+    [Required, StringLength(500)]
+    public string Reason { get; set; } = string.Empty;
+}
+
+public class CreateAnnouncementDto
+{
+    [Required, StringLength(200)]
+    public string Title { get; set; } = string.Empty;
+
+    [Required, StringLength(5000)]
+    public string Content { get; set; } = string.Empty;
+
+    public string? ExpiresAt { get; set; }
+}
+
+public class UpdateAnnouncementDto
+{
+    [StringLength(200)]
+    public string? Title { get; set; }
+
+    [StringLength(5000)]
+    public string? Content { get; set; }
+
+    public string? ExpiresAt { get; set; }
+}
+
+public class AnnouncementDto
+{
+    public int Id { get; set; }
+    public string Title { get; set; } = string.Empty;
+    public string Content { get; set; } = string.Empty;
+    public string AdminId { get; set; } = string.Empty;
+    public string AdminName { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; }
+    public DateTime? ExpiresAt { get; set; }
+    public bool IsExpired { get; set; }
+}
+
+public class ReportDto
+{
+    public int Id { get; set; }
+    public int PostId { get; set; }
+    public string PostContentPreview { get; set; } = string.Empty;
+    public string ReporterId { get; set; } = string.Empty;
+    public string ReporterName { get; set; } = string.Empty;
+    public string Reason { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; }
+}
+
+public class ReportPostDto
+{
+    [Required, StringLength(500)]
+    public string Reason { get; set; } = string.Empty;
+}
+
+public class SystemLogDto
+{
+    public int Id { get; set; }
+    public string Action { get; set; } = string.Empty;
+    public string? Details { get; set; }
+    public string? UserId { get; set; }
+    public string? UserName { get; set; }
+    public string? TargetUserId { get; set; }
+    public string? TargetUserName { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public Guid? BatchId { get; set; }
+    public bool HasChildren { get; set; }
+}
+
+public class AdminUserDetailDto : AdminUserDto
+{
+    public int PostCount { get; set; }
+    public int CommentCount { get; set; }
+    public int PingCount { get; set; }
+    public List<VerificationHistoryDto> VerificationHistory { get; set; } = [];
+}
+
+public class CompleteTaskDto
+{
+    [StringLength(1000)]
+    public string? CompletionNotes { get; set; }
+}
+
+/// <summary>Paginated response with total count and page metadata.</summary>
+public class PagedResponse<T>
+{
+    public IEnumerable<T> Items { get; set; } = Enumerable.Empty<T>();
+    public int Total { get; set; }
+    public int Page { get; set; }
+    public int PageSize { get; set; }
+    public int TotalPages => PageSize > 0 ? (int)Math.Ceiling((double)Total / PageSize) : 0;
 }
 
 // ═══════════════════════════════════════════
@@ -403,6 +604,47 @@ public class OfferHelpDto
     public string? Message { get; set; }
 }
 
+public class SponsorOfferHistoryDto
+{
+    public int Id { get; set; }
+    public string TargetUserId { get; set; } = string.Empty;
+    public string TargetUserName { get; set; } = string.Empty;
+    public int? PingId { get; set; }
+    public string? PingStatus { get; set; }
+    public string? PingDetails { get; set; }
+    public string Message { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; }
+}
+
+public class SponsorImpactDto
+{
+    public int TotalOffers { get; set; }
+    public int PendingOffers { get; set; }
+    public int AcceptedOffers { get; set; }
+    public int DeclinedOffers { get; set; }
+    public int SupportedPeople { get; set; }
+}
+
+public class IncomingHelpOfferDto
+{
+    public int Id { get; set; }
+    public string SponsorId { get; set; } = string.Empty;
+    public string SponsorName { get; set; } = string.Empty;
+    public int? PingId { get; set; }
+    public string? PingStatus { get; set; }
+    public string? PingDetails { get; set; }
+    public string Message { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; }
+}
+
+public class RespondHelpOfferDto
+{
+    [Required]
+    public string Decision { get; set; } = string.Empty;
+}
+
 // ═══════════════════════════════════════════
 //  VOLUNTEER DTOs
 // ═══════════════════════════════════════════
@@ -411,6 +653,28 @@ public class AcceptTaskDto
 {
     [Required]
     public int PingId { get; set; }
+}
+
+public class VolunteerTaskDto
+{
+    public int Id { get; set; }
+    public double Lat { get; set; }
+    public double Lng { get; set; }
+    public string? Details { get; set; }
+    public int PriorityLevel { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public string? UserName { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public string? CompletionNotes { get; set; }
+}
+
+public class VolunteerStatsDto
+{
+    public int TotalAcceptedTasks { get; set; }
+    public int ActiveTasks { get; set; }
+    public int CompletedTasks { get; set; }
+    public int VerifiedSafeTasks { get; set; }
+    public int HighPriorityActiveTasks { get; set; }
 }
 
 // ═══════════════════════════════════════════
@@ -422,4 +686,160 @@ public class ApiErrorResponse
     public int StatusCode { get; set; }
     public string Message { get; set; } = string.Empty;
     public IEnumerable<string>? Errors { get; set; }
+}
+
+// ═══════════════════════════════════════════
+//  API KEY POOL DTOs
+// ═══════════════════════════════════════════
+
+public class CreateApiKeyDto
+{
+    [Required]
+    public string Provider { get; set; } = string.Empty;
+
+    [Required, StringLength(100)]
+    public string Label { get; set; } = string.Empty;
+
+    [Required]
+    public string KeyValue { get; set; } = string.Empty;
+
+    [Required, StringLength(100)]
+    public string Model { get; set; } = string.Empty;
+}
+
+public class UpdateApiKeyDto
+{
+    [StringLength(100)]
+    public string? Label { get; set; }
+
+    public string? KeyValue { get; set; }
+
+    [StringLength(100)]
+    public string? Model { get; set; }
+
+    public bool? IsActive { get; set; }
+}
+
+public class ApiKeyResponseDto
+{
+    public int Id { get; set; }
+    public string Provider { get; set; } = string.Empty;
+    public string Label { get; set; } = string.Empty;
+    /// <summary>Masked key for display (only first 8 + last 4 chars shown).</summary>
+    public string MaskedKey { get; set; } = string.Empty;
+    public string Model { get; set; } = string.Empty;
+    public bool IsActive { get; set; }
+    public int UsageCount { get; set; }
+    public DateTime? LastUsedAt { get; set; }
+    public DateTime CreatedAt { get; set; }
+}
+
+// ═══════════════════════════════════════════
+//  CONTACT INFO DTO (support button)
+// ═══════════════════════════════════════════
+
+/// <summary>
+/// Basic contact info shown to Sponsors/Volunteers when they click "Support" on a PIN user.
+/// </summary>
+public class ContactInfoDto
+{
+    public string UserId { get; set; } = string.Empty;
+    public string FullName { get; set; } = string.Empty;
+    public string Email { get; set; } = string.Empty;
+    public string? PhoneNumber { get; set; }
+    public string? AvatarUrl { get; set; }
+    public string? FacebookUrl { get; set; }
+    public string? TelegramUrl { get; set; }
+}
+
+// ═══════════════════════════════════════════
+//  RESTORE DTOs
+// ═══════════════════════════════════════════
+
+public class DeletedPostDto
+{
+    public int Id { get; set; }
+    public string Content { get; set; } = string.Empty;
+    public string Category { get; set; } = string.Empty;
+    public string AuthorId { get; set; } = string.Empty;
+    public string AuthorName { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; }
+    public DateTime? DeletedAt { get; set; }
+    public string? DeletedByAdminName { get; set; }
+    public int DaysRemaining { get; set; }
+}
+
+public class HiddenCommentDto
+{
+    public int Id { get; set; }
+    public string Content { get; set; } = string.Empty;
+    public int PostId { get; set; }
+    public string UserId { get; set; } = string.Empty;
+    public string UserName { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; }
+    public DateTime? HiddenAt { get; set; }
+    public DateTime? HiddenUntil { get; set; }
+    public string? HiddenByAdminName { get; set; }
+    public string? HiddenReason { get; set; }
+    public bool UserWasNotified { get; set; }
+    public bool IsIndefinite { get; set; }
+    public int? DaysRemaining { get; set; }
+}
+
+public class HideCommentRequestDto
+{
+    public int? DurationDays { get; set; }
+    public string Reason { get; set; } = string.Empty;
+    public bool NotifyUser { get; set; }
+}
+
+// ═══════════════════════════════════════════
+//  DIRECT MESSAGING DTOs
+// ═══════════════════════════════════════════
+
+public class StartConversationDto
+{
+    [Required]
+    public string TargetUserId { get; set; } = string.Empty;
+}
+
+public class SendDirectMessageDto
+{
+    [Required, StringLength(2000)]
+    public string Content { get; set; } = string.Empty;
+
+    [StringLength(64)]
+    public string? ClientMessageId { get; set; }
+}
+
+public class DirectConversationDto
+{
+    public int Id { get; set; }
+    public string PartnerId { get; set; } = string.Empty;
+    public string PartnerName { get; set; } = string.Empty;
+    public string? PartnerAvatar { get; set; }
+    public string? LastMessage { get; set; }
+    public DateTime? LastMessageAt { get; set; }
+    public int UnreadCount { get; set; }
+}
+
+public class DirectMessageResponseDto
+{
+    public int Id { get; set; }
+    public string SenderId { get; set; } = string.Empty;
+    public string SenderName { get; set; } = string.Empty;
+    public string Content { get; set; } = string.Empty;
+    public DateTime SentAt { get; set; }
+    public bool IsRead { get; set; }
+    public bool IsMine { get; set; }
+    public string? ClientMessageId { get; set; }
+    public string? SpamWarning { get; set; }
+}
+
+public class SearchUserDto
+{
+    public string Id { get; set; } = string.Empty;
+    public string FullName { get; set; } = string.Empty;
+    public string? AvatarUrl { get; set; }
+    public string Role { get; set; } = string.Empty;
 }

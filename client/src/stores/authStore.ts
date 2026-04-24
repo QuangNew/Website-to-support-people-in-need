@@ -1,11 +1,16 @@
 import { create } from 'zustand';
 import { authApi } from '../services/api';
+import { useMessageStore } from './messageStore';
 
 export interface User {
     id: string;
     userName: string;
     email: string;
     fullName: string;
+    phoneNumber?: string;
+    address?: string;
+    facebookUrl?: string;
+    telegramUrl?: string;
     role: string;
     verificationStatus: string;
     emailVerified: boolean;
@@ -15,16 +20,16 @@ export interface User {
 
 interface AuthState {
     user: User | null;
-    token: string | null;
     isAuthenticated: boolean;
     isLoading: boolean;
+    authResolved: boolean;
 
     login: (email: string, password: string) => Promise<void>;
     register: (data: { username: string; email: string; password: string; fullName: string }) => Promise<void>;
     googleLogin: (credential: string) => Promise<void>;
     verifyEmail: (code: string) => Promise<void>;
     resendCode: () => Promise<void>;
-    logout: () => void;
+    logout: (options?: { localOnly?: boolean }) => Promise<void>;
     loadUser: () => Promise<void>;
     setUser: (user: User) => void;
 }
@@ -35,8 +40,20 @@ interface AuthResponse {
     userName: string;
     email: string;
     fullName: string;
+    phoneNumber?: string;
+    address?: string;
     role: string;
     emailVerified: boolean;
+}
+
+let pendingLoadUserPromise: Promise<void> | null = null;
+
+function clearPersistedAuth() {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    localStorage.removeItem('chatpanel_messages');
+    localStorage.removeItem('chatpanel_conversation_id');
+    localStorage.removeItem('chatbot_messages');
 }
 
 function applyAuthResponse(
@@ -44,14 +61,15 @@ function applyAuthResponse(
     data: AuthResponse,
     verificationStatus = ''
 ) {
-    localStorage.setItem('token', data.token);
     set({
-        token: data.token,
         isAuthenticated: true,
+        authResolved: true,
         user: {
             id: data.userId,
             userName: data.userName,
             fullName: data.fullName,
+            phoneNumber: data.phoneNumber,
+            address: data.address,
             role: data.role,
             email: data.email,
             emailVerified: data.emailVerified,
@@ -63,9 +81,9 @@ function applyAuthResponse(
 
 export const useAuthStore = create<AuthState>((set, get) => ({
     user: null,
-    token: localStorage.getItem('token'),
     isAuthenticated: false,
     isLoading: false,
+    authResolved: false,
 
     login: async (email, password) => {
         set({ isLoading: true });
@@ -138,28 +156,45 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         }
     },
 
-    logout: () => {
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-        set({ user: null, token: null, isAuthenticated: false });
+    logout: async (options) => {
+        if (!options?.localOnly) {
+            try {
+                await authApi.logout();
+            } catch {
+                // Clear local state even if the server-side logout request fails.
+            }
+        }
+
+        clearPersistedAuth();
+        useMessageStore.getState().reset();
+        set({ user: null, isAuthenticated: false, authResolved: true });
     },
 
     loadUser: async () => {
-        const token = localStorage.getItem('token');
-        if (!token) return;
-
-        try {
-            const res = await authApi.getMe();
-            set({ user: res.data, isAuthenticated: true, token });
-        } catch (err: unknown) {
-            // Only logout on a confirmed 401 (expired/invalid token).
-            // Network errors, timeouts, 500s → keep the token, stay logged in.
-            const axiosErr = err as { response?: { status?: number } };
-            if (axiosErr?.response?.status === 401) {
-                get().logout();
-            }
+        if (pendingLoadUserPromise) {
+            return pendingLoadUserPromise;
         }
+
+        pendingLoadUserPromise = (async () => {
+            try {
+                const res = await authApi.getMe();
+                set({ user: res.data, isAuthenticated: true, authResolved: true });
+            } catch (err: unknown) {
+                const axiosErr = err as { response?: { status?: number } };
+                if (axiosErr?.response?.status === 401) {
+                    clearPersistedAuth();
+                    set({ user: null, isAuthenticated: false, authResolved: true });
+                    return;
+                }
+
+                set({ authResolved: true });
+            } finally {
+                pendingLoadUserPromise = null;
+            }
+        })();
+
+        return pendingLoadUserPromise;
     },
 
-    setUser: (user) => set({ user }),
+    setUser: (user) => set({ user, isAuthenticated: true, authResolved: true }),
 }));

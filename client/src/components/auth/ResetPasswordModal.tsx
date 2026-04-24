@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Lock, Heart, Eye, EyeOff } from 'lucide-react';
+import { Lock, Heart, Eye, EyeOff, Mail } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Modal from '../ui/Modal';
 import { useMapStore } from '../../stores/mapStore';
@@ -7,8 +7,9 @@ import { authApi } from '../../services/api';
 import { useLanguage } from '../../contexts/LanguageContext';
 
 export default function ResetPasswordModal() {
-  const { showAuthModal, setAuthModal } = useMapStore();
+  const { showAuthModal, setAuthModal, resetPasswordEmail, setResetPasswordEmail } = useMapStore();
   const { t } = useLanguage();
+  const [email, setEmail] = useState(resetPasswordEmail || '');
   const [token, setToken] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -21,16 +22,18 @@ export default function ResetPasswordModal() {
     e.preventDefault();
     setError('');
 
-    if (!token || !newPassword) {
+    if (!email || !token || !newPassword) {
       setError(t('auth.fillAll'));
       return;
     }
 
     setIsLoading(true);
     try {
-      await authApi.resetPassword({ token, newPassword });
+      await authApi.resetPassword({ email, token, newPassword });
       toast.success(t('auth.resetSuccess'));
+      setResetPasswordEmail(null);
       setAuthModal('login');
+      setEmail('');
       setToken('');
       setNewPassword('');
     } catch (err: unknown) {
@@ -56,6 +59,21 @@ export default function ResetPasswordModal() {
           {error && <div className="auth-error animate-shake">{error}</div>}
 
           <div className="form-group">
+            <label className="form-label">{t('auth.email')}</label>
+            <div className="input-with-icon">
+              <Mail size={16} className="input-icon" />
+              <input
+                type="email"
+                className="form-input"
+                placeholder={t('auth.emailPlaceholder')}
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                autoFocus
+              />
+            </div>
+          </div>
+
+          <div className="form-group">
             <label className="form-label">{t('auth.resetCode')}</label>
             <input
               type="text"
@@ -64,7 +82,6 @@ export default function ResetPasswordModal() {
               value={token}
               onChange={(e) => setToken(e.target.value)}
               maxLength={6}
-              autoFocus
             />
           </div>
 

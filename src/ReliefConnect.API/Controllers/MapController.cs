@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Claims;
 using ReliefConnect.Core.DTOs;
 using ReliefConnect.Core.Entities;
 using ReliefConnect.Core.Enums;
@@ -21,16 +22,22 @@ public class MapController : ControllerBase
 {
     private readonly IPingRepository _pingRepo;
     private readonly UserManager<ApplicationUser> _userManager;
+    private readonly INotificationService _notifications;
     private readonly ILogger<MapController> _logger;
+    private readonly ISpamGuardService _spamGuard;
 
     public MapController(
         IPingRepository pingRepo,
         UserManager<ApplicationUser> userManager,
-        ILogger<MapController> logger)
+        INotificationService notifications,
+        ILogger<MapController> logger,
+        ISpamGuardService spamGuard)
     {
         _pingRepo = pingRepo;
         _userManager = userManager;
+        _notifications = notifications;
         _logger = logger;
+        _spamGuard = spamGuard;
     }
 
     // ─────────────────────────────────────
@@ -47,6 +54,7 @@ public class MapController : ControllerBase
         [FromQuery] double? lng,
         [FromQuery] double? radiusKm)
     {
+        var includeSensitiveContact = CanViewSensitivePingContact(GetViewerRole());
         IEnumerable<Ping> pings;
 
         if (lat.HasValue && lng.HasValue && radiusKm.HasValue)
@@ -66,7 +74,7 @@ public class MapController : ControllerBase
             pings = await _pingRepo.GetAllAsync(limit: 500);
         }
 
-        var dtos = pings.Select(MapPingToDto);
+        var dtos = pings.Select(ping => MapPingToDto(ping, includeSensitiveContact));
         return Ok(dtos);
     }
 
@@ -80,7 +88,7 @@ public class MapController : ControllerBase
         if (ping == null)
             return NotFound(new ApiErrorResponse { StatusCode = 404, Message = "Không tìm thấy điểm cứu trợ." });
 
-        return Ok(MapPingToDto(ping));
+        return Ok(MapPingToDto(ping, CanViewSensitivePingContact(GetViewerRole())));
     }
 
     // ─────────────────────────────────────
@@ -94,20 +102,68 @@ public class MapController : ControllerBase
     [Authorize]
     public async Task<ActionResult<PingResponseDto>> CreatePing([FromBody] CreatePingDto dto)
     {
-        var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrEmpty(userId))
             return Unauthorized();
 
-        // Lightweight user check — only fetch the name, not the full entity
-        var userName = await _userManager.Users
+        var currentUser = await _userManager.Users
             .Where(u => u.Id == userId)
-            .Select(u => u.FullName ?? u.UserName)
+            .Select(u => new
+            {
+                DisplayName = u.FullName ?? u.UserName,
+                u.UserName,
+                u.Email,
+                u.Role,
+            })
             .FirstOrDefaultAsync();
-        if (userName == null)
+        if (currentUser == null)
             return Unauthorized();
+
+        // ── Spam Guard ──
+        var spamCheck = await _spamGuard.CheckPingAsync(userId);
+        if (spamCheck.Verdict == SpamVerdict.Suspend)
+        {
+            await _spamGuard.SuspendForSpamAsync(userId, "Tạo SOS quá nhiều (>5 lần/giờ)");
+            return StatusCode(429, new ApiErrorResponse { StatusCode = 429, Message = "Tài khoản của bạn đã bị tạm khóa do tạo SOS quá nhiều." });
+        }
 
         if (!Enum.TryParse<MapItemType>(dto.Type, true, out var mapType))
             return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Loại ping không hợp lệ. Chấp nhận: SOS, Supply, Shelter." });
+
+        // Supply and Shelter pings are admin-only
+        if (mapType is MapItemType.Supply or MapItemType.Shelter && currentUser.Role != RoleEnum.Admin)
+            return Forbid();
+
+        // Validate coordinates within Vietnam territory (bounding box + island zones)
+        if (!IsInsideVietnamTerritory(dto.Lat, dto.Lng))
+            return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Vị trí nằm ngoài lãnh thổ Việt Nam." });
+
+        string? contactName = null;
+        string? contactPhone = null;
+        string? conditionImageUrl = string.IsNullOrWhiteSpace(dto.ConditionImageUrl)
+            ? null
+            : dto.ConditionImageUrl.Trim();
+
+        if (mapType == MapItemType.SOS)
+        {
+            contactName = dto.ContactName?.Trim();
+            if (string.IsNullOrWhiteSpace(contactName))
+                return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Vui lòng nhập tên thật để gửi SOS." });
+
+            contactPhone = dto.ContactPhone?.Trim();
+            if (string.IsNullOrWhiteSpace(contactPhone))
+                return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Vui lòng nhập số điện thoại để gửi SOS." });
+
+            if (!IsValidContactPhone(contactPhone))
+                return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Số điện thoại không hợp lệ." });
+
+            if (conditionImageUrl != null && !IsAllowedConditionImageUrl(conditionImageUrl))
+                return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Ảnh tình trạng không hợp lệ." });
+        }
+        else if (conditionImageUrl != null)
+        {
+            return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Ảnh tình trạng chỉ hỗ trợ cho SOS." });
+        }
 
         var ping = new Ping
         {
@@ -116,6 +172,12 @@ public class MapController : ControllerBase
             Type = mapType,
             Status = mapType == MapItemType.SOS ? SOSStatus.Pending : SOSStatus.Resolved,
             Details = dto.Details,
+            ContactName = contactName,
+            ContactPhone = contactPhone,
+            ConditionImageUrl = conditionImageUrl,
+            SOSCategory = mapType == MapItemType.SOS && !string.IsNullOrEmpty(dto.SOSCategory)
+                ? Enum.TryParse<Core.Enums.SOSCategory>(dto.SOSCategory, true, out var cat) ? cat : Core.Enums.SOSCategory.Other
+                : null,
             UserId = userId,
             CreatedAt = DateTime.UtcNow,
         };
@@ -123,7 +185,23 @@ public class MapController : ControllerBase
         var created = await _pingRepo.AddAsync(ping);
         _logger.LogInformation("Ping created: Id={PingId}, Type={Type}, User={UserId}", created.Id, dto.Type, userId);
 
-        // Build DTO directly — avoid reload round-trip
+        // Notify volunteers about new SOS request
+        if (ping.Type == MapItemType.SOS)
+        {
+            var detail = ping.Details?.Length > 100 ? ping.Details[..100] + "…" : ping.Details ?? "Không có chi tiết";
+            try
+            {
+                await _notifications.SendToRoleAsync((int)Core.Enums.RoleEnum.Volunteer,
+                    $"SOS mới từ {contactName}: {detail}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to send volunteer notification for SOS {PingId}", created.Id);
+            }
+        }
+
+        var includeSensitiveContact = CanViewSensitivePingContact(currentUser.Role);
+
         var responseDto = new PingResponseDto
         {
             Id = created.Id,
@@ -133,11 +211,20 @@ public class MapController : ControllerBase
             Status = created.Status.ToString(),
             PriorityLevel = created.PriorityLevel,
             Details = created.Details,
+            SOSCategory = created.SOSCategory?.ToString()?.ToLowerInvariant(),
             CreatedAt = created.CreatedAt,
             UserId = userId,
-            UserName = userName,
+            UserName = contactName ?? currentUser.DisplayName,
+            ContactName = contactName ?? currentUser.DisplayName,
+            ContactPhone = includeSensitiveContact ? contactPhone : null,
+            ContactEmail = includeSensitiveContact ? currentUser.Email : null,
+            ConditionImageUrl = conditionImageUrl,
             IsBlinking = false,
         };
+
+        if (spamCheck.Verdict == SpamVerdict.Warning)
+            return CreatedAtAction(nameof(GetPingById), new { id = created.Id }, new { ping = responseDto, spamWarning = spamCheck.WarningMessage });
+
         return CreatedAtAction(nameof(GetPingById), new { id = created.Id }, responseDto);
     }
 
@@ -169,7 +256,18 @@ public class MapController : ControllerBase
         await _pingRepo.UpdateAsync(ping);
         _logger.LogInformation("Ping {PingId} status updated to {Status}", id, dto.Status);
 
-        return Ok(MapPingToDto(ping));
+        // Notify ping owner about status change
+        try
+        {
+            await _notifications.SendAsync(ping.UserId,
+                $"Trạng thái SOS của bạn đã được cập nhật: {newStatus}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to send owner notification for ping {PingId}", id);
+        }
+
+        return Ok(MapPingToDto(ping, CanViewSensitivePingContact(GetViewerRole())));
     }
 
     // ─────────────────────────────────────
@@ -182,7 +280,7 @@ public class MapController : ControllerBase
     [Authorize(Policy = "RequirePersonInNeed")]
     public async Task<ActionResult<PingResponseDto>> ConfirmSafe(int id)
     {
-        var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         var ping = await _pingRepo.GetPingWithFlagForUpdateAsync(id);
 
         if (ping == null)
@@ -198,7 +296,18 @@ public class MapController : ControllerBase
         await _pingRepo.UpdateAsync(ping);
         _logger.LogInformation("Ping {PingId} confirmed safe by user {UserId}", id, userId);
 
-        return Ok(MapPingToDto(ping));
+        // Notify volunteers that user confirmed safe
+        try
+        {
+            await _notifications.SendToRoleAsync((int)Core.Enums.RoleEnum.Volunteer,
+                $"Người dùng đã xác nhận an toàn cho SOS #{id}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to send volunteer safe-confirmation notification for ping {PingId}", id);
+        }
+
+        return Ok(MapPingToDto(ping, CanViewSensitivePingContact(GetViewerRole())));
     }
 
     // ─────────────────────────────────────
@@ -209,7 +318,8 @@ public class MapController : ControllerBase
     public async Task<ActionResult<IEnumerable<PingResponseDto>>> GetPingsByUser(string userId)
     {
         var pings = await _pingRepo.GetPingsByUserAsync(userId);
-        return Ok(pings.Select(MapPingToDto));
+        var includeSensitiveContact = CanViewSensitivePingContact(GetViewerRole());
+        return Ok(pings.Select(ping => MapPingToDto(ping, includeSensitiveContact)));
     }
 
     // ─────────────────────────────────────
@@ -229,7 +339,7 @@ public class MapController : ControllerBase
     }
 
     // ─── DTO Mapping ───
-    private static PingResponseDto MapPingToDto(Ping ping) => new()
+    private static PingResponseDto MapPingToDto(Ping ping, bool includeSensitiveContact) => new()
     {
         Id = ping.Id,
         Lat = ping.CoordinatesLat,
@@ -238,9 +348,88 @@ public class MapController : ControllerBase
         Status = ping.Status.ToString(),
         PriorityLevel = ping.PriorityLevel,
         Details = ping.Details,
+        SOSCategory = ping.SOSCategory?.ToString()?.ToLowerInvariant(),
         CreatedAt = ping.CreatedAt,
         UserId = ping.UserId,
-        UserName = ping.User?.FullName ?? ping.User?.UserName,
+        UserName = ping.ContactName ?? ping.User?.FullName ?? ping.User?.UserName,
+        ContactName = ping.ContactName ?? ping.User?.FullName ?? ping.User?.UserName,
+        ContactPhone = includeSensitiveContact ? ping.ContactPhone ?? ping.User?.PhoneNumber : null,
+        ContactEmail = includeSensitiveContact ? ping.User?.Email : null,
+        ConditionImageUrl = ping.ConditionImageUrl,
         IsBlinking = ping.PingFlag?.IsBlinking ?? false,
+        AvatarUrl = ping.User?.AvatarUrl,
     };
+
+    private RoleEnum? GetViewerRole()
+    {
+        if (User.Identity?.IsAuthenticated != true)
+            return null;
+
+        var roleValue = User.FindFirstValue("Role") ?? User.FindFirstValue(ClaimTypes.Role);
+        return Enum.TryParse<RoleEnum>(roleValue, true, out var role)
+            ? role
+            : null;
+    }
+
+    private static bool CanViewSensitivePingContact(RoleEnum? viewerRole)
+    {
+        return viewerRole.HasValue
+            && viewerRole.Value != RoleEnum.Guest
+            && viewerRole.Value != RoleEnum.PersonInNeed;
+    }
+
+    private static bool IsValidContactPhone(string phone)
+    {
+        var digits = new string(phone.Where(char.IsDigit).ToArray());
+        return digits.Length is >= 8 and <= 15;
+    }
+
+    private static bool IsAllowedConditionImageUrl(string imageUrl)
+    {
+        if (imageUrl.Length > 500)
+            return false;
+
+        if (imageUrl.StartsWith("/uploads/", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (!Uri.TryCreate(imageUrl, UriKind.Absolute, out var uri))
+            return false;
+
+        return uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps;
+    }
+
+    // ─── Vietnam territory validation ───
+    private static bool IsInsideVietnamTerritory(double lat, double lng)
+    {
+        // Quick bounding-box rejection
+        if (lat < 5.78 || lat > 23.39 || lng < 102.15 || lng > 117.72)
+            return false;
+
+        // Mainland bounding box (rough)
+        if (lat >= 8.0 && lat <= 23.39 && lng >= 102.15 && lng <= 110.0)
+            return true; // Western mainland
+
+        // Check island zones
+        // Paracel Islands (Hoang Sa)
+        if (lat >= 15.48 && lat <= 17.37 && lng >= 110.78 && lng <= 113.12)
+            return true;
+        // Spratly Islands (Truong Sa)
+        if (lat >= 5.78 && lat <= 12.20 && lng >= 109.28 && lng <= 117.72)
+            return true;
+        // Con Dao Islands
+        if (lat >= 8.33 && lat <= 9.07 && lng >= 106.28 && lng <= 106.97)
+            return true;
+        // Phu Quoc Island
+        if (lat >= 9.68 && lat <= 10.72 && lng >= 103.48 && lng <= 104.42)
+            return true;
+
+        // Eastern coast mainland (simplified: up to ~110°E at the widest)
+        if (lat >= 8.0 && lat <= 23.39 && lng >= 102.15 && lng <= 110.0)
+            return true;
+        // Central/South coast extends slightly east
+        if (lat >= 10.0 && lat <= 21.5 && lng >= 106.0 && lng <= 109.6)
+            return true;
+
+        return false;
+    }
 }

@@ -10,11 +10,17 @@ import {
   Trash2,
   ImagePlus,
   X,
+  EyeOff,
+  Flag,
 } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { useAuthStore } from '../../stores/authStore';
 import { useMapStore } from '../../stores/mapStore';
 import { useLanguage } from '../../contexts/LanguageContext';
-import { socialApi } from '../../services/api';
+import HideCommentModal from '../ui/HideCommentModal';
+import ReportPostModal from '../ui/ReportPostModal';
+import UserPreviewModal from '../ui/UserPreviewModal';
+import { socialApi, getImageUrl, type HideCommentRequest } from '../../services/api';
 
 interface PostDto {
   id: number;
@@ -41,6 +47,25 @@ interface CommentDto {
   userAvatar?: string;
 }
 
+interface HideCommentTarget {
+  postId: number;
+  commentId: number;
+  content: string;
+  userName: string;
+}
+
+interface ReportPostTarget {
+  postId: number;
+  content: string;
+  authorName: string;
+}
+
+interface PreviewUserTarget {
+  userId: string;
+  fallbackName: string;
+  fallbackAvatar?: string;
+}
+
 const CATEGORIES = ['Livelihood', 'Medical', 'Education'] as const;
 
 function timeAgo(dateStr: string, t: (key: string) => string): string {
@@ -58,10 +83,20 @@ function getInitials(name: string): string {
   return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
 }
 
+/** Handle avatar load error — hide img and show initials fallback sibling */
+function handleAvatarError(e: React.SyntheticEvent<HTMLImageElement>) {
+  const img = e.currentTarget;
+  img.style.display = 'none';
+  // Show the next sibling which is the initials fallback
+  const fallback = img.nextElementSibling as HTMLElement | null;
+  if (fallback) fallback.style.display = '';
+}
+
 export default function SocialPanel() {
   const { isAuthenticated, user } = useAuthStore();
   const { setAuthModal } = useMapStore();
   const { t } = useLanguage();
+  const isAdmin = user?.role === 'Admin';
 
   const [posts, setPosts] = useState<PostDto[]>([]);
   const [loading, setLoading] = useState(false);
@@ -75,6 +110,11 @@ export default function SocialPanel() {
   const [expandedComments, setExpandedComments] = useState<Record<number, CommentDto[]>>({});
   const [commentInputs, setCommentInputs] = useState<Record<number, string>>({});
   const [loadingComments, setLoadingComments] = useState<Record<number, boolean>>({});
+  const [hideCommentTarget, setHideCommentTarget] = useState<HideCommentTarget | null>(null);
+  const [hidingComment, setHidingComment] = useState(false);
+  const [reportPostTarget, setReportPostTarget] = useState<ReportPostTarget | null>(null);
+  const [reportingPost, setReportingPost] = useState(false);
+  const [previewUserTarget, setPreviewUserTarget] = useState<PreviewUserTarget | null>(null);
   const observerRef = useRef<HTMLDivElement>(null);
   const inflightRef = useRef(false); // Track inflight requests to prevent race conditions
 
@@ -145,17 +185,38 @@ export default function SocialPanel() {
         imageUrl = uploadRes.data.imageUrl;
       }
       const res = await socialApi.createPost({ content: newPost.trim(), category, imageUrl });
-      setPosts(prev => [res.data, ...prev]);
+      const data = res.data as PostDto | { post: PostDto; spamWarning: string };
+      const post = 'post' in data ? data.post : data;
+      setPosts(prev => [post, ...prev]);
       setNewPost('');
       removeImage();
+      if ('spamWarning' in data && data.spamWarning) {
+        toast(data.spamWarning, { icon: '⚠️', duration: 6000 });
+      }
     } catch { /* show nothing — api interceptor handles 401 */ }
     finally { setPosting(false); }
   };
 
   const handleReaction = async (postId: number, type: string) => {
     if (!isAuthenticated) { setAuthModal('login'); return; }
+
+    // Optimistic update — apply immediately for instant feedback
+    setPosts(prev => prev.map(p => {
+      if (p.id !== postId) return p;
+      const wasActive = p.userReaction === type;
+      const prevType = p.userReaction;
+      return {
+        ...p,
+        userReaction: wasActive ? undefined : type,
+        likeCount:  p.likeCount  + (type === 'Like'  ? (wasActive ? -1 : 1) : (prevType === 'Like'  ? -1 : 0)),
+        loveCount:  p.loveCount  + (type === 'Love'  ? (wasActive ? -1 : 1) : (prevType === 'Love'  ? -1 : 0)),
+        prayCount:  p.prayCount  + (type === 'Pray'  ? (wasActive ? -1 : 1) : (prevType === 'Pray'  ? -1 : 0)),
+      };
+    }));
+
     try {
       const res = await socialApi.addReaction(postId, { type });
+      // Sync with actual server counts
       setPosts(prev => prev.map(p => p.id === postId ? {
         ...p,
         likeCount: res.data.likeCount,
@@ -163,7 +224,10 @@ export default function SocialPanel() {
         prayCount: res.data.prayCount,
         userReaction: res.data.userReaction ?? undefined,
       } : p));
-    } catch { /* ignore */ }
+    } catch {
+      // Revert optimistic update on failure — refetch
+      fetchPosts();
+    }
   };
 
   const toggleComments = async (postId: number) => {
@@ -185,13 +249,36 @@ export default function SocialPanel() {
     if (!content) return;
     try {
       const res = await socialApi.addComment(postId, { content });
+      const cData = res.data as CommentDto | { comment: CommentDto; spamWarning: string };
+      const newComment = 'comment' in cData ? cData.comment : cData;
       setExpandedComments(prev => ({
         ...prev,
-        [postId]: [res.data, ...(prev[postId] || [])],
+        [postId]: [newComment, ...(prev[postId] || [])],
       }));
       setCommentInputs(prev => ({ ...prev, [postId]: '' }));
       setPosts(prev => prev.map(p => p.id === postId ? { ...p, commentCount: p.commentCount + 1 } : p));
-    } catch { /* ignore */ }
+      if ('spamWarning' in cData && cData.spamWarning) {
+        toast(cData.spamWarning, { icon: '⚠️', duration: 6000 });
+      }
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { status?: number; data?: { message?: string; isBanned?: boolean } } };
+      if (axiosErr?.response?.status === 422) {
+        const data = axiosErr.response.data;
+        toast.error(data?.message || t('social.commentViolation'), { duration: 6000 });
+        setCommentInputs(prev => ({ ...prev, [postId]: '' }));
+        if (data?.isBanned) {
+          setTimeout(() => window.location.reload(), 3000);
+        }
+        return;
+      }
+
+      if (axiosErr?.response?.status === 403) {
+        toast.error(axiosErr.response.data?.message || t('common.forbidden'), { duration: 5000 });
+        return;
+      }
+
+      toast.error(t('common.error'));
+    }
   };
 
   const handleDelete = async (postId: number) => {
@@ -199,6 +286,62 @@ export default function SocialPanel() {
       await socialApi.deletePost(postId);
       setPosts(prev => prev.filter(p => p.id !== postId));
     } catch { /* ignore */ }
+  };
+
+  const openReportPost = (post: PostDto) => {
+    if (!isAuthenticated) {
+      setAuthModal('login');
+      return;
+    }
+
+    setReportPostTarget({ postId: post.id, content: post.content, authorName: post.authorName });
+  };
+
+  const handleReportPost = async (reason: string) => {
+    if (!reportPostTarget) return;
+
+    setReportingPost(true);
+    try {
+      const res = await socialApi.reportPost(reportPostTarget.postId, { reason });
+      toast.success(res.data?.message || t('social.reportSubmitted'));
+      setReportPostTarget(null);
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { message?: string } } };
+      toast.error(axiosErr.response?.data?.message || t('common.error'));
+    } finally {
+      setReportingPost(false);
+    }
+  };
+
+  const handleHideComment = async (payload: HideCommentRequest) => {
+    if (!hideCommentTarget) return;
+
+    setHidingComment(true);
+    try {
+      const res = await socialApi.hideComment(hideCommentTarget.postId, hideCommentTarget.commentId, payload);
+      setExpandedComments(prev => ({
+        ...prev,
+        [hideCommentTarget.postId]: (prev[hideCommentTarget.postId] || []).filter(c => c.id !== hideCommentTarget.commentId),
+      }));
+      setPosts(prev => prev.map(p => p.id === hideCommentTarget.postId ? {
+        ...p,
+        commentCount: Math.max(0, p.commentCount - 1),
+      } : p));
+      toast.success(res.data?.message || t('social.commentHidden'));
+      if (payload.notifyUser && res.data?.notificationRequested && !res.data?.notificationSent) {
+        toast.error(t('social.commentHiddenWithoutNotification'), { duration: 5000 });
+      }
+      setHideCommentTarget(null);
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { message?: string } } };
+      toast.error(axiosErr.response?.data?.message || t('common.error'));
+    } finally {
+      setHidingComment(false);
+    }
+  };
+
+  const openUserPreview = (userId: string, fallbackName: string, fallbackAvatar?: string) => {
+    setPreviewUserTarget({ userId, fallbackName, fallbackAvatar });
   };
 
   return (
@@ -268,13 +411,28 @@ export default function SocialPanel() {
           <article key={post.id} className="social-post glass-card-sm">
             {/* Author */}
             <div className="social-post-header">
-              <div className="avatar avatar-sm">
-                <span>{post.authorAvatar ? '' : getInitials(post.authorName)}</span>
-              </div>
-              <div className="social-post-author">
-                <span className="social-post-name">{post.authorName}</span>
-                <span className="social-post-time">{timeAgo(post.createdAt, t)}</span>
-              </div>
+              <button
+                type="button"
+                className="social-user-trigger"
+                onClick={() => openUserPreview(post.authorId, post.authorName, post.authorAvatar)}
+              >
+                {post.authorAvatar ? (
+                  <>
+                    <img src={getImageUrl(post.authorAvatar)} alt="" className="avatar avatar-sm" style={{ objectFit: 'cover' }} onError={handleAvatarError} />
+                    <div className="avatar avatar-sm" style={{ display: 'none' }}>
+                      <span>{getInitials(post.authorName)}</span>
+                    </div>
+                  </>
+                ) : (
+                  <div className="avatar avatar-sm">
+                    <span>{getInitials(post.authorName)}</span>
+                  </div>
+                )}
+                <div className="social-post-author">
+                  <span className="social-post-name">{post.authorName}</span>
+                  <span className="social-post-time">{timeAgo(post.createdAt, t)}</span>
+                </div>
+              </button>
               {(post.authorId === user?.id || user?.role === 'Admin') && (
                 <button className="btn-ghost btn-sm social-post-more" onClick={() => handleDelete(post.id)} title={t('social.delete')}>
                   <Trash2 size={14} />
@@ -289,7 +447,7 @@ export default function SocialPanel() {
 
             {/* Content */}
             <p className="social-post-content">{post.content}</p>
-            {post.imageUrl && <img src={post.imageUrl} alt="" className="social-post-image" style={{ maxWidth: '100%', borderRadius: '8px', marginTop: '0.5rem' }} />}
+            {post.imageUrl && <img src={getImageUrl(post.imageUrl)} alt="" className="social-post-image" style={{ maxWidth: '100%', borderRadius: '8px', marginTop: '0.5rem' }} />}
 
             {/* Reactions */}
             <div className="social-post-actions">
@@ -319,6 +477,12 @@ export default function SocialPanel() {
                 <span>{post.commentCount || ''}</span>
                 <ChevronDown size={12} style={{ transform: expandedComments[post.id] ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
               </button>
+              {post.authorId !== user?.id && (
+                <button className="social-action-btn" onClick={() => openReportPost(post)}>
+                  <Flag size={15} />
+                  <span>{t('social.reportPost')}</span>
+                </button>
+              )}
             </div>
 
             {/* Comments */}
@@ -340,15 +504,48 @@ export default function SocialPanel() {
                   </button>
                 </div>
                 {expandedComments[post.id].map(c => (
-                  <div key={c.id} style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.4rem', fontSize: '0.8rem' }}>
-                    <div className="avatar" style={{ width: 24, height: 24, fontSize: '0.6rem' }}>
-                      <span>{getInitials(c.userName)}</span>
-                    </div>
-                    <div>
-                      <strong>{c.userName}</strong>{' '}
-                      <span style={{ opacity: 0.6 }}>{timeAgo(c.createdAt, t)}</span>
-                      <p style={{ margin: '2px 0 0' }}>{c.content}</p>
-                    </div>
+                  <div key={c.id} className="social-comment-row">
+                    <button
+                      type="button"
+                      className="social-comment-user-trigger"
+                      onClick={() => openUserPreview(c.userId, c.userName, c.userAvatar)}
+                    >
+                      {c.userAvatar ? (
+                        <>
+                          <img
+                            src={getImageUrl(c.userAvatar)}
+                            alt=""
+                            className="avatar"
+                            style={{ width: 24, height: 24, fontSize: '0.6rem', objectFit: 'cover' }}
+                            onError={handleAvatarError}
+                          />
+                          <div className="avatar" style={{ width: 24, height: 24, fontSize: '0.6rem', display: 'none' }}>
+                            <span>{getInitials(c.userName)}</span>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="avatar" style={{ width: 24, height: 24, fontSize: '0.6rem' }}>
+                          <span>{getInitials(c.userName)}</span>
+                        </div>
+                      )}
+                      <div className="social-comment-body">
+                        <div className="social-comment-meta">
+                          <strong>{c.userName}</strong>
+                          <span>{timeAgo(c.createdAt, t)}</span>
+                        </div>
+                        <p className="social-comment-content">{c.content}</p>
+                      </div>
+                    </button>
+                    {isAdmin && (
+                      <button
+                        className="btn-ghost btn-sm"
+                        onClick={() => setHideCommentTarget({ postId: post.id, commentId: c.id, content: c.content, userName: c.userName })}
+                        title={t('social.hideComment')}
+                        style={{ alignSelf: 'flex-start', color: 'var(--danger-500)' }}
+                      >
+                        <EyeOff size={12} />
+                      </button>
+                    )}
                   </div>
                 ))}
                 {expandedComments[post.id].length === 0 && (
@@ -369,6 +566,30 @@ export default function SocialPanel() {
           <p style={{ textAlign: 'center', opacity: 0.4, padding: '1rem', fontSize: '0.8rem' }}>{t('social.noMore')}</p>
         )}
       </div>
+
+      <HideCommentModal
+        isOpen={!!hideCommentTarget}
+        commentPreview={hideCommentTarget ? `${hideCommentTarget.userName}: ${hideCommentTarget.content}` : undefined}
+        submitting={hidingComment}
+        onClose={() => !hidingComment && setHideCommentTarget(null)}
+        onConfirm={handleHideComment}
+      />
+
+      <ReportPostModal
+        isOpen={!!reportPostTarget}
+        postPreview={reportPostTarget ? `${reportPostTarget.authorName}: ${reportPostTarget.content}` : undefined}
+        submitting={reportingPost}
+        onClose={() => !reportingPost && setReportPostTarget(null)}
+        onConfirm={handleReportPost}
+      />
+
+      <UserPreviewModal
+        isOpen={!!previewUserTarget}
+        userId={previewUserTarget?.userId ?? ''}
+        fallbackName={previewUserTarget?.fallbackName ?? ''}
+        fallbackAvatar={previewUserTarget?.fallbackAvatar}
+        onClose={() => setPreviewUserTarget(null)}
+      />
     </div>
   );
 }

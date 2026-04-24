@@ -1,18 +1,22 @@
 using System.Text;
 using Hangfire;
-using Hangfire.MemoryStorage;
+using Hangfire.PostgreSql;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using ReliefConnect.API.Hubs;
 using ReliefConnect.API.Middleware;
+using ReliefConnect.API.Services;
 using ReliefConnect.Core.Entities;
+using ReliefConnect.Core.Enums;
 using ReliefConnect.Core.Interfaces;
 using ReliefConnect.Infrastructure.Data;
 using ReliefConnect.Infrastructure.Repositories;
 using ReliefConnect.Infrastructure.Services;
 using Serilog;
+using System.Net;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -22,6 +26,10 @@ var builder = WebApplication.CreateBuilder(args);
 Log.Logger = new LoggerConfiguration()
     .ReadFrom.Configuration(builder.Configuration)
     .Enrich.FromLogContext()
+    .Destructure.ByTransforming<ReliefConnect.Core.DTOs.LoginDto>(d => new { d.Email, Password = "***" })
+    .Destructure.ByTransforming<ReliefConnect.Core.DTOs.RegisterDto>(d => new { d.Username, d.Email, d.FullName, Password = "***" })
+    .Destructure.ByTransforming<ReliefConnect.Core.DTOs.ResetPasswordDto>(d => new { d.Email, d.Token, NewPassword = "***" })
+    .Destructure.ByTransforming<ReliefConnect.Core.DTOs.ChangePasswordDto>(d => new { CurrentPassword = "***", NewPassword = "***" })
     .CreateLogger();
 
 builder.Host.UseSerilog();
@@ -29,17 +37,29 @@ builder.Host.UseSerilog();
 // ═══════════════════════════════════════════
 //  DATABASE (Supabase PostgreSQL + PostGIS)
 // ═══════════════════════════════════════════
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
+    ?? throw new InvalidOperationException("ConnectionStrings:DefaultConnection must be configured");
+
+var appConnectionString = BuildAppConnectionString(connectionString);
+var appUsesSupabasePooler = IsSupabasePoolerConnection(appConnectionString);
+var forwardedHeadersOptions = BuildForwardedHeadersOptions(builder.Configuration);
+
+if (appUsesSupabasePooler)
+{
+    Log.Warning("DefaultConnection is using a Supabase pooler connection. EF MaxBatchSize=1 to avoid ObjectDisposedException with PgBouncer.");
+}
+
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(
-        builder.Configuration.GetConnectionString("DefaultConnection"),
+        appConnectionString,
         npgsqlOptions =>
         {
             npgsqlOptions.EnableRetryOnFailure(
                 maxRetryCount: 3,
                 maxRetryDelay: TimeSpan.FromSeconds(5),
                 errorCodesToAdd: null);
-            npgsqlOptions.MaxBatchSize(100);
-            npgsqlOptions.CommandTimeout(15); // 15s query timeout (was default 30s)
+            npgsqlOptions.MaxBatchSize(appUsesSupabasePooler ? 1 : 100);
+            npgsqlOptions.CommandTimeout(30); // 30s query timeout (production-safe default)
         })
     .EnableSensitiveDataLogging(builder.Environment.IsDevelopment())
     .UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking));
@@ -96,7 +116,20 @@ builder.Services.AddAuthentication(options =>
         OnMessageReceived = context =>
         {
             if (context.Request.Cookies.TryGetValue("auth_token", out var token))
+                {
                 context.Token = token;
+                    return Task.CompletedTask;
+                }
+
+                var path = context.HttpContext.Request.Path;
+                var accessToken = context.Request.Query["access_token"];
+
+                if (!string.IsNullOrWhiteSpace(accessToken)
+                    && path.StartsWithSegments("/hubs", StringComparison.OrdinalIgnoreCase))
+                {
+                    context.Token = accessToken;
+                }
+
             return Task.CompletedTask;
         },
         OnTokenValidated = context =>
@@ -126,7 +159,15 @@ builder.Services.AddAuthorizationBuilder()
 //  CORS (Frontend)
 // ═══════════════════════════════════════════
 var frontendUrls = builder.Configuration.GetSection("Frontend:Urls").Get<string[]>()
-    ?? new[] { "http://localhost:5173", "http://localhost:5174", "http://localhost:5175" };
+    ?? new[]
+    {
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://localhost:5175",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:5174",
+        "http://127.0.0.1:5175"
+    };
 
 builder.Services.AddCors(options =>
 {
@@ -182,21 +223,55 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddScoped<IPingRepository, PingRepository>();
 builder.Services.AddScoped<IPostRepository, PostRepository>();
 builder.Services.AddScoped<IEmailService, SmtpEmailService>();
+builder.Services.AddScoped<IRateLimitStore, PostgresRateLimitStore>();
+builder.Services.AddScoped<INotificationRealtimeDispatcher, NotificationRealtimeDispatcher>();
+builder.Services.AddScoped<INotificationService, NotificationService>();
+builder.Services.AddScoped<ISpamGuardService, SpamGuardService>();
 builder.Services.AddSingleton<IGeminiService, GeminiService>();
-builder.Services.AddSingleton<ITokenBlacklistService, TokenBlacklistService>();
+builder.Services.AddScoped<ITokenBlacklistService, TokenBlacklistService>();
 builder.Services.AddSingleton<Ganss.Xss.HtmlSanitizer>();
+builder.Services.AddSingleton<IContentModerationService, ContentModerationService>();
+builder.Services.AddHttpClient<IPayOSService, PayOSService>();
 
 // ═══════════════════════════════════════════
 //  HANGFIRE
 // ═══════════════════════════════════════════
-builder.Services.AddHangfire(config => config.UseMemoryStorage());
-builder.Services.AddHangfireServer();
+var hangfireConnectionString = BuildHangfireConnectionString(builder.Configuration, connectionString);
+var hangfireEnabled = ShouldEnableHangfire(hangfireConnectionString);
+
+var hangfireStorageOptions = new PostgreSqlStorageOptions
+{
+    SchemaName = "hangfire",
+    PrepareSchemaIfNecessary = false
+};
+
+if (hangfireEnabled)
+{
+    builder.Services.AddHangfire(config =>
+        config.UsePostgreSqlStorage(
+            options => options.UseNpgsqlConnection(hangfireConnectionString),
+            hangfireStorageOptions));
+    builder.Services.AddHangfireServer();
+}
+else
+{
+    Log.Warning("Hangfire server is disabled because the configured connection uses a Supabase pooler, which is causing Npgsql ObjectDisposedException in distributed locks. Configure ConnectionStrings:HangfireConnection with a compatible direct or dedicated connection to enable Hangfire again.");
+}
+
+// ═══════════════════════════════════════════
+//  BACKGROUND SERVICES
+// ═══════════════════════════════════════════
+builder.Services.AddHostedService<ReliefConnect.API.BackgroundServices.PingFlagMonitorService>();
+builder.Services.AddHostedService<ReliefConnect.API.BackgroundServices.SoftDeleteCleanupService>();
+builder.Services.AddHostedService<ReliefConnect.API.BackgroundServices.TokenCleanupService>();
+builder.Services.AddHostedService<ReliefConnect.API.BackgroundServices.MessageCleanupService>();
 
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
 {
     FreeDevelopmentPort(5164);
+    await SeedDevelopmentAdminAsync(app);
     app.UseSwagger();
     app.UseSwaggerUI();
 }
@@ -206,14 +281,17 @@ if (app.Environment.IsDevelopment())
 // ═══════════════════════════════════════════
 app.UseResponseCompression();
 app.UseGlobalExceptionHandler();
+app.UseForwardedHeaders(forwardedHeadersOptions);
 app.UseHttpsRedirection();
 app.UseStaticFiles();
 app.Use(async (context, next) =>
 {
     context.Response.Headers["X-Content-Type-Options"] = "nosniff";
     context.Response.Headers["X-Frame-Options"] = "DENY";
-    context.Response.Headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';";
+    context.Response.Headers["Content-Security-Policy"] = "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' https: wss:; font-src 'self' data:; manifest-src 'self';";
     context.Response.Headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains";
+    context.Response.Headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
+    context.Response.Headers["Permissions-Policy"] = "geolocation=(self), camera=(), microphone=()";
     await next();
 });
 app.UseMiddleware<RateLimitingMiddleware>();
@@ -229,10 +307,16 @@ app.UseSerilogRequestLogging();
 
 app.MapControllers();
 app.MapHub<SOSAlertHub>("/hubs/sos-alerts");
-app.MapHangfireDashboard("/hangfire", new Hangfire.DashboardOptions
+app.MapHub<DirectMessageHub>("/hubs/direct-messages");
+app.MapHub<NotificationHub>("/hubs/notifications");
+app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }));
+if (hangfireEnabled)
 {
-    Authorization = Array.Empty<Hangfire.Dashboard.IDashboardAuthorizationFilter>()
-}).RequireAuthorization("RequireAdmin");
+    app.MapHangfireDashboard("/hangfire", new Hangfire.DashboardOptions
+    {
+        Authorization = Array.Empty<Hangfire.Dashboard.IDashboardAuthorizationFilter>()
+    }).RequireAuthorization("RequireAdmin");
+}
 
 app.Run();
 
@@ -286,5 +370,228 @@ static void FreeDevelopmentPort(int port)
     catch (Exception ex)
     {
         Log.Warning(ex, "Could not auto-free port {Port}", port);
+    }
+}
+
+static string BuildHangfireConnectionString(IConfiguration configuration, string defaultConnectionString)
+{
+    var configuredConnectionString = configuration.GetConnectionString("HangfireConnection");
+    var builder = new Npgsql.NpgsqlConnectionStringBuilder(
+        string.IsNullOrWhiteSpace(configuredConnectionString) ? defaultConnectionString : configuredConnectionString)
+    {
+        Pooling = false,
+        Enlist = false,
+        NoResetOnClose = false
+    };
+
+    var host = builder.Host ?? string.Empty;
+
+    if (host.EndsWith(".pooler.supabase.com", StringComparison.OrdinalIgnoreCase))
+    {
+        Log.Warning("Hangfire is using a Supabase pooler connection. Configure ConnectionStrings:HangfireConnection with a direct database host if startup installation still fails.");
+    }
+
+    return builder.ConnectionString;
+}
+
+static ForwardedHeadersOptions BuildForwardedHeadersOptions(IConfiguration configuration)
+{
+    var options = new ForwardedHeadersOptions
+    {
+        ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto,
+        ForwardLimit = configuration.GetValue<int?>("ReverseProxy:ForwardLimit") ?? 2,
+    };
+
+    var knownProxies = configuration.GetSection("ReverseProxy:KnownProxies").Get<string[]>() ?? [];
+    var knownNetworks = configuration.GetSection("ReverseProxy:KnownNetworks").Get<string[]>() ?? [];
+
+    // Always clear defaults — the default KnownProxies only trusts 127.0.0.1,
+    // which breaks X-Forwarded-Proto on Azure where the load balancer isn't localhost.
+    options.KnownProxies.Clear();
+    options.KnownIPNetworks.Clear();
+
+    if (knownProxies.Length == 0 && knownNetworks.Length == 0)
+        return options;
+
+    foreach (var proxy in knownProxies)
+    {
+        if (IPAddress.TryParse(proxy, out var ipAddress))
+            options.KnownProxies.Add(ipAddress);
+        else
+            Log.Warning("Ignoring invalid ReverseProxy:KnownProxies entry {Proxy}", proxy);
+    }
+
+    foreach (var network in knownNetworks)
+    {
+        if (TryParseIpNetwork(network, out var ipNetwork))
+            options.KnownIPNetworks.Add(ipNetwork);
+        else
+            Log.Warning("Ignoring invalid ReverseProxy:KnownNetworks entry {Network}", network);
+    }
+
+    return options;
+}
+
+static string BuildAppConnectionString(string connectionString)
+{
+    var builder = new Npgsql.NpgsqlConnectionStringBuilder(connectionString);
+
+    if (IsSupabasePoolerConnection(connectionString))
+    {
+        // Npgsql local pooling stays ENABLED (default) — reuses TCP connections locally.
+        // PgBouncer handles server-side pooling; Npgsql pooling on top is fine and critical for performance.
+        builder.Enlist = false;          // No distributed transactions (PgBouncer incompatible)
+        builder.NoResetOnClose = true;   // Skip DISCARD ALL — PgBouncer handles session cleanup
+    }
+
+    return builder.ConnectionString;
+}
+
+static bool IsSupabasePoolerConnection(string connectionString)
+{
+    var builder = new Npgsql.NpgsqlConnectionStringBuilder(connectionString);
+    var host = builder.Host ?? string.Empty;
+    return host.EndsWith(".pooler.supabase.com", StringComparison.OrdinalIgnoreCase);
+}
+
+static bool ShouldEnableHangfire(string connectionString)
+{
+    return !IsSupabasePoolerConnection(connectionString);
+}
+
+static bool TryParseIpNetwork(string value, out System.Net.IPNetwork ipNetwork)
+{
+    ipNetwork = default;
+
+    var parts = value.Split('/', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+    if (parts.Length != 2)
+        return false;
+
+    if (!IPAddress.TryParse(parts[0], out var prefix) || !int.TryParse(parts[1], out var prefixLength))
+        return false;
+
+    ipNetwork = new System.Net.IPNetwork(prefix, prefixLength);
+    return true;
+}
+
+static async Task SeedDevelopmentAdminAsync(WebApplication app)
+{
+    if (!app.Configuration.GetValue("DevelopmentAdmin:Enabled", true))
+    {
+        Log.Information("Development admin seeding is disabled by configuration.");
+        return;
+    }
+
+    using var scope = app.Services.CreateScope();
+    var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+    var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("DevelopmentAdminSeed");
+
+    var email = app.Configuration["DevelopmentAdmin:Email"] ?? "admin_test@reliefconnect.vn";
+    var userName = app.Configuration["DevelopmentAdmin:Username"] ?? "admin_test";
+    var password = app.Configuration["DevelopmentAdmin:Password"] ?? "Admin@123";
+    var fullName = app.Configuration["DevelopmentAdmin:FullName"] ?? "Development Admin";
+
+    try
+    {
+        var user = await userManager.FindByEmailAsync(email) ?? await userManager.FindByNameAsync(userName);
+        var created = false;
+
+        if (user == null)
+        {
+            user = new ApplicationUser
+            {
+                UserName = userName,
+                Email = email,
+                FullName = fullName,
+                Role = RoleEnum.Admin,
+                VerificationStatus = VerificationStatus.Approved,
+                EmailConfirmed = true,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            var createResult = await userManager.CreateAsync(user, password);
+            if (!createResult.Succeeded)
+            {
+                logger.LogWarning("Could not create development admin account {Email}: {Errors}", email, string.Join("; ", createResult.Errors.Select(e => e.Description)));
+                return;
+            }
+
+            created = true;
+        }
+
+        var needsUpdate = false;
+
+        if (!string.Equals(user.UserName, userName, StringComparison.Ordinal))
+        {
+            user.UserName = userName;
+            needsUpdate = true;
+        }
+
+        if (!string.Equals(user.Email, email, StringComparison.OrdinalIgnoreCase))
+        {
+            user.Email = email;
+            needsUpdate = true;
+        }
+
+        if (!string.Equals(user.FullName, fullName, StringComparison.Ordinal))
+        {
+            user.FullName = fullName;
+            needsUpdate = true;
+        }
+
+        if (!user.EmailConfirmed)
+        {
+            user.EmailConfirmed = true;
+            needsUpdate = true;
+        }
+
+        if (user.Role != RoleEnum.Admin)
+        {
+            user.Role = RoleEnum.Admin;
+            needsUpdate = true;
+        }
+
+        if (user.VerificationStatus != VerificationStatus.Approved)
+        {
+            user.VerificationStatus = VerificationStatus.Approved;
+            needsUpdate = true;
+        }
+
+        if (needsUpdate)
+        {
+            var updateResult = await userManager.UpdateAsync(user);
+            if (!updateResult.Succeeded)
+            {
+                logger.LogWarning("Could not update development admin account {Email}: {Errors}", email, string.Join("; ", updateResult.Errors.Select(e => e.Description)));
+                return;
+            }
+        }
+
+        if (!await userManager.CheckPasswordAsync(user, password))
+        {
+            IdentityResult passwordResult;
+
+            if (await userManager.HasPasswordAsync(user))
+            {
+                var resetToken = await userManager.GeneratePasswordResetTokenAsync(user);
+                passwordResult = await userManager.ResetPasswordAsync(user, resetToken, password);
+            }
+            else
+            {
+                passwordResult = await userManager.AddPasswordAsync(user, password);
+            }
+
+            if (!passwordResult.Succeeded)
+            {
+                logger.LogWarning("Could not normalize password for development admin account {Email}: {Errors}", email, string.Join("; ", passwordResult.Errors.Select(e => e.Description)));
+                return;
+            }
+        }
+
+        logger.LogInformation("Development admin account ready: {Email} (created: {Created})", email, created);
+    }
+    catch (Exception ex)
+    {
+        logger.LogWarning(ex, "Failed to seed development admin account {Email}", email);
     }
 }

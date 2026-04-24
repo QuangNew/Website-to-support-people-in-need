@@ -129,12 +129,13 @@ npx playwright show-report
 
 ### Authentication Flow
 - JWT tokens issued by `AuthController`
-- Tokens stored in localStorage on frontend
-- Axios interceptor adds `Authorization: Bearer <token>` header
-- SignalR connections accept token via query string (`?access_token=...`)
+- Login/register/Google auth now set an `auth_token` HttpOnly cookie; logout clears the cookie and blacklists the token server-side
+- Frontend uses `withCredentials` requests and reloads session state from `/api/auth/me` instead of persisting bearer tokens in localStorage
+- SignalR hubs authenticate through the auth cookie, so the client no longer injects `?access_token=...` for notification/direct-message connections
 
 ### Real-time Features
 - SignalR hub at `/hubs/sos-alerts`
+- SignalR hubs at `/hubs/direct-messages` and `/hubs/notifications` push unread counters in real time
 - Frontend connects via `@microsoft/signalr`
 - Broadcasts new SOS requests to connected clients
 
@@ -142,6 +143,15 @@ npx playwright show-report
 - Leaflet with marker clustering (`leaflet.markercluster`)
 - PostGIS for geospatial queries in PostgreSQL
 - Coordinates stored as `Point` geometry type
+- SOS creation now snapshots required contact name and phone, plus an optional condition image URL
+- Ping detail responses redact phone and email for unauthenticated viewers, logged-in guests, and `PersonInNeed`
+- OSRM routing with up to 2 alternative routes (click-to-select)
+
+### Chatbot (Gemini AI)
+- Google Gemini 2.5 Flash via `generativelanguage.googleapis.com`
+- Multimodal: supports image upload (JPEG/PNG/WebP, max 4 MB)
+- 24-hour localStorage cache with expired-image placeholder UI
+- Image MIME type validated via RegularExpression on DTO + base64 decoded & size-checked in controller
 
 ## Performance Optimizations
 
@@ -187,35 +197,77 @@ npx playwright show-report
 - `ConnectionStrings:DefaultConnection`: PostgreSQL connection string
 - `Jwt:Key`, `Jwt:Issuer`, `Jwt:Audience`: JWT configuration (use 256-bit key minimum)
 - `Frontend:Urls`: CORS allowed origins
+- `ReverseProxy:KnownProxies`, `ReverseProxy:KnownNetworks`, `ReverseProxy:ForwardLimit`: trusted proxy boundaries for forwarded headers and IP-based rate limiting
 - `Smtp:*`: Email service configuration
 - `Gemini:ApiKey`: Google Gemini API key for chatbot
 - `Gemini:Model`: Gemini model (use "gemini-2.5-flash" , "gemini-3-flash")
 
-**Security Note:** Never commit `appsettings.Development.json` with real credentials. Use environment variables or `dotnet user-secrets` for sensitive data.
+**Security Note:** `appsettings.json` contains only placeholder values. Use `appsettings.Development.json` (gitignored) for local dev secrets. In production, use Azure App Settings or environment variables.
 
 ### Frontend (`client/vite.config.ts`)
 - Default Vite configuration with React plugin
+
+## Deployment (Azure)
+
+### Architecture
+- **Backend**: Azure App Service (Linux) — ASP.NET Core 10.0
+- **Frontend**: Azure Static Web Apps — React SPA with `staticwebapp.config.json`
+- **Database**: Supabase PostgreSQL (external)
+- **Storage**: Supabase Storage (avatars + post images)
+
+### Required Azure App Settings (Environment Variables)
+```
+ConnectionStrings__DefaultConnection=Host=...;Port=5432;Database=postgres;...
+Jwt__Key=<256-bit-minimum-secret>
+Google__ClientId=<google-oauth-client-id>
+Smtp__User=<email>
+Smtp__Password=<app-password>
+Gemini__ApiKey=<gemini-api-key>
+Frontend__Urls__0=https://<your-static-web-app>.azurestaticapps.net
+ReverseProxy__KnownProxies__0=<trusted-proxy-ip>
+ReverseProxy__KnownNetworks__0=<trusted-proxy-cidr>
+```
+
+### Health Check
+- `GET /health` — returns `{ status: "healthy", timestamp: "..." }`
+
+### Background Services
+- `TokenCleanupService`: Cleans expired blacklisted tokens every hour
+- `PingFlagMonitorService`: Monitors SOS ping flags
+- `SoftDeleteCleanupService`: Hard-deletes soft-deleted content after retention period
+- Hangfire: PostgreSQL-backed job storage (survives restarts)
 
 ## Testing
 - **Unit Tests**: `src/ReliefConnect.Tests` - Run with `dotnet test`
 - **E2E Tests**: Playwright suite with 22 tests covering auth, map, SOS, social, chatbot flows
 - **Test Status**: 12 UI tests passing (as of 2026-03-17)
 
-## Security Improvements (Updated 2026-03-17)
+## Security Improvements (Updated 2026-04-21)
 
 **Fixed Vulnerabilities:**
 1. ✅ **Token Blacklist** - Implemented logout endpoint that invalidates JWT tokens
 2. ✅ **JWT Secret Validation** - Rejects keys shorter than 256 bits on startup
-3. ✅ **Rate Limiting** - 5 login attempts per 15 minutes on auth endpoints
-4. ✅ **API Key Security** - Gemini API key moved from query string to header
-5. ✅ **XSS Prevention** - HtmlSanitizer for posts and comments
-6. ✅ **Timing Attack Prevention** - Using CryptographicOperations.FixedTimeEquals()
+3. ✅ **Distributed Rate Limiting** - Auth/upload/chatbot throttles now use PostgreSQL-backed counters, so limits hold across multiple app instances
+4. ✅ **Trusted Proxy Handling** - Forwarded headers are only honored from configured proxies/networks before IP-based abuse checks run
+5. ✅ **Auth Token Storage** - Frontend moved from localStorage bearer tokens to an HttpOnly auth cookie flow
+6. ✅ **CSP Hardening** - Removed inline script execution and tightened browser isolation directives
+7. ✅ **API Key Security** - Gemini API key moved from query string to header
+8. ✅ **XSS Prevention** - HtmlSanitizer for posts and comments
+9. ✅ **Timing Attack Prevention** - Using CryptographicOperations.FixedTimeEquals()
+10. ✅ **Image Upload Validation** - MIME type regex whitelist on DTO, base64 decode + 4MB binary size check in controller
+11. ✅ **Image Consistency Check** - ImageBase64 and ImageMimeType must both be present or both absent
+12. ✅ **Secrets Sanitized** - All secrets removed from appsettings.json, use env vars or appsettings.Development.json for local dev
+13. ✅ **Token Blacklist Persistent** - Moved from in-memory ConcurrentDictionary to PostgreSQL (BlacklistedTokens table)
+14. ✅ **Hangfire PostgreSQL** - Replaced MemoryStorage with PostgreSql storage (survives restarts)
+15. ✅ **Startup Validation** - ConnectionString and JWT key validated at startup (fail-fast)
 
-**Security Score:** 8.5/10 (improved from 7.5/10)
+**Security Score:** 9/10
 
 **Remaining Concerns:**
-- JWT in localStorage (vulnerable to XSS) - consider httpOnly cookies
 - No token rotation mechanism
+- Trusted proxy allowlists must be configured in production, or IP-based limits will collapse to the last proxy hop
+- OSRM routing sends coordinates to public server (consider backend proxy for privacy)
+- Chatbot image cache in localStorage (no encryption)
 - See `docs/SECURITY_AUDIT_REPORT.md` for full details
 
 ## Adding New Features
@@ -241,7 +293,7 @@ npx playwright show-report
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **Website-to-support-people-in-need** (913 symbols, 2216 relationships, 10 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **Website-to-support-people-in-need** (1587 symbols, 4252 relationships, 46 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 

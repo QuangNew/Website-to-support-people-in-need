@@ -24,6 +24,16 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<Tag> Tags => Set<Tag>();
     public DbSet<Notification> Notifications => Set<Notification>();
     public DbSet<SystemLog> SystemLogs => Set<SystemLog>();
+    public DbSet<Report> Reports => Set<Report>();
+    public DbSet<HelpOffer> HelpOffers => Set<HelpOffer>();
+    public DbSet<SystemAnnouncement> SystemAnnouncements => Set<SystemAnnouncement>();
+    public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
+    public DbSet<BlacklistedToken> BlacklistedTokens => Set<BlacklistedToken>();
+    public DbSet<ContentViolation> ContentViolations => Set<ContentViolation>();
+    public DbSet<VerificationHistory> VerificationHistories => Set<VerificationHistory>();
+    public DbSet<DirectConversation> DirectConversations => Set<DirectConversation>();
+    public DbSet<DirectMessage> DirectMessages => Set<DirectMessage>();
+    public DbSet<DonationRecord> DonationRecords => Set<DonationRecord>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -43,6 +53,27 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             entity.HasIndex(u => u.Role);
         });
 
+        // ═══════ VERIFICATION HISTORY ═══════
+        builder.Entity<VerificationHistory>(entity =>
+        {
+            entity.HasKey(v => v.Id);
+            entity.Property(v => v.RequestedRole).HasMaxLength(50).IsRequired();
+            entity.Property(v => v.VerificationReason).HasMaxLength(1000);
+            entity.Property(v => v.VerificationImageUrls).HasMaxLength(3000);
+            entity.Property(v => v.PhoneNumber).HasMaxLength(32);
+            entity.Property(v => v.Address).HasMaxLength(500);
+            entity.Property(v => v.ReviewedByAdminName).HasMaxLength(100);
+            entity.Property(v => v.Status).HasConversion<int>();
+
+            entity.HasIndex(v => new { v.UserId, v.SubmittedAt }).IsDescending();
+            entity.HasIndex(v => new { v.UserId, v.Status });
+
+            entity.HasOne(v => v.User)
+                  .WithMany(u => u.VerificationHistories)
+                  .HasForeignKey(v => v.UserId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
         // ═══════ PING (Map Item) ═══════
         builder.Entity<Ping>(entity =>
         {
@@ -50,6 +81,10 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             entity.Property(p => p.Type).HasConversion<int>();
             entity.Property(p => p.Status).HasConversion<int>();
             entity.Property(p => p.Details).HasMaxLength(2000);
+            entity.Property(p => p.ContactName).HasMaxLength(200);
+            entity.Property(p => p.ContactPhone).HasMaxLength(32);
+            entity.Property(p => p.ConditionImageUrl).HasMaxLength(500);
+            entity.Property(p => p.SOSCategory).HasConversion<int?>();
 
             // B-tree index on coordinates (for equality queries)
             entity.HasIndex(p => new { p.CoordinatesLat, p.CoordinatesLong });
@@ -124,6 +159,11 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
 
             entity.HasIndex(p => p.CreatedAt).IsDescending();
             entity.HasIndex(p => p.AuthorId);
+            entity.HasIndex(p => p.Category);
+            entity.HasIndex(p => new { p.CreatedAt, p.Id }).IsDescending();
+            // Soft-delete: index for restore queries
+            entity.HasIndex(p => p.IsDeleted);
+            entity.HasIndex(p => p.DeletedAt);
 
             entity.HasOne(p => p.Author)
                   .WithMany(u => u.Posts)
@@ -141,9 +181,14 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
         {
             entity.HasKey(c => c.Id);
             entity.Property(c => c.Content).HasMaxLength(2000).IsRequired();
+            entity.Property(c => c.HiddenReason).HasMaxLength(500);
 
             entity.HasIndex(c => c.PostId);
             entity.HasIndex(c => c.UserId);
+            // Soft-delete: index for hidden comment cleanup
+            entity.HasIndex(c => c.IsHidden);
+            entity.HasIndex(c => c.HiddenAt);
+            entity.HasIndex(c => c.HiddenUntil);
             // Index for chronological ordering (newest comments first)
             entity.HasIndex(c => c.CreatedAt).IsDescending();
 
@@ -215,6 +260,8 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             entity.Property(n => n.MessageText).HasMaxLength(500).IsRequired();
 
             entity.HasIndex(n => new { n.UserId, n.IsRead });
+            // Index for chronological pagination (newest first)
+            entity.HasIndex(n => n.CreatedAt).IsDescending();
 
             entity.HasOne(n => n.User)
                   .WithMany(u => u.Notifications)
@@ -232,6 +279,222 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
 
             entity.HasIndex(l => l.CreatedAt).IsDescending();
             entity.HasIndex(l => l.Action);
+
+            // Self-referencing parent-child for batch log hierarchy
+            entity.HasOne(l => l.ParentLog)
+                  .WithMany(l => l.ChildLogs)
+                  .HasForeignKey(l => l.ParentLogId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(l => l.BatchId);
+            entity.HasIndex(l => l.ParentLogId);
+        });
+
+        // ═══════ REPORT ═══════
+        builder.Entity<Report>(entity =>
+        {
+            entity.HasKey(r => r.Id);
+            entity.Property(r => r.Reason).HasMaxLength(500).IsRequired();
+            entity.Property(r => r.Status).HasConversion<int>();
+
+            entity.HasIndex(r => r.Status);
+            entity.HasIndex(r => r.PostId);
+            entity.HasIndex(r => r.ReporterId);
+
+            entity.HasOne(r => r.Post)
+                  .WithMany()
+                  .HasForeignKey(r => r.PostId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(r => r.Reporter)
+                  .WithMany()
+                  .HasForeignKey(r => r.ReporterId)
+                  .OnDelete(DeleteBehavior.NoAction);
+        });
+
+        // ═══════ HELP OFFER ═══════
+        builder.Entity<HelpOffer>(entity =>
+        {
+            entity.HasKey(h => h.Id);
+            entity.Property(h => h.Message).HasMaxLength(1000).IsRequired();
+            entity.Property(h => h.Status).HasConversion<int>();
+
+            entity.HasIndex(h => h.SponsorId);
+            entity.HasIndex(h => h.TargetUserId);
+            entity.HasIndex(h => h.Status);
+
+            entity.HasOne(h => h.Sponsor)
+                  .WithMany()
+                  .HasForeignKey(h => h.SponsorId)
+                  .OnDelete(DeleteBehavior.NoAction);
+
+            entity.HasOne(h => h.TargetUser)
+                  .WithMany()
+                  .HasForeignKey(h => h.TargetUserId)
+                  .OnDelete(DeleteBehavior.NoAction);
+
+            entity.HasOne(h => h.Ping)
+                  .WithMany()
+                  .HasForeignKey(h => h.PingId)
+                  .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne(h => h.Post)
+                  .WithMany()
+                  .HasForeignKey(h => h.PostId)
+                  .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // ═══════ SYSTEM ANNOUNCEMENT ═══════
+        builder.Entity<SystemAnnouncement>(entity =>
+        {
+            entity.HasKey(a => a.Id);
+            entity.Property(a => a.Title).HasMaxLength(200).IsRequired();
+            entity.Property(a => a.Content).HasMaxLength(5000).IsRequired();
+
+            entity.HasIndex(a => a.ExpiresAt);
+            entity.HasIndex(a => a.AdminId);
+
+            entity.HasOne(a => a.Admin)
+                  .WithMany()
+                  .HasForeignKey(a => a.AdminId)
+                  .OnDelete(DeleteBehavior.NoAction);
+        });
+
+        // ═══════ PING (AssignedVolunteer FK extension) ═══════
+        builder.Entity<Ping>(entity =>
+        {
+            entity.HasOne(p => p.AssignedVolunteer)
+                  .WithMany()
+                  .HasForeignKey(p => p.AssignedVolunteerId)
+                  .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasIndex(p => p.AssignedVolunteerId);
+        });
+
+        // ═══════ API KEY ═══════
+        builder.Entity<ApiKey>(entity =>
+        {
+            entity.HasKey(k => k.Id);
+            entity.Property(k => k.Provider).HasConversion<string>().HasMaxLength(20);
+            entity.Property(k => k.Label).HasMaxLength(100);
+            entity.Property(k => k.Model).HasMaxLength(100);
+        });
+
+        // ═══════ APPLICATION USER (Suspension index) ═══════
+        builder.Entity<ApplicationUser>(entity =>
+        {
+            entity.HasIndex(u => u.IsSuspended);
+        });
+
+        // ═══════ BLACKLISTED TOKEN ═══════
+        builder.Entity<BlacklistedToken>(entity =>
+        {
+            entity.HasIndex(t => t.Jti).IsUnique();
+            entity.HasIndex(t => t.Expiry);
+        });
+
+        // ═══════ CONTENT VIOLATION ═══════
+        builder.Entity<ContentViolation>(entity =>
+        {
+            entity.HasKey(v => v.Id);
+            entity.Property(v => v.Content).HasMaxLength(2000);
+            entity.Property(v => v.Reason).HasMaxLength(200);
+            entity.HasIndex(v => v.UserId);
+            entity.HasIndex(v => v.CreatedAt).IsDescending();
+
+            entity.HasOne(v => v.User)
+                  .WithMany()
+                  .HasForeignKey(v => v.UserId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(v => v.Comment)
+                  .WithMany()
+                  .HasForeignKey(v => v.CommentId)
+                  .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // ═══════ APPLICATION USER (Social links) ═══════
+        builder.Entity<ApplicationUser>(entity =>
+        {
+            entity.Property(u => u.FacebookUrl).HasMaxLength(500);
+            entity.Property(u => u.TelegramUrl).HasMaxLength(200);
+        });
+
+        // ═══════ DIRECT CONVERSATION ═══════
+        builder.Entity<DirectConversation>(entity =>
+        {
+            entity.HasKey(c => c.Id);
+
+            // Normalized unique pair: User1Id < User2Id
+            entity.HasIndex(c => new { c.User1Id, c.User2Id }).IsUnique();
+            entity.HasIndex(c => c.User1Id);
+            entity.HasIndex(c => c.User2Id);
+            entity.HasIndex(c => c.LastMessageAt).IsDescending();
+
+            entity.ToTable(t =>
+            {
+                t.HasCheckConstraint("CK_DirectConversation_NoSelf", "\"User1Id\" <> \"User2Id\"");
+                t.HasCheckConstraint("CK_DirectConversation_UserOrder", "\"User1Id\" < \"User2Id\"");
+            });
+
+            entity.HasOne(c => c.User1)
+                  .WithMany(u => u.DirectConversationsAsUser1)
+                  .HasForeignKey(c => c.User1Id)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(c => c.User2)
+                  .WithMany(u => u.DirectConversationsAsUser2)
+                  .HasForeignKey(c => c.User2Id)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ═══════ DIRECT MESSAGE ═══════
+        builder.Entity<DirectMessage>(entity =>
+        {
+            entity.HasKey(m => m.Id);
+            entity.Property(m => m.Content).HasMaxLength(2000).IsRequired();
+
+            entity.HasIndex(m => new { m.ConversationId, m.SentAt }).IsDescending();
+            entity.HasIndex(m => m.SenderId);
+            entity.HasIndex(m => new { m.ConversationId, m.IsRead })
+                  .HasFilter("\"IsRead\" = false");
+            entity.HasIndex(m => m.SentAt)
+                  .HasFilter("\"DeletedAt\" IS NULL");
+
+            entity.ToTable(t =>
+            {
+                t.HasCheckConstraint("CK_DirectMessage_Content_NotBlank", "char_length(btrim(\"Content\")) > 0");
+                t.HasCheckConstraint("CK_DirectMessage_Content_MaxLen", "char_length(\"Content\") <= 2000");
+            });
+
+            entity.HasOne(m => m.Conversation)
+                  .WithMany(c => c.Messages)
+                  .HasForeignKey(m => m.ConversationId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(m => m.Sender)
+                  .WithMany()
+                  .HasForeignKey(m => m.SenderId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ═══════ DONATION ═══════
+        builder.Entity<DonationRecord>(entity =>
+        {
+            entity.HasKey(d => d.Id);
+            entity.HasIndex(d => d.OrderCode).IsUnique();
+            entity.HasIndex(d => d.Status);
+            entity.HasIndex(d => d.PaidAt);
+            entity.Property(d => d.DisplayName).HasMaxLength(200).IsRequired();
+            entity.Property(d => d.MaskedPhone).HasMaxLength(20);
+            entity.Property(d => d.Message).HasMaxLength(200);
+            entity.Property(d => d.PaymentLinkId).HasMaxLength(100);
+            entity.Property(d => d.Status).HasConversion<int>();
+
+            entity.HasOne(d => d.User)
+                  .WithMany()
+                  .HasForeignKey(d => d.UserId)
+                  .OnDelete(DeleteBehavior.SetNull);
         });
     }
 }

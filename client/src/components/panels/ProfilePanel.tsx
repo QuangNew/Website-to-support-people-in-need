@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import {
   Mail,
   Shield,
@@ -7,10 +7,17 @@ import {
   User,
   Save,
   X,
+  Camera,
+  Loader2,
+  Phone,
+  Facebook,
+  Send,
 } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
 import { useLanguage } from '../../contexts/LanguageContext';
-import { authApi } from '../../services/api';
+import { authApi, getImageUrl } from '../../services/api';
+import toast from 'react-hot-toast';
+import { deleteFromStorage } from '../../services/supabase';
 
 const VERIFICATION_CONFIG: Record<string, { color: string; labelVi: string; labelEn: string }> = {
   Verified: { color: 'var(--success-500)', labelVi: 'Đã xác minh', labelEn: 'Verified' },
@@ -26,8 +33,13 @@ export default function ProfilePanel() {
   // Edit profile state
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState('');
+  const [editPhone, setEditPhone] = useState('');
+  const [editFacebook, setEditFacebook] = useState('');
+  const [editTelegram, setEditTelegram] = useState('');
   const [editLoading, setEditLoading] = useState(false);
   const [editError, setEditError] = useState('');
+  const [avatarLoading, setAvatarLoading] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
 
   if (!user) return null;
 
@@ -37,6 +49,9 @@ export default function ProfilePanel() {
   // ─── Edit Profile ───
   const startEdit = () => {
     setEditName(user.fullName);
+    setEditPhone(user.phoneNumber || '');
+    setEditFacebook(user.facebookUrl || '');
+    setEditTelegram(user.telegramUrl || '');
     setIsEditing(true);
     setEditError('');
   };
@@ -51,14 +66,56 @@ export default function ProfilePanel() {
     setEditLoading(true);
     setEditError('');
     try {
-      const res = await authApi.updateProfile({ fullName: editName.trim() });
+      const payload: Record<string, string> = { fullName: editName.trim() };
+      // Only send changed fields
+      if (editPhone !== (user.phoneNumber || '')) payload.phoneNumber = editPhone.trim();
+      if (editFacebook !== (user.facebookUrl || '')) payload.facebookUrl = editFacebook.trim();
+      if (editTelegram !== (user.telegramUrl || '')) payload.telegramUrl = editTelegram.trim();
+      const res = await authApi.updateProfile(payload);
       setUser(res.data);
       setIsEditing(false);
+      toast.success(t('profile.saved'));
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { message?: string } } };
-      setEditError(axiosErr?.response?.data?.message || (isVi ? 'Cập nhật thất bại' : 'Update failed'));
+      setEditError(axiosErr?.response?.data?.message || t('profile.saveFailed'));
     } finally {
       setEditLoading(false);
+    }
+  };
+
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const allowed = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!allowed.includes(file.type)) {
+      toast.error(isVi ? 'Chỉ hỗ trợ JPEG, PNG, WebP' : 'Only JPEG, PNG, WebP supported');
+      return;
+    }
+    if (file.size > 1024 * 1024) {
+      toast.error(isVi ? 'Ảnh tối đa 1MB' : 'Image max 1MB');
+      return;
+    }
+
+    setAvatarLoading(true);
+    try {
+      const oldAvatarUrl = user.avatarUrl;
+      const url = await authApi.uploadAvatar(file);
+      if (!url) {
+        toast.error(isVi ? 'Tải ảnh lên thất bại' : 'Upload failed');
+        return;
+      }
+      const res = await authApi.updateProfile({ avatarUrl: url });
+      setUser(res.data);
+      // Delete old avatar to free storage (best-effort)
+      if (oldAvatarUrl && oldAvatarUrl !== url) {
+        deleteFromStorage('avatars', oldAvatarUrl);
+      }
+      toast.success(isVi ? 'Đã cập nhật ảnh đại diện' : 'Avatar updated');
+    } catch {
+      toast.error(isVi ? 'Cập nhật ảnh thất bại' : 'Avatar update failed');
+    } finally {
+      setAvatarLoading(false);
+      if (avatarInputRef.current) avatarInputRef.current.value = '';
     }
   };
 
@@ -71,12 +128,26 @@ export default function ProfilePanel() {
       {/* Profile card */}
       <div className="profile-card glass-card">
         <div className="profile-avatar-section">
-          <div className="avatar avatar-lg">
-            {user.avatarUrl ? (
-              <img src={user.avatarUrl} alt={user.fullName} />
+          <div className="avatar avatar-lg profile-avatar-clickable" onClick={() => !avatarLoading && avatarInputRef.current?.click()}>
+            {avatarLoading ? (
+              <Loader2 size={24} className="animate-spin" />
+            ) : user.avatarUrl ? (
+              <img src={getImageUrl(user.avatarUrl)} alt={user.fullName} />
             ) : (
               <User size={32} />
             )}
+            {!avatarLoading && (
+              <div className="profile-avatar-overlay">
+                <Camera size={16} color="white" />
+              </div>
+            )}
+            <input
+              ref={avatarInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              style={{ display: 'none' }}
+              onChange={handleAvatarChange}
+            />
           </div>
           <div className="profile-name-section">
             {isEditing ? (
@@ -115,6 +186,65 @@ export default function ProfilePanel() {
             <div>
               <span className="profile-info-label">{t('profile.email')}</span>
               <span className="profile-info-value">{user.email}</span>
+            </div>
+          </div>
+
+          <div className="profile-info-item">
+            <Phone size={16} />
+            <div>
+              <span className="profile-info-label">{t('profile.phoneNumber')}</span>
+              {isEditing ? (
+                <input
+                  className="input input-sm"
+                  value={editPhone}
+                  onChange={(e) => setEditPhone(e.target.value)}
+                  placeholder={t('profile.phonePlaceholder')}
+                />
+              ) : (
+                <span className="profile-info-value">{user.phoneNumber || '—'}</span>
+              )}
+            </div>
+          </div>
+
+          <div className="profile-info-item">
+            <Facebook size={16} />
+            <div>
+              <span className="profile-info-label">{t('profile.facebookUrl')}</span>
+              {isEditing ? (
+                <input
+                  className="input input-sm"
+                  value={editFacebook}
+                  onChange={(e) => setEditFacebook(e.target.value)}
+                  placeholder={t('profile.facebookPlaceholder')}
+                />
+              ) : (
+                user.facebookUrl ? (
+                  <a href={user.facebookUrl} target="_blank" rel="noopener noreferrer" className="profile-info-value profile-info-link">{user.facebookUrl}</a>
+                ) : (
+                  <span className="profile-info-value">—</span>
+                )
+              )}
+            </div>
+          </div>
+
+          <div className="profile-info-item">
+            <Send size={16} />
+            <div>
+              <span className="profile-info-label">{t('profile.telegramUrl')}</span>
+              {isEditing ? (
+                <input
+                  className="input input-sm"
+                  value={editTelegram}
+                  onChange={(e) => setEditTelegram(e.target.value)}
+                  placeholder={t('profile.telegramPlaceholder')}
+                />
+              ) : (
+                user.telegramUrl ? (
+                  <a href={user.telegramUrl.startsWith('http') ? user.telegramUrl : `https://t.me/${user.telegramUrl.replace('@', '')}`} target="_blank" rel="noopener noreferrer" className="profile-info-value profile-info-link">{user.telegramUrl}</a>
+                ) : (
+                  <span className="profile-info-value">—</span>
+                )
+              )}
             </div>
           </div>
 

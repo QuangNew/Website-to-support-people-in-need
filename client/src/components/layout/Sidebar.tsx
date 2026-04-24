@@ -2,6 +2,7 @@ import {
   ClipboardList,
   Users,
   MessageCircle,
+  Mail,
   User,
   Shield,
   UserCheck,
@@ -13,15 +14,21 @@ import {
   ChevronRight,
   Menu,
   BookOpen,
+  Heart,
+  HeartPulse,
+  ClipboardCheck,
+  HandHeart,
   type LucideIcon,
 } from 'lucide-react';
 import { useMapStore, type PanelType } from '../../stores/mapStore';
 import { useAuthStore } from '../../stores/authStore';
+import { useMessageStore } from '../../stores/messageStore';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 
+
 interface NavItem {
-  id: PanelType | 'theme' | 'locale' | 'login' | 'logout' | 'admin' | 'guide';
+  id: PanelType | 'theme' | 'locale' | 'login' | 'logout' | 'admin' | 'guide' | 'donate';
   icon: LucideIcon;
   labelKey: string;
   action?: () => void;
@@ -30,11 +37,12 @@ interface NavItem {
 export default function Sidebar() {
   const { activePanel, setActivePanel, sidebarExpanded, setSidebarExpanded, setAuthModal } = useMapStore();
   const { isAuthenticated, user, logout } = useAuthStore();
+  const { totalUnread } = useMessageStore();
   const { toggleTheme, isDark } = useTheme();
   const { t, locale, toggleLocale } = useLanguage();
 
   const handleNav = (panel: PanelType) => {
-    if ((panel === 'profile' || panel === 'verify') && !isAuthenticated) {
+    if ((panel === 'profile' || panel === 'verify' || panel === 'my-sos' || panel === 'volunteer' || panel === 'sponsor' || panel === 'messages') && !isAuthenticated) {
       setAuthModal('login');
       return;
     }
@@ -47,6 +55,7 @@ export default function Sidebar() {
   const topItems: NavItem[] = [
     { id: 'list', icon: ClipboardList, labelKey: 'sidebar.list' },
     { id: 'social', icon: Users, labelKey: 'sidebar.social' },
+    { id: 'messages', icon: Mail, labelKey: 'sidebar.messages' },
     { id: 'chat', icon: MessageCircle, labelKey: 'sidebar.chat' },
     { id: 'profile', icon: User, labelKey: 'sidebar.profile' },
   ];
@@ -55,7 +64,19 @@ export default function Sidebar() {
   const midBottomItems: NavItem[] = [
     { id: 'verify', icon: UserCheck, labelKey: 'sidebar.verify' },
     { id: 'guide', icon: BookOpen, labelKey: 'sidebar.guide' },
+    { id: 'donate', icon: Heart, labelKey: 'sidebar.donate' },
   ];
+
+  // ─── Role-specific nav items (only for verified users) ───
+  if (isAuthenticated && user?.verificationStatus === 'Approved') {
+    if (user.role === 'PersonInNeed') {
+      midBottomItems.unshift({ id: 'my-sos', icon: HeartPulse, labelKey: 'sidebar.mySos' });
+    } else if (user.role === 'Volunteer') {
+      midBottomItems.unshift({ id: 'volunteer', icon: ClipboardCheck, labelKey: 'sidebar.volunteerTasks' });
+    } else if (user.role === 'Sponsor') {
+      midBottomItems.unshift({ id: 'sponsor', icon: HandHeart, labelKey: 'sidebar.sponsorSupport' });
+    }
+  }
 
   if (isAuthenticated && user?.role === 'Admin') {
     midBottomItems.push({ id: 'admin', icon: Shield, labelKey: 'sidebar.admin' });
@@ -64,11 +85,11 @@ export default function Sidebar() {
   const renderNavButton = (item: NavItem, isActive: boolean = false) => {
     const iconSize = 20;
 
-    if (item.id === 'admin') {
+    if (item.id === 'admin' || item.id === 'donate') {
       return (
         <a
-          key="admin"
-          href="/admin"
+          key={item.id}
+          href={item.id === 'donate' ? '/donate' : '/admin'}
           className="sidebar-nav-item"
           title={!sidebarExpanded ? t(item.labelKey) : undefined}
         >
@@ -79,7 +100,7 @@ export default function Sidebar() {
     }
 
     // Panel items (list, social, chat, profile, verify, guide, admin)
-    if (['list', 'social', 'chat', 'profile', 'verify', 'guide', 'admin'].includes(item.id as string)) {
+    if (['list', 'social', 'chat', 'profile', 'verify', 'guide', 'admin', 'my-sos', 'volunteer', 'sponsor', 'messages'].includes(item.id as string)) {
       const panelId = item.id as PanelType;
       return (
         <button
@@ -87,10 +108,17 @@ export default function Sidebar() {
           className={`sidebar-nav-item ${isActive ? 'active' : ''}`}
           onClick={() => handleNav(panelId)}
           title={!sidebarExpanded ? t(item.labelKey) : undefined}
+          style={{ position: 'relative' }}
         >
           <item.icon size={iconSize} strokeWidth={isActive ? 2.5 : 2} />
           {sidebarExpanded && <span className="sidebar-nav-label">{t(item.labelKey)}</span>}
           {sidebarExpanded && isActive && <ChevronRight size={14} className="sidebar-nav-indicator" />}
+          {item.id === 'messages' && totalUnread > 0 && !sidebarExpanded && (
+            <span className="sidebar-msg-badge">{totalUnread > 99 ? '99+' : totalUnread}</span>
+          )}
+          {item.id === 'messages' && totalUnread > 0 && sidebarExpanded && (
+            <span className="messaging-unread-badge" style={{ marginLeft: 'auto' }}>{totalUnread > 99 ? '99+' : totalUnread}</span>
+          )}
         </button>
       );
     }
@@ -105,7 +133,7 @@ export default function Sidebar() {
         <button className="sidebar-toggle" onClick={toggleSidebar} aria-label="Toggle sidebar">
           <Menu size={20} />
         </button>
-        {sidebarExpanded && <span className="sidebar-brand-text">ReliefConnect</span>}
+        {sidebarExpanded && <span className="sidebar-brand-text">{t('sidebar.brandName')}</span>}
       </div>
 
       {/* ═══ Top: Main navigation ═══ */}
@@ -121,6 +149,8 @@ export default function Sidebar() {
 
       {/* Spacer pushes bottom items down */}
       <div className="sidebar-spacer" />
+
+
 
       {/* ═══ Bottom: Theme, Language, Login/Logout ═══ */}
       <div className="sidebar-bottom">
@@ -152,7 +182,7 @@ export default function Sidebar() {
         {isAuthenticated ? (
           <button
             className="sidebar-nav-item sidebar-nav-danger"
-            onClick={logout}
+            onClick={() => { void logout(); }}
             title={!sidebarExpanded ? t('sidebar.logout') : undefined}
           >
             <LogOut size={20} />

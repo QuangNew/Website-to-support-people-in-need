@@ -2,7 +2,6 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using ReliefConnect.Core.DTOs;
@@ -10,15 +9,17 @@ using ReliefConnect.Core.Entities;
 using ReliefConnect.Core.Enums;
 using ReliefConnect.Core.Interfaces;
 using ReliefConnect.Infrastructure.Data;
+using ReliefConnect.API.Extensions;
 
 namespace ReliefConnect.API.Controllers;
 
 /// <summary>
-/// Admin-only endpoints: user management, verification queue, content moderation, stats, logs.
+/// Admin endpoints: user management and batch operations.
+/// Stats, logs, posts, announcements, reports are in AdminSystemController and AdminModerationController.
 /// All endpoints require the "RequireAdmin" policy.
 /// </summary>
 [ApiController]
-[Route("api/[controller]")]
+[Route("api/admin")]
 [Authorize(Policy = "RequireAdmin")]
 public class AdminController : ControllerBase
 {
@@ -42,6 +43,66 @@ public class AdminController : ControllerBase
         _cache = cache;
     }
 
+    private sealed class CountRow { public string Type { get; set; } = ""; public int Count { get; set; } }
+
+    private static List<string> SplitCsv(string? csv)
+    {
+        return string.IsNullOrWhiteSpace(csv)
+            ? []
+            : csv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+    }
+
+    private static AdminUserDto MapAdminUserDto(ApplicationUser user)
+    {
+        return new AdminUserDto
+        {
+            Id = user.Id,
+            UserName = user.UserName!,
+            Email = user.Email!,
+            FullName = user.FullName,
+            Role = user.Role.ToString(),
+            VerificationStatus = user.VerificationStatus.ToString(),
+            RequestedRole = user.RequestedRole,
+            VerificationReason = user.VerificationReason,
+            EmailVerified = user.EmailConfirmed,
+            AvatarUrl = user.AvatarUrl,
+            PhoneNumber = user.PhoneNumber,
+            Address = user.Address,
+            VerificationImageUrls = SplitCsv(user.VerificationImageUrls),
+            CreatedAt = user.CreatedAt,
+            IsSuspended = user.IsSuspended,
+            SuspendedUntil = user.SuspendedUntil,
+            BanReason = user.BanReason,
+            FacebookUrl = user.FacebookUrl,
+            TelegramUrl = user.TelegramUrl,
+        };
+    }
+
+    private static VerificationHistoryDto MapVerificationHistoryDto(VerificationHistory history)
+    {
+        return new VerificationHistoryDto
+        {
+            Id = history.Id,
+            RequestedRole = history.RequestedRole,
+            VerificationReason = history.VerificationReason,
+            VerificationImageUrls = SplitCsv(history.VerificationImageUrls),
+            PhoneNumber = history.PhoneNumber,
+            Address = history.Address,
+            Status = history.Status.ToString(),
+            SubmittedAt = history.SubmittedAt,
+            ReviewedAt = history.ReviewedAt,
+            ReviewedByAdminName = history.ReviewedByAdminName,
+        };
+    }
+
+    private async Task<VerificationHistory?> GetLatestPendingVerificationHistory(string userId)
+    {
+        return await _db.VerificationHistories
+            .Where(v => v.UserId == userId && v.Status == VerificationStatus.Pending)
+            .OrderByDescending(v => v.SubmittedAt)
+            .FirstOrDefaultAsync();
+    }
+
     // ═══════════════════════════════════════════
     //  USERS — List, search, filter
     // ═══════════════════════════════════════════
@@ -57,6 +118,8 @@ public class AdminController : ControllerBase
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20)
     {
+        if (pageSize > 100) pageSize = 100;
+
         var query = _userManager.Users.AsNoTracking().AsQueryable();
 
         // Search by name, email, or username
@@ -86,30 +149,84 @@ public class AdminController : ControllerBase
             .OrderByDescending(u => u.CreatedAt)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(u => new AdminUserDto
-            {
-                Id = u.Id,
-                UserName = u.UserName!,
-                Email = u.Email!,
-                FullName = u.FullName,
-                Role = u.Role.ToString(),
-                VerificationStatus = u.VerificationStatus.ToString(),
-                RequestedRole = u.RequestedRole,
-                VerificationReason = u.VerificationReason,
-                EmailVerified = u.EmailConfirmed,
-                AvatarUrl = u.AvatarUrl,
-                CreatedAt = u.CreatedAt
-            })
             .ToListAsync();
 
         return Ok(new
         {
-            items = users,
+            items = users.Select(MapAdminUserDto),
             total,
             page,
             pageSize,
             totalPages = (int)Math.Ceiling(total / (double)pageSize)
         });
+    }
+
+    // ═══════════════════════════════════════════
+    //  USERS — Detail
+    // ═══════════════════════════════════════════
+
+    /// <summary>
+    /// Get detailed user info including post, comment, and ping counts.
+    /// </summary>
+    [HttpGet("users/{userId}")]
+    public async Task<ActionResult<AdminUserDetailDto>> GetUserDetail(string userId)
+    {
+        var user = await _userManager.Users
+            .AsNoTracking()
+            .Where(u => u.Id == userId)
+            .FirstOrDefaultAsync();
+
+        if (user == null)
+            return NotFound(new ApiErrorResponse { StatusCode = 404, Message = "Người dùng không tồn tại." });
+
+        var countRows = await _db.Database
+            .SqlQuery<CountRow>($"""
+                SELECT 'post'::text AS "Type", COUNT(*)::int AS "Count" FROM "Posts" WHERE "AuthorId" = {userId}
+                UNION ALL
+                SELECT 'comment', COUNT(*)::int FROM "Comments" WHERE "UserId" = {userId}
+                UNION ALL
+                SELECT 'ping', COUNT(*)::int FROM "Pings" WHERE "UserId" = {userId}
+                """)
+            .ToListAsync();
+        var postCount    = countRows.FirstOrDefault(r => r.Type == "post")?.Count ?? 0;
+        var commentCount = countRows.FirstOrDefault(r => r.Type == "comment")?.Count ?? 0;
+        var pingCount    = countRows.FirstOrDefault(r => r.Type == "ping")?.Count ?? 0;
+
+        var history = await _db.VerificationHistories
+            .AsNoTracking()
+            .Where(v => v.UserId == userId)
+            .OrderByDescending(v => v.SubmittedAt)
+            .ToListAsync();
+
+        var baseDto = MapAdminUserDto(user);
+        var dto = new AdminUserDetailDto
+        {
+            Id = baseDto.Id,
+            UserName = baseDto.UserName,
+            Email = baseDto.Email,
+            FullName = baseDto.FullName,
+            Role = baseDto.Role,
+            VerificationStatus = baseDto.VerificationStatus,
+            RequestedRole = baseDto.RequestedRole,
+            VerificationReason = baseDto.VerificationReason,
+            EmailVerified = baseDto.EmailVerified,
+            AvatarUrl = baseDto.AvatarUrl,
+            PhoneNumber = baseDto.PhoneNumber,
+            Address = baseDto.Address,
+            VerificationImageUrls = baseDto.VerificationImageUrls,
+            CreatedAt = baseDto.CreatedAt,
+            IsSuspended = baseDto.IsSuspended,
+            SuspendedUntil = baseDto.SuspendedUntil,
+            BanReason = baseDto.BanReason,
+            FacebookUrl = baseDto.FacebookUrl,
+            TelegramUrl = baseDto.TelegramUrl,
+            PostCount = postCount,
+            CommentCount = commentCount,
+            PingCount = pingCount,
+            VerificationHistory = history.Select(MapVerificationHistoryDto).ToList(),
+        };
+
+        return Ok(dto);
     }
 
     // ═══════════════════════════════════════════
@@ -133,15 +250,28 @@ public class AdminController : ControllerBase
         user.VerificationStatus = VerificationStatus.Approved;
         user.RequestedRole = null;
         user.VerificationReason = null;
-        await _userManager.UpdateAsync(user);
+        user.VerificationImageUrls = null;
 
-        // Invalidate both stats and verifications caches immediately
+        var pendingHistory = await GetLatestPendingVerificationHistory(userId);
+        if (pendingHistory != null)
+        {
+            pendingHistory.Status = VerificationStatus.Approved;
+            pendingHistory.ReviewedAt = DateTime.UtcNow;
+            pendingHistory.ReviewedByAdminId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            pendingHistory.ReviewedByAdminName = User.FindFirstValue(ClaimTypes.Name);
+        }
+
+        await _userManager.UpdateAsync(user);
+        if (pendingHistory != null)
+        {
+            await _db.SaveChangesAsync();
+        }
+
+        // Invalidate caches immediately
         _cache.Remove("admin:stats");
         _cache.Remove("admin:verifications");
 
-        // Audit log
-        await LogAction("RoleApproved", $"User {user.UserName}: {oldRole} → {newRole}");
-
+        await this.LogAdminAction(_db, "RoleApproved", $"User {user.UserName}: {oldRole} → {newRole}");
         _logger.LogInformation("Admin approved role: {Username} → {Role}", user.UserName, newRole);
 
         return Ok(new { message = $"Đã cập nhật vai trò {user.UserName} thành {newRole}." });
@@ -153,7 +283,6 @@ public class AdminController : ControllerBase
 
     /// <summary>
     /// Get all pending verification requests. Cached 20 seconds.
-    /// Cache is invalidated immediately when a request is approved or rejected.
     /// </summary>
     [HttpGet("verifications")]
     public async Task<ActionResult> GetPendingVerifications([FromServices] IMemoryCache cache)
@@ -166,24 +295,12 @@ public class AdminController : ControllerBase
             .AsNoTracking()
             .Where(u => u.VerificationStatus == VerificationStatus.Pending)
             .OrderBy(u => u.CreatedAt)
-            .Select(u => new AdminUserDto
-            {
-                Id = u.Id,
-                UserName = u.UserName!,
-                Email = u.Email!,
-                FullName = u.FullName,
-                Role = u.Role.ToString(),
-                VerificationStatus = u.VerificationStatus.ToString(),
-                RequestedRole = u.RequestedRole,
-                VerificationReason = u.VerificationReason,
-                EmailVerified = u.EmailConfirmed,
-                AvatarUrl = u.AvatarUrl,
-                CreatedAt = u.CreatedAt
-            })
             .ToListAsync();
 
-        cache.Set(cacheKey, pending, TimeSpan.FromSeconds(20));
-        return Ok(pending);
+        var pendingDtos = pending.Select(MapAdminUserDto).ToList();
+
+        cache.Set(cacheKey, pendingDtos, TimeSpan.FromSeconds(20));
+        return Ok(pendingDtos);
     }
 
     /// <summary>
@@ -199,102 +316,140 @@ public class AdminController : ControllerBase
             return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Người dùng không có yêu cầu đang chờ duyệt." });
 
         user.VerificationStatus = VerificationStatus.Rejected;
-        await _userManager.UpdateAsync(user);
 
-        _cache.Remove("admin:verifications"); // Invalidate cache immediately
-        await LogAction("VerificationRejected", $"Rejected verification for {user.UserName}");
+        var pendingHistory = await GetLatestPendingVerificationHistory(userId);
+        if (pendingHistory != null)
+        {
+            pendingHistory.Status = VerificationStatus.Rejected;
+            pendingHistory.ReviewedAt = DateTime.UtcNow;
+            pendingHistory.ReviewedByAdminId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            pendingHistory.ReviewedByAdminName = User.FindFirstValue(ClaimTypes.Name);
+        }
+
+        await _userManager.UpdateAsync(user);
+        if (pendingHistory != null)
+        {
+            await _db.SaveChangesAsync();
+        }
+
+        _cache.Remove("admin:verifications");
+        await this.LogAdminAction(_db, "VerificationRejected", $"Rejected verification for {user.UserName}");
         _logger.LogInformation("Admin rejected verification: {Username}", user.UserName);
 
         return Ok(new { message = $"Đã từ chối yêu cầu xác minh của {user.UserName}." });
     }
 
     // ═══════════════════════════════════════════
-    //  CONTENT MODERATION — Delete post
+    //  USERS — Suspend / Unsuspend / Ban
     // ═══════════════════════════════════════════
 
     /// <summary>
-    /// Delete a post (content moderation).
+    /// Temporarily suspend a user.
     /// </summary>
-    [HttpDelete("posts/{postId}")]
-    public async Task<ActionResult> DeletePost(int postId)
+    [HttpPost("users/{userId}/suspend")]
+    public async Task<ActionResult> SuspendUser(string userId, [FromBody] SuspendUserDto dto)
     {
-        // Get author name for audit log with lightweight projection
-        var postInfo = await _db.Posts
-            .AsNoTracking()
-            .Where(p => p.Id == postId)
-            .Select(p => new { AuthorName = p.Author != null ? p.Author.UserName : "unknown" })
-            .FirstOrDefaultAsync();
+        var user = await _userManager.FindByIdAsync(userId);
+        if (user == null) return NotFound(new ApiErrorResponse { StatusCode = 404, Message = "Người dùng không tồn tại." });
 
-        if (postInfo == null) return NotFound(new ApiErrorResponse { StatusCode = 404, Message = "Bài viết không tồn tại." });
+        user.IsSuspended = true;
+        user.SuspendedUntil = dto.Until;
+        user.BanReason = dto.Reason;
+        await _userManager.UpdateAsync(user);
 
-        // Single-query delete (no FindAsync + Remove)
-        await _db.Posts.Where(p => p.Id == postId).ExecuteDeleteAsync();
+        var until = dto.Until.HasValue ? dto.Until.Value.ToString("o") : "permanent";
+        await this.LogAdminAction(_db, "UserSuspended", $"Suspended {user.UserName} until {until}: {dto.Reason}");
+        _logger.LogInformation("Admin suspended user: {Username} until {Until}", user.UserName, until);
 
-        await LogAction("PostDeleted", $"Deleted post #{postId} by {postInfo.AuthorName}");
-        _logger.LogInformation("Admin deleted post #{PostId} by {Author}", postId, postInfo.AuthorName);
-
-        return Ok(new { message = "Đã xóa bài viết." });
+        return Ok(new { message = $"Đã tạm khóa tài khoản {user.UserName}." });
     }
 
-    // ═══════════════════════════════════════════
-    //  POSTS — Admin list with pagination + filter
-    // ═══════════════════════════════════════════
+    /// <summary>
+    /// Lift suspension from a user.
+    /// </summary>
+    [HttpPost("users/{userId}/unsuspend")]
+    public async Task<ActionResult> UnsuspendUser(string userId)
+    {
+        var user = await _userManager.FindByIdAsync(userId);
+        if (user == null) return NotFound(new ApiErrorResponse { StatusCode = 404, Message = "Người dùng không tồn tại." });
+
+        user.IsSuspended = false;
+        user.SuspendedUntil = null;
+        user.BanReason = null;
+        await _userManager.UpdateAsync(user);
+
+        await this.LogAdminAction(_db, "UserUnsuspended", $"Lifted suspension for {user.UserName}");
+        _logger.LogInformation("Admin unsuspended user: {Username}", user.UserName);
+
+        return Ok(new { message = $"Đã mở khóa tài khoản {user.UserName}." });
+    }
 
     /// <summary>
-    /// Get paginated post list for admin moderation. No output cache (admin needs fresh data).
+    /// Permanently ban a user and immediately invalidate their current token.
     /// </summary>
-    [HttpGet("posts")]
-    public async Task<ActionResult> GetAdminPosts(
-        [FromQuery] string? category,
-        [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 20)
+    [HttpPost("users/{userId}/ban")]
+    public async Task<ActionResult> BanUser(string userId, [FromBody] BanUserDto dto)
     {
-        if (pageSize > 50) pageSize = 50;
+        var user = await _userManager.FindByIdAsync(userId);
+        if (user == null) return NotFound(new ApiErrorResponse { StatusCode = 404, Message = "Người dùng không tồn tại." });
 
-        if (!string.IsNullOrWhiteSpace(category) && !Enum.TryParse<PostCategory>(category, true, out _))
-            return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Invalid category." });
+        user.IsSuspended = true;
+        user.SuspendedUntil = null; // null = permanent
+        user.BanReason = dto.Reason;
+        await _userManager.UpdateAsync(user);
 
-        var query = _db.Posts
-            .AsNoTracking()
-            .AsQueryable();
-
-        if (!string.IsNullOrWhiteSpace(category) && Enum.TryParse<PostCategory>(category, true, out var cat))
-            query = query.Where(p => p.Category == cat);
-
-        var total = await query.CountAsync();
-        var rawPosts = await query
-            .OrderByDescending(p => p.CreatedAt)
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .Select(p => new
-            {
-                p.Id,
-                p.Content,
-                p.Category,
-                p.AuthorId,
-                AuthorName = p.Author != null ? (p.Author.FullName ?? p.Author.UserName ?? "Ẩn danh") : "Ẩn danh",
-                p.CreatedAt
-            })
-            .ToListAsync();
-
-        var posts = rawPosts.Select(p => new AdminPostDto
+        // Immediately invalidate the user's current session token
+        if (!string.IsNullOrEmpty(user.LastTokenJti))
         {
-            Id = p.Id,
-            Content = p.Content.Length > 200 ? p.Content[..200] : p.Content,
-            Category = p.Category.ToString(),
-            AuthorId = p.AuthorId,
-            AuthorName = p.AuthorName,
-            CreatedAt = p.CreatedAt
-        }).ToList();
+            _tokenBlacklist.BlacklistToken(user.LastTokenJti, DateTime.UtcNow.AddDays(30));
+        }
 
-        return Ok(new
+        await this.LogAdminAction(_db, "UserBanned", $"Permanently banned {user.UserName}: {dto.Reason}");
+        _logger.LogInformation("Admin permanently banned user: {Username}", user.UserName);
+
+        return Ok(new { message = $"Đã cấm vĩnh viễn tài khoản {user.UserName}." });
+    }
+
+    /// <summary>
+    /// Force logout a user by blacklisting their current JWT token.
+    /// </summary>
+    [HttpPost("users/{userId}/force-logout")]
+    public async Task<ActionResult> ForceLogout(string userId)
+    {
+        var user = await _userManager.FindByIdAsync(userId);
+        if (user == null) return NotFound(new ApiErrorResponse { StatusCode = 404, Message = "Người dùng không tồn tại." });
+
+        if (!string.IsNullOrEmpty(user.LastTokenJti))
         {
-            items = posts,
-            total,
-            page,
-            pageSize,
-            totalPages = (int)Math.Ceiling(total / (double)pageSize)
-        });
+            _tokenBlacklist.BlacklistToken(user.LastTokenJti, DateTime.UtcNow.AddDays(30));
+        }
+
+        await this.LogAdminAction(_db, "UserForceLogout", $"Force-logged out {user.UserName}");
+        _logger.LogInformation("Admin force-logged out user: {Username}", user.UserName);
+
+        return Ok(new { message = $"Đã buộc đăng xuất tài khoản {user.UserName}." });
+    }
+
+    /// <summary>
+    /// Reset a user's verification status back to None, clearing requested role.
+    /// </summary>
+    [HttpPost("users/{userId}/reset-verification")]
+    public async Task<ActionResult> ResetVerification(string userId)
+    {
+        var user = await _userManager.FindByIdAsync(userId);
+        if (user == null) return NotFound(new ApiErrorResponse { StatusCode = 404, Message = "Người dùng không tồn tại." });
+
+        user.VerificationStatus = VerificationStatus.None;
+        user.RequestedRole = null;
+        user.VerificationReason = null;
+        user.VerificationImageUrls = null;
+        await _userManager.UpdateAsync(user);
+
+        _cache.Remove("admin:verifications");
+        await this.LogAdminAction(_db, "VerificationReset", $"Reset verification for {user.UserName}");
+        _logger.LogInformation("Admin reset verification for user: {Username}", user.UserName);
+
+        return Ok(new { message = $"Đã đặt lại trạng thái xác minh cho {user.UserName}." });
     }
 
     // ═══════════════════════════════════════════
@@ -302,7 +457,7 @@ public class AdminController : ControllerBase
     // ═══════════════════════════════════════════
 
     /// <summary>
-    /// Execute multiple admin operations in a single request.
+    /// Execute multiple admin operations in a single request with parent-child batch log hierarchy.
     /// Processes: role approvals, role rejections, post deletions.
     /// Returns per-operation results so the frontend can handle partial failures.
     /// </summary>
@@ -316,22 +471,54 @@ public class AdminController : ControllerBase
         if (total > 100)
             return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Tối đa 100 operations mỗi batch." });
 
+        var batchId = Guid.NewGuid();
+        var adminId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        var adminName = User.FindFirstValue(ClaimTypes.Name);
         var results = new List<BatchResultItem>();
+        var childLogs = new List<SystemLog>();
+
+        // Create parent/summary log entry first via raw SQL to get generated ID back
+        int parentLogId;
+        try
+        {
+            var parentDetails = $"approvals={dto.RoleApprovals.Count} rejections={dto.RoleRejections.Count} deletions={dto.PostDeletions.Count}";
+            var parentIds = await _db.Database
+                .SqlQuery<int>($"""
+                    INSERT INTO "SystemLogs" ("Action", "CreatedAt", "Details", "UserId", "UserName", "BatchId")
+                    VALUES ('BatchActions', {DateTime.UtcNow}, {parentDetails}, {adminId ?? ""}, {adminName ?? ""}, {batchId})
+                    RETURNING "Id"
+                    """)
+                .ToListAsync();
+            parentLogId = parentIds.FirstOrDefault();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Batch] Failed to create parent log entry");
+            parentLogId = 0;
+        }
+
+        // Batch-load all users referenced by approvals and rejections in one query
+        var approvalUserIds  = dto.RoleApprovals.Select(op => op.UserId).ToList();
+        var rejectionUserIds = dto.RoleRejections.ToList();
+        var allUserIds       = approvalUserIds.Concat(rejectionUserIds).Distinct().ToList();
+        var users            = await _userManager.Users.Where(u => allUserIds.Contains(u.Id)).ToListAsync();
+        var userMap          = users.ToDictionary(u => u.Id);
 
         // 1. Role approvals
         foreach (var op in dto.RoleApprovals)
         {
             try
             {
-                var user = await _userManager.FindByIdAsync(op.UserId);
-                if (user == null)
+                if (!userMap.TryGetValue(op.UserId, out var user))
                 {
                     results.Add(new BatchResultItem { OpType = "approveRole", Key = op.UserId, Success = false, Error = "User not found" });
+                    CollectChildLog(childLogs, "approveRole", op.UserId, false, "User not found", batchId, parentLogId, adminId, adminName);
                     continue;
                 }
                 if (!Enum.TryParse<RoleEnum>(op.Role, true, out var newRole))
                 {
                     results.Add(new BatchResultItem { OpType = "approveRole", Key = op.UserId, Success = false, Error = $"Invalid role: {op.Role}" });
+                    CollectChildLog(childLogs, "approveRole", op.UserId, false, $"Invalid role: {op.Role}", batchId, parentLogId, adminId, adminName);
                     continue;
                 }
                 var oldRole = user.Role;
@@ -339,14 +526,28 @@ public class AdminController : ControllerBase
                 user.VerificationStatus = VerificationStatus.Approved;
                 user.RequestedRole = null;
                 user.VerificationReason = null;
+                user.VerificationImageUrls = null;
                 await _userManager.UpdateAsync(user);
+
+                var pendingHistory = await GetLatestPendingVerificationHistory(op.UserId);
+                if (pendingHistory != null)
+                {
+                    pendingHistory.Status = VerificationStatus.Approved;
+                    pendingHistory.ReviewedAt = DateTime.UtcNow;
+                    pendingHistory.ReviewedByAdminId = adminId;
+                    pendingHistory.ReviewedByAdminName = adminName;
+                    await _db.SaveChangesAsync();
+                }
+
                 results.Add(new BatchResultItem { OpType = "approveRole", Key = op.UserId, Success = true });
+                CollectChildLog(childLogs, "approveRole", op.UserId, true, $"{user.UserName}: {oldRole}→{newRole}", batchId, parentLogId, adminId, adminName);
                 _logger.LogInformation("[Batch] ApproveRole: {Username} {Old}→{New}", user.UserName, oldRole, newRole);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "[Batch] ApproveRole failed for {UserId}", op.UserId);
                 results.Add(new BatchResultItem { OpType = "approveRole", Key = op.UserId, Success = false, Error = ex.Message });
+                CollectChildLog(childLogs, "approveRole", op.UserId, false, ex.Message, batchId, parentLogId, adminId, adminName);
             }
         }
 
@@ -355,203 +556,155 @@ public class AdminController : ControllerBase
         {
             try
             {
-                var user = await _userManager.FindByIdAsync(userId);
-                if (user == null)
+                if (!userMap.TryGetValue(userId, out var user))
                 {
                     results.Add(new BatchResultItem { OpType = "rejectVerification", Key = userId, Success = false, Error = "User not found" });
+                    CollectChildLog(childLogs, "rejectVerification", userId, false, "User not found", batchId, parentLogId, adminId, adminName);
                     continue;
                 }
                 user.VerificationStatus = VerificationStatus.Rejected;
                 await _userManager.UpdateAsync(user);
+
+                var pendingHistory = await GetLatestPendingVerificationHistory(userId);
+                if (pendingHistory != null)
+                {
+                    pendingHistory.Status = VerificationStatus.Rejected;
+                    pendingHistory.ReviewedAt = DateTime.UtcNow;
+                    pendingHistory.ReviewedByAdminId = adminId;
+                    pendingHistory.ReviewedByAdminName = adminName;
+                    await _db.SaveChangesAsync();
+                }
+
                 results.Add(new BatchResultItem { OpType = "rejectVerification", Key = userId, Success = true });
+                CollectChildLog(childLogs, "rejectVerification", userId, true, $"Rejected: {user.UserName}", batchId, parentLogId, adminId, adminName);
                 _logger.LogInformation("[Batch] RejectVerification: {Username}", user.UserName);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "[Batch] RejectVerification failed for {UserId}", userId);
                 results.Add(new BatchResultItem { OpType = "rejectVerification", Key = userId, Success = false, Error = ex.Message });
+                CollectChildLog(childLogs, "rejectVerification", userId, false, ex.Message, batchId, parentLogId, adminId, adminName);
             }
         }
 
-        // 3. Post deletions via raw SQL — avoids SaveChangesAsync execution strategy issues
+        // 3. Post deletions via soft-delete (restorable 7 days)
         foreach (var postId in dto.PostDeletions)
         {
             try
             {
-                var rowsAffected = await _db.Database.ExecuteSqlRawAsync(
-                    @"DELETE FROM ""Posts"" WHERE ""Id"" = {0}", postId);
-                if (rowsAffected == 0)
+                var post = await _db.Posts.Where(p => p.Id == postId && !p.IsDeleted).FirstOrDefaultAsync();
+                if (post == null)
+                {
                     results.Add(new BatchResultItem { OpType = "deletePost", Key = postId.ToString(), Success = false, Error = "Post not found" });
+                    CollectChildLog(childLogs, "deletePost", postId.ToString(), false, "Post not found", batchId, parentLogId, adminId, adminName);
+                }
                 else
+                {
+                    post.IsDeleted = true;
+                    post.DeletedAt = DateTime.UtcNow;
+                    post.DeletedByAdminId = adminId;
+                    await _db.SaveChangesAsync();
                     results.Add(new BatchResultItem { OpType = "deletePost", Key = postId.ToString(), Success = true });
+                    CollectChildLog(childLogs, "deletePost", postId.ToString(), true, $"Soft-deleted post #{postId} (restorable 7 days)", batchId, parentLogId, adminId, adminName);
+                }
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "[Batch] DeletePost failed for {PostId}", postId);
                 results.Add(new BatchResultItem { OpType = "deletePost", Key = postId.ToString(), Success = false, Error = ex.Message });
+                CollectChildLog(childLogs, "deletePost", postId.ToString(), false, ex.Message, batchId, parentLogId, adminId, adminName);
             }
         }
 
-        // Audit log via raw SQL — avoids SaveChangesAsync execution strategy issues
-        try
+        // Flush all child logs in a single SaveChangesAsync
+        await FlushChildLogs(childLogs);
+
+        // Update parent log with final summary
+        var applied = results.Count(r => r.Success);
+        var failed  = results.Count(r => !r.Success);
+        if (parentLogId > 0)
         {
-            var adminId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            var adminName = User.FindFirstValue(ClaimTypes.Name);
-            await _db.Database.ExecuteSqlRawAsync(
-                @"INSERT INTO ""SystemLogs"" (""Action"", ""CreatedAt"", ""Details"", ""UserId"", ""UserName"")
-                  VALUES ({0}, {1}, {2}, {3}, {4})",
-                "BatchActions",
-                DateTime.UtcNow,
-                $"approvals={dto.RoleApprovals.Count} rejections={dto.RoleRejections.Count} deletions={dto.PostDeletions.Count} applied={results.Count(o => o.Success)}",
-                adminId ?? "",
-                adminName ?? "");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "[Batch] Failed to write audit log");
+            try
+            {
+                var finalDetails = $"approvals={dto.RoleApprovals.Count} rejections={dto.RoleRejections.Count} deletions={dto.PostDeletions.Count} applied={applied} failed={failed}";
+                await _db.Database.ExecuteSqlRawAsync(
+                    @"UPDATE ""SystemLogs"" SET ""Details"" = {0} WHERE ""Id"" = {1}",
+                    finalDetails, parentLogId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[Batch] Failed to update parent log summary");
+            }
         }
 
         // Invalidate caches
         _cache.Remove("admin:stats");
         _cache.Remove("admin:verifications");
 
-        var applied = results.Count(r => r.Success);
-        var failed  = results.Count(r => !r.Success);
-
         return Ok(new AdminBatchResultDto { Applied = applied, Failed = failed, Results = results });
-    }
-
-    // ═══════════════════════════════════════════
-    //  SYSTEM STATS
-    // ═══════════════════════════════════════════
-
-    // Projection type for the single-query stats approach
-    private sealed class StatsRow
-    {
-        public string Bucket { get; set; } = "";
-        public string Key    { get; set; } = "";
-        public int    Count  { get; set; }
-    }
-
-    /// <summary>
-    /// Get system-wide statistics.
-    /// Uses a single UNION ALL SQL query (1 DB round-trip) instead of 3 sequential queries.
-    /// Results cached 60 seconds in IMemoryCache.
-    /// </summary>
-    [HttpGet("stats")]
-    public async Task<ActionResult<SystemStatsDto>> GetStats(
-        [FromServices] IMemoryCache cache)
-    {
-        if (cache.TryGetValue("admin:stats", out SystemStatsDto? cached) && cached != null)
-            return Ok(cached);
-
-        // Single round-trip: 3 GROUP BY aggregations via UNION ALL
-        // MapItemType.SOS = 0, enums stored as integers in PostgreSQL
-        const int sosType = 0; // MapItemType.SOS
-        var rows = await _db.Database
-            .SqlQuery<StatsRow>($"""
-                SELECT 'role'::text  AS "Bucket", "Role"::text  AS "Key", COUNT(*)::int AS "Count"
-                FROM "AspNetUsers"
-                GROUP BY "Role"
-                UNION ALL
-                SELECT 'ping', "Status"::text, COUNT(*)::int
-                FROM "Pings"
-                WHERE "Type" = {sosType}
-                GROUP BY "Status"
-                UNION ALL
-                SELECT 'post', "Category"::text, COUNT(*)::int
-                FROM "Posts"
-                GROUP BY "Category"
-                """)
-            .ToListAsync();
-
-        // Parse integer enum keys back to enum values
-        int RoleBucket(RoleEnum r)      => rows.Where(x => x.Bucket == "role" && x.Key == ((int)r).ToString()).Sum(x => x.Count);
-        int PingBucket(SOSStatus s)     => rows.Where(x => x.Bucket == "ping" && x.Key == ((int)s).ToString()).Sum(x => x.Count);
-        int PostBucket(PostCategory c)  => rows.Where(x => x.Bucket == "post" && x.Key == ((int)c).ToString()).Sum(x => x.Count);
-
-        var stats = new SystemStatsDto
-        {
-            TotalUsers           = rows.Where(x => x.Bucket == "role").Sum(x => x.Count),
-            TotalPersonsInNeed   = RoleBucket(RoleEnum.PersonInNeed),
-            TotalSponsors        = RoleBucket(RoleEnum.Sponsor),
-            TotalVolunteers      = RoleBucket(RoleEnum.Volunteer),
-            ActiveSOS            = PingBucket(SOSStatus.Pending),
-            ResolvedCases        = PingBucket(SOSStatus.Resolved),
-            TotalPosts           = rows.Where(x => x.Bucket == "post").Sum(x => x.Count),
-            TotalPostsLivelihood = PostBucket(PostCategory.Livelihood),
-            TotalPostsMedical    = PostBucket(PostCategory.Medical),
-            TotalPostsEducation  = PostBucket(PostCategory.Education),
-        };
-
-        cache.Set("admin:stats", stats, TimeSpan.FromSeconds(60));
-        return Ok(stats);
-    }
-
-    // ═══════════════════════════════════════════
-    //  SYSTEM LOGS
-    // ═══════════════════════════════════════════
-
-    /// <summary>
-    /// Get system logs with optional date range and action filter.
-    /// </summary>
-    [HttpGet("logs")]
-    public async Task<ActionResult> GetLogs(
-        [FromQuery] string? from,
-        [FromQuery] string? to,
-        [FromQuery] string? action,
-        [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 50)
-    {
-        var query = _db.SystemLogs.AsNoTracking().AsQueryable();
-
-        if (!string.IsNullOrWhiteSpace(action))
-            query = query.Where(l => l.Action == action);
-
-        if (DateTime.TryParse(from, out var fromDate))
-            query = query.Where(l => l.CreatedAt >= fromDate);
-
-        if (DateTime.TryParse(to, out var toDate))
-            query = query.Where(l => l.CreatedAt <= toDate);
-
-        var total = await query.CountAsync();
-        var logs = await query
-            .OrderByDescending(l => l.CreatedAt)
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .Select(l => new
-            {
-                l.Id,
-                l.Action,
-                l.Details,
-                l.UserId,
-                l.UserName,
-                l.CreatedAt
-            })
-            .ToListAsync();
-
-        return Ok(new { items = logs, total, page, pageSize,
-            totalPages = (int)Math.Ceiling(total / (double)pageSize) });
     }
 
     // ═══════════════════════════════════════════
     //  PRIVATE HELPERS
     // ═══════════════════════════════════════════
 
-    private async Task LogAction(string action, string? details = null)
+    private void CollectChildLog(
+        ICollection<SystemLog> logs,
+        string opType, string key, bool success, string? detail,
+        Guid batchId, int parentLogId,
+        string? adminId, string? adminName)
     {
-        var adminId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        var adminName = User.FindFirstValue(ClaimTypes.Name);
-
-        _db.SystemLogs.Add(new SystemLog
+        var details = $"[{opType}] key={key} success={success}" + (detail != null ? $" | {detail}" : "");
+        logs.Add(new SystemLog
         {
-            Action = action,
-            Details = details,
-            UserId = adminId,
-            UserName = adminName,
-            CreatedAt = DateTime.UtcNow
+            Action      = opType,
+            Details     = details,
+            UserId      = adminId,
+            UserName    = adminName,
+            CreatedAt   = DateTime.UtcNow,
+            BatchId     = batchId,
+            ParentLogId = parentLogId > 0 ? (int?)parentLogId : null
         });
+    }
 
-        await _db.SaveChangesAsync();
+    private async Task FlushChildLogs(ICollection<SystemLog> logs)
+    {
+        if (logs.Count == 0) return;
+        try
+        {
+            _db.SystemLogs.AddRange(logs);
+            await _db.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Batch] Failed to flush {Count} child log(s)", logs.Count);
+        }
+    }
+
+    private async Task WriteChildLog(string opType, string key, bool success, string? detail, Guid batchId, int parentLogId)
+    {
+        try
+        {
+            var adminId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            var adminName = User.FindFirstValue(ClaimTypes.Name);
+            var details = $"[{opType}] key={key} success={success}" + (detail != null ? $" | {detail}" : "");
+            var parentIdParam = parentLogId > 0 ? (int?)parentLogId : null;
+
+            _db.SystemLogs.Add(new SystemLog
+            {
+                Action = opType,
+                Details = details,
+                UserId = adminId,
+                UserName = adminName,
+                CreatedAt = DateTime.UtcNow,
+                BatchId = batchId,
+                ParentLogId = parentIdParam
+            });
+            await _db.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[Batch] Failed to write child log for {OpType}/{Key}", opType, key);
+        }
     }
 }

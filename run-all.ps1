@@ -23,17 +23,23 @@ foreach ($cmd in $requiredCommands) {
     }
 }
 
-if ($Install) {
-    Write-Host '[1/2] Cai dependencies frontend (pnpm install)...' -ForegroundColor Cyan
-    Push-Location $clientPath
-    try {
-        pnpm install
-    }
-    finally {
-        Pop-Location
-    }
+Write-Host '[1/3] Cai dependencies frontend (pnpm install)...' -ForegroundColor Cyan
+Push-Location $clientPath
+try {
+    pnpm install
 
-    Write-Host '[2/2] Restore backend (.NET)...' -ForegroundColor Cyan
+    Write-Host '[2/3] Dam bao react-markdown da duoc cai dat...' -ForegroundColor Cyan
+    pnpm install react-markdown
+
+    Write-Host '[3/3] Build frontend (pnpm run build)...' -ForegroundColor Cyan
+    pnpm run build
+}
+finally {
+    Pop-Location
+}
+
+if ($Install) {
+    Write-Host '[Install] Restore backend (.NET)...' -ForegroundColor Cyan
     Push-Location $apiPath
     try {
         dotnet restore
@@ -50,11 +56,35 @@ Start-Process powershell -WorkingDirectory $apiPath -ArgumentList @(
     'dotnet run'
 )
 
+# Wait for backend /health before starting frontend
+Write-Host 'Doi backend khoi dong...' -ForegroundColor Yellow
+$maxWait = 60  # seconds
+$waited = 0
+$ready = $false
+while ($waited -lt $maxWait) {
+    try {
+        $resp = Invoke-WebRequest -Uri 'http://localhost:5164/health' -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop
+        if ($resp.StatusCode -eq 200) {
+            $ready = $true
+            break
+        }
+    } catch { }
+    Start-Sleep -Seconds 1
+    $waited++
+    Write-Host "." -NoNewline -ForegroundColor DarkGray
+}
+Write-Host ''
+if (-not $ready) {
+    Write-Warning 'Backend chua san sang sau 60s — van khoi dong frontend (co the bi loi ban dau).'
+} else {
+    Write-Host "Backend san sang sau ${waited}s." -ForegroundColor Green
+}
+
 Write-Host 'Khoi dong frontend: http://localhost:5173' -ForegroundColor Green
 Start-Process powershell -WorkingDirectory $clientPath -ArgumentList @(
     '-NoExit',
     '-Command',
-    'if (-not (Test-Path ''.\node_modules'')) { pnpm install }; pnpm dev'
+    'pnpm dev'
 )
 
 Write-Host 'Da mo 2 terminal rieng cho backend/frontend.' -ForegroundColor Yellow
