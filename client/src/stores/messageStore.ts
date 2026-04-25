@@ -40,9 +40,11 @@ interface MessageState {
 
   fetchConversations: () => Promise<void>;
   fetchMessages: (conversationId: number, loadMore?: boolean) => Promise<void>;
+  syncMissedMessages: (conversationId: number) => Promise<void>;
   sendMessage: (conversationId: number, content: string) => Promise<void>;
   startConversation: (targetUserId: string) => Promise<number>;
   markRead: (conversationId: number) => Promise<void>;
+  markConversationAsReadLocally: (conversationId: number) => void;
   fetchUnreadCount: () => Promise<void>;
   setActiveConversation: (id: number | null) => void;
   addIncomingMessage: (msg: DirectMessage & { conversationId: number; senderAvatar?: string }) => void;
@@ -99,6 +101,44 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       /* silent */
     } finally {
       set({ isLoadingMessages: false });
+    }
+  },
+
+  syncMissedMessages: async (conversationId: number) => {
+    const { messages, activeConversationId } = get();
+    // Only sync if this is the active conversation and we have existing messages
+    if (activeConversationId !== conversationId || messages.length === 0) return;
+
+    // Find the newest server message ID we have (first item with non-null ID, since array is sorted newest-first)
+    const latestServerMessage = messages.find(m => m.id !== null);
+    if (!latestServerMessage?.id) return;
+
+    try {
+      // Fetch up to 50 missed messages that occurred AFTER our latest known message
+      const res = await messageApi.getMessages(conversationId, { after: latestServerMessage.id, limit: 50 });
+      const missedMessages: DirectMessage[] = res.data.items.map((message: DirectMessage) => ({
+        ...message,
+        deliveryStatus: message.isMine ? 'sent' : undefined,
+      }));
+
+      if (missedMessages.length === 0) return;
+
+      set((state) => {
+        if (state.activeConversationId !== conversationId) return state;
+
+        // Deduplicate: avoid adding messages we might have already received via SignalR during the sync race
+        const existingIds = new Set(state.messages.map(m => m.id).filter(Boolean));
+        const newUniqueMessages = missedMessages.filter(m => m.id && !existingIds.has(m.id));
+
+        if (newUniqueMessages.length === 0) return state;
+
+        // API returns newest first, so we just prepend them to our list
+        return {
+          messages: [...newUniqueMessages, ...state.messages]
+        };
+      });
+    } catch {
+      /* silent */
     }
   },
 
@@ -200,6 +240,20 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     } catch {
       /* silent */
     }
+  },
+
+  markConversationAsReadLocally: (conversationId: number) => {
+    set((state) => {
+      // If we are currently viewing this conversation, update the messages array
+      if (state.activeConversationId === conversationId) {
+        return {
+          messages: state.messages.map((m) =>
+            m.isMine && !m.isRead ? { ...m, isRead: true } : m
+          ),
+        };
+      }
+      return state;
+    });
   },
 
   fetchUnreadCount: async () => {

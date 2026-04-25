@@ -104,7 +104,7 @@ public class MessageController : ControllerBase
     /// Get messages for a specific conversation (cursor-based, newest first).
     /// </summary>
     [HttpGet("conversations/{id:int}/messages")]
-    public async Task<IActionResult> GetMessages(int id, [FromQuery] int? before = null, [FromQuery] int limit = 30)
+    public async Task<IActionResult> GetMessages(int id, [FromQuery] int? before = null, [FromQuery] int? after = null, [FromQuery] int limit = 30)
     {
         var userId = GetUserId();
         if (userId == null) return Unauthorized();
@@ -129,6 +129,8 @@ public class MessageController : ControllerBase
 
         if (before.HasValue)
             query = query.Where(m => m.Id < before.Value);
+        else if (after.HasValue)
+            query = query.Where(m => m.Id > after.Value);
 
         var messages = await query
             .Take(limit + 1)
@@ -308,17 +310,30 @@ public class MessageController : ControllerBase
         var userId = GetUserId();
         if (userId == null) return Unauthorized();
 
-        // Verify participation
-        var isParticipant = await _db.DirectConversations
+        // Verify participation and get the other user's ID
+        var conversation = await _db.DirectConversations
             .AsNoTracking()
-            .AnyAsync(c => c.Id == id && (c.User1Id == userId || c.User2Id == userId));
+            .FirstOrDefaultAsync(c => c.Id == id && (c.User1Id == userId || c.User2Id == userId));
 
-        if (!isParticipant)
+        if (conversation == null)
             return NotFound(new { message = "Conversation not found" });
+
+        var targetUserId = conversation.User1Id == userId ? conversation.User2Id : conversation.User1Id;
 
         var count = await _db.DirectMessages
             .Where(m => m.ConversationId == id && m.SenderId != userId && !m.IsRead && m.DeletedAt == null)
             .ExecuteUpdateAsync(m => m.SetProperty(x => x.IsRead, true));
+
+        if (count > 0)
+        {
+            // Broadcast to the sender that their messages were read
+            await _hubContext.Clients.User(targetUserId).SendAsync("ConversationRead", new
+            {
+                conversationId = id,
+                readerId = userId,
+                readAt = DateTime.UtcNow
+            });
+        }
 
         return Ok(new { markedRead = count });
     }

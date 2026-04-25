@@ -261,6 +261,7 @@
         "sendMessage": "Send message",
         "statusSending": "Sending...",
         "statusSent": "Sent",
+        "statusRead": "Read",
         "statusFailed": "Failed",
         "loadMore": "Load more",
         "today": "Today",

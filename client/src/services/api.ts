@@ -479,7 +479,7 @@ export const messageApi = {
   getConversations: () =>
     api.get('/messages/conversations'),
 
-  getMessages: (conversationId: number, params?: { before?: number; limit?: number }) =>
+  getMessages: (conversationId: number, params?: { before?: number; after?: number; limit?: number }) =>
     api.get(`/messages/conversations/${conversationId}/messages`, { params }),
 
   startConversation: (targetUserId: string) =>

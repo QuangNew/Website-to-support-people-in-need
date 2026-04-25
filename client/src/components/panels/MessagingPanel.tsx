@@ -181,9 +181,9 @@ export default function MessagingPanel() {
             >
               <p className="messaging-bubble-text">{msg.content}</p>
               <div className="messaging-bubble-meta">
-                {msg.isMine && msg.deliveryStatus ? (
-                  <span className={`messaging-bubble-status ${msg.deliveryStatus}`}>
-                    {getDeliveryStatusLabel(msg.deliveryStatus, t)}
+                {msg.isMine ? (
+                  <span className={`messaging-bubble-status ${msg.isRead ? 'read' : (msg.deliveryStatus || 'sent')}`}>
+                    {msg.isRead ? t('messaging.statusRead') : getDeliveryStatusLabel(msg.deliveryStatus || 'sent', t)}
                   </span>
                 ) : null}
                 <span className="messaging-bubble-time">

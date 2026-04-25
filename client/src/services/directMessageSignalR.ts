@@ -87,6 +87,15 @@ export function startDirectMessageConnection() {
     useMessageStore.getState().updateUnreadFromSignalR(data.conversationId, data.totalUnread);
   });
 
+  // Read receipts (double blue tick)
+  newConnection.on('ConversationRead', (data: {
+    conversationId: number;
+    readerId: string;
+    readAt: string;
+  }) => {
+    useMessageStore.getState().markConversationAsReadLocally(data.conversationId);
+  });
+
   // Typing indicator support
   newConnection.on('UserTyping', (data: {
     conversationId: number;
@@ -109,7 +118,8 @@ export function startDirectMessageConnection() {
     await store.fetchUnreadCount();
 
     if (store.activeConversationId) {
-      await store.fetchMessages(store.activeConversationId);
+      // Sync only the missed messages to prevent UI jump and save bandwidth
+      await store.syncMissedMessages(store.activeConversationId);
     }
   });
 
