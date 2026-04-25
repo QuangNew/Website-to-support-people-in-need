@@ -5,6 +5,7 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 const HUB_URL = API_BASE_URL.replace(/\/api\/?$/, '') + '/hubs/direct-messages';
 
 let connection: signalR.HubConnection | null = null;
+let isConnecting = false;
 
 // Debounce fetchConversations to avoid hammering the DB when multiple messages arrive quickly
 let fetchConversationsTimer: ReturnType<typeof setTimeout> | undefined;
@@ -16,7 +17,7 @@ function debouncedFetchConversations(delayMs = 1000) {
 }
 
 // Debounce markRead to batch multiple rapid reads
-let markReadTimers: Map<number, ReturnType<typeof setTimeout>> = new Map();
+const markReadTimers: Map<number, ReturnType<typeof setTimeout>> = new Map();
 function debouncedMarkRead(conversationId: number, delayMs = 800) {
   const existing = markReadTimers.get(conversationId);
   if (existing) clearTimeout(existing);
@@ -27,15 +28,20 @@ function debouncedMarkRead(conversationId: number, delayMs = 800) {
 }
 
 export function startDirectMessageConnection() {
-  if (connection) return;
+  // Prevent duplicate connection attempts
+  if (connection || isConnecting) return;
+  isConnecting = true;
 
-  connection = new signalR.HubConnectionBuilder()
+  console.log('[SignalR] Starting DirectMessage connection to:', HUB_URL);
+
+  const newConnection = new signalR.HubConnectionBuilder()
     .withUrl(HUB_URL, { withCredentials: true })
     .withAutomaticReconnect([0, 2000, 5000, 10000, 30000]) // Progressive backoff
-    .configureLogging(signalR.LogLevel.Warning)
+    .configureLogging(signalR.LogLevel.Information)
     .build();
 
-  connection.on('ReceiveDirectMessage', (data: {
+  // ── Incoming message handler ──
+  newConnection.on('ReceiveDirectMessage', (data: {
     messageId: number;
     conversationId: number;
     senderId: string;
@@ -44,6 +50,8 @@ export function startDirectMessageConnection() {
     content: string;
     sentAt: string;
   }) => {
+    console.log('[SignalR] ReceiveDirectMessage:', data.conversationId, 'from:', data.senderId);
+
     const store = useMessageStore.getState();
     store.addIncomingMessage({
       id: data.messageId,
@@ -54,7 +62,7 @@ export function startDirectMessageConnection() {
       content: data.content,
       sentAt: data.sentAt,
       isRead: false,
-      isMine: false,
+      isMine: false, // addIncomingMessage will correct this based on senderId
     });
 
     // Auto-mark read if currently viewing this conversation (debounced)
@@ -63,7 +71,7 @@ export function startDirectMessageConnection() {
     }
   });
 
-  connection.on('UnreadCountChanged', (data: {
+  newConnection.on('UnreadCountChanged', (data: {
     conversationId: number;
     totalUnread: number;
   }) => {
@@ -71,7 +79,7 @@ export function startDirectMessageConnection() {
   });
 
   // Typing indicator support
-  connection.on('UserTyping', (data: {
+  newConnection.on('UserTyping', (data: {
     conversationId: number;
     userId: string;
     userName: string;
@@ -79,7 +87,12 @@ export function startDirectMessageConnection() {
     useMessageStore.getState().setTypingUser(data.conversationId, data.userId, data.userName);
   });
 
-  connection.onreconnected(async () => {
+  newConnection.onreconnecting((error) => {
+    console.warn('[SignalR] Reconnecting...', error?.message);
+  });
+
+  newConnection.onreconnected(async (connectionId) => {
+    console.log('[SignalR] Reconnected with ID:', connectionId);
     const store = useMessageStore.getState();
 
     // Debounced to avoid hammering DB after reconnect
@@ -91,17 +104,33 @@ export function startDirectMessageConnection() {
     }
   });
 
-  connection.start().catch((err) => {
-    console.error('DirectMessage SignalR connection error:', err);
+  newConnection.onclose((error) => {
+    console.warn('[SignalR] Connection closed', error?.message);
     connection = null;
+    isConnecting = false;
   });
+
+  newConnection.start()
+    .then(() => {
+      console.log('[SignalR] Connected successfully. State:', newConnection.state);
+      connection = newConnection;
+      isConnecting = false;
+    })
+    .catch((err) => {
+      console.error('[SignalR] Connection failed:', err);
+      isConnecting = false;
+      // Don't set connection — it failed. Automatic reconnect won't work
+      // because the initial start failed. Retry on next auth state change.
+    });
 }
 
 export function stopDirectMessageConnection() {
   if (connection) {
+    console.log('[SignalR] Stopping DirectMessage connection');
     connection.stop();
     connection = null;
   }
+  isConnecting = false;
   // Clean up timers
   if (fetchConversationsTimer) clearTimeout(fetchConversationsTimer);
   markReadTimers.forEach((timer) => clearTimeout(timer));
@@ -115,4 +144,9 @@ export function sendTypingIndicator(conversationId: number) {
       // Silent — typing indicator is best-effort
     });
   }
+}
+
+/** Check if SignalR is currently connected (useful for debugging) */
+export function isDirectMessageConnected(): boolean {
+  return connection?.state === signalR.HubConnectionState.Connected;
 }

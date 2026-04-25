@@ -216,11 +216,34 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   },
 
   addIncomingMessage: (msg) => {
-    const { activeConversationId, conversations } = get();
+    const { activeConversationId, conversations, messages } = get();
+    const currentUserId = useAuthStore.getState().user?.id;
     const hasConversation = conversations.some((c) => c.id === msg.conversationId);
+    const isOwnMessage = currentUserId != null && msg.senderId === currentUserId;
 
+    // Dedup: If this message ID already exists in the current view, skip it entirely.
+    // This handles the case where the sender's optimistic UI already added the message
+    // before the SignalR broadcast arrived back.
+    if (msg.id != null && messages.some((m) => m.id === msg.id)) {
+      return;
+    }
+
+    // Also dedup by checking if an optimistic message (id=null) with matching content
+    // and very close timestamp exists (sender's own message returning via SignalR).
+    if (isOwnMessage) {
+      const hasPending = messages.some(
+        (m) => m.id === null && m.isMine && m.content === msg.content
+      );
+      if (hasPending) {
+        // The optimistic message is still pending — the API response will update it.
+        // Skip the SignalR duplicate for the sender's active tab.
+        return;
+      }
+    }
+
+    // Update conversation list (last message, unread count)
     set((state) => ({
-      totalUnread: msg.conversationId === activeConversationId
+      totalUnread: msg.conversationId === activeConversationId || isOwnMessage
         ? state.totalUnread
         : state.totalUnread + 1,
       conversations: hasConversation
@@ -230,7 +253,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
                   ...c,
                   lastMessage: msg.content,
                   lastMessageAt: msg.sentAt,
-                  unreadCount: msg.conversationId === activeConversationId
+                  unreadCount: msg.conversationId === activeConversationId || isOwnMessage
                     ? c.unreadCount
                     : c.unreadCount + 1,
                 }
@@ -252,9 +275,9 @@ export const useMessageStore = create<MessageState>((set, get) => ({
           senderName: msg.senderName,
           content: msg.content,
           sentAt: msg.sentAt,
-          isRead: false,
-          isMine: false,
-          deliveryStatus: undefined,
+          isRead: isOwnMessage ? true : false,
+          isMine: isOwnMessage,
+          deliveryStatus: isOwnMessage ? 'sent' : undefined,
         }, ...state.messages],
       }));
     }

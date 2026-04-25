@@ -420,20 +420,31 @@ public class MessageController : ControllerBase
             _logger.LogWarning(ex, "Failed post-send DB work for conversation {ConversationId}", conversationId);
         }
 
-        // 2. Broadcast via SignalR (no DB connection needed)
+        // 2. Broadcast via SignalR to BOTH sender and receiver.
+        // The sender's tab that initiated the API call already has the message via optimistic UI,
+        // but broadcasting to both ensures: (a) multi-tab/multi-device support for the sender,
+        // and (b) the receiver gets real-time delivery. The frontend deduplicates using senderId
+        // comparison — incoming messages with senderId === current user are ignored if already present.
         try
         {
+            var payload = new
+            {
+                messageId,
+                conversationId,
+                senderId,
+                senderName,
+                senderAvatar,
+                content,
+                sentAt = now
+            };
+
+            // Broadcast to receiver
             await _hubContext.Clients.Group($"user_{receiverId}")
-                .SendAsync("ReceiveDirectMessage", new
-                {
-                    messageId,
-                    conversationId,
-                    senderId,
-                    senderName,
-                    senderAvatar,
-                    content,
-                    sentAt = now
-                });
+                .SendAsync("ReceiveDirectMessage", payload);
+
+            // Also broadcast to sender (for other tabs/devices)
+            await _hubContext.Clients.Group($"user_{senderId}")
+                .SendAsync("ReceiveDirectMessage", payload);
         }
         catch (Exception ex)
         {
