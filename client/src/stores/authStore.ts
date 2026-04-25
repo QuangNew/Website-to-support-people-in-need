@@ -1,16 +1,15 @@
 import { create } from 'zustand';
-import { authApi } from '../services/api';
+import { authApi, setApiAuthToken, getApiAuthToken } from '../services/api';
 import { useMessageStore } from './messageStore';
 
 // ── SignalR Access Token (in-memory only, NOT persisted for security) ──
 // Cross-origin WebSocket connections cannot reliably send HttpOnly cookies.
 // The official Microsoft solution is to pass the JWT via query string using
-// accessTokenFactory. This variable holds the token in memory for that purpose.
-let _signalRToken: string | null = null;
+// accessTokenFactory. We reuse the same in-memory token from the API module.
 
 /** Retrieve the current JWT for SignalR accessTokenFactory. */
 export function getSignalRToken(): string {
-  return _signalRToken ?? '';
+  return getApiAuthToken() ?? '';
 }
 
 export interface User {
@@ -65,6 +64,7 @@ function clearPersistedAuth() {
     localStorage.removeItem('chatpanel_messages');
     localStorage.removeItem('chatpanel_conversation_id');
     localStorage.removeItem('chatbot_messages');
+    sessionStorage.removeItem('rc_auth_token');
 }
 
 function applyAuthResponse(
@@ -72,10 +72,11 @@ function applyAuthResponse(
     data: AuthResponse,
     verificationStatus = ''
 ) {
-    // Store the JWT token in memory for SignalR accessTokenFactory.
-    // This is critical for cross-origin WebSocket auth where cookies are unreliable.
+    // Store the JWT token for both API requests (Authorization header) and
+    // SignalR accessTokenFactory. This is critical for cross-origin auth where
+    // third-party cookies are blocked by modern browsers.
     if (data.token) {
-        _signalRToken = data.token;
+        setApiAuthToken(data.token);
     }
 
     set({
@@ -188,7 +189,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             }
         }
 
-        _signalRToken = null;
+        setApiAuthToken(null);
         clearPersistedAuth();
         useMessageStore.getState().reset();
         set({ user: null, isAuthenticated: false, authResolved: true });

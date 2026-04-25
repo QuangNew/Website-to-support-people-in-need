@@ -1,6 +1,6 @@
 # Hướng dẫn Cập nhật Code cho Web đã Deploy — Chi tiết từng bước
 
-**Last Updated:** 2026-04-24  
+**Last Updated:** 2026-04-25  
 **Dành cho:** Người lần đầu cập nhật code lên production  
 **Yêu cầu:** Đã deploy thành công theo [AZURE_DEPLOYMENT_GUIDE.md](AZURE_DEPLOYMENT_GUIDE.md)
 
@@ -204,6 +204,7 @@ Bạn chỉ cần cập nhật App Settings khi thay đổi code **thêm/sửa b
 | Thêm service mới cần API key (ví dụ: thêm Stripe) | ✅ Có | Thêm key vào App Settings |
 | Đổi tên biến config trong code | ✅ Có | Đổi tên tương ứng trên Azure |
 | Thay đổi CORS domain | ✅ Có | Cập nhật `Frontend__Urls__0` |
+| Đổi custom domain frontend | ✅ Có + DNS | Cập nhật DNS trên Cloudflare + `Frontend__Urls__0` + Google OAuth origins |
 
 ### Cách cập nhật App Settings
 
@@ -477,4 +478,5 @@ Giải pháp:
 □ App Settings mới đã thêm trên Azure
 □ GitHub Secrets/Variables đã cập nhật (nếu cần)
 □ File .env.production đã cập nhật (nếu cần)
+□ DNS/Cloudflare records đúng (nếu đổi domain)
 ```

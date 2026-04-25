@@ -115,20 +115,36 @@ builder.Services.AddAuthentication(options =>
     {
         OnMessageReceived = context =>
         {
-            if (context.Request.Cookies.TryGetValue("auth_token", out var token))
-                {
-                context.Token = token;
-                    return Task.CompletedTask;
-                }
+            // Token resolution order:
+            // 1. Authorization: Bearer header — handled by default middleware, skip here
+            // 2. Cookie auth_token — fallback for same-origin or legacy browsers
+            // 3. Query string access_token — for SignalR WebSocket connections
 
-                var path = context.HttpContext.Request.Path;
-                var accessToken = context.Request.Query["access_token"];
+            // If Authorization header is present, let the default middleware handle it.
+            // This takes priority over cookies, which may be stale or blocked by
+            // third-party cookie policies (Safari ITP, Chrome deprecation).
+            var authHeader = context.Request.Headers["Authorization"].ToString();
+            if (!string.IsNullOrEmpty(authHeader) && authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+            {
+                // Don't set context.Token — let the default middleware extract it from the header
+                return Task.CompletedTask;
+            }
 
-                if (!string.IsNullOrWhiteSpace(accessToken)
-                    && path.StartsWithSegments("/hubs", StringComparison.OrdinalIgnoreCase))
-                {
-                    context.Token = accessToken;
-                }
+            // Fallback to cookie-based auth
+            if (context.Request.Cookies.TryGetValue("auth_token", out var cookieToken))
+            {
+                context.Token = cookieToken;
+                return Task.CompletedTask;
+            }
+
+            // SignalR WebSocket: read from query string
+            var path = context.HttpContext.Request.Path;
+            var accessToken = context.Request.Query["access_token"];
+            if (!string.IsNullOrWhiteSpace(accessToken)
+                && path.StartsWithSegments("/hubs", StringComparison.OrdinalIgnoreCase))
+            {
+                context.Token = accessToken;
+            }
 
             return Task.CompletedTask;
         },

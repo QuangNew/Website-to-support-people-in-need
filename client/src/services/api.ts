@@ -36,6 +36,8 @@ function isPublicAuthRequest(url: string): boolean {
 }
 
 function notifyAuthExpired() {
+  _inMemoryToken = null;
+  sessionStorage.removeItem(TOKEN_STORAGE_KEY);
   localStorage.removeItem('token');
   localStorage.removeItem('user');
 
@@ -44,9 +46,37 @@ function notifyAuthExpired() {
   }
 }
 
-// Request interceptor: preserve defaults and credentials for cookie-based auth
+// ── In-memory JWT token for Authorization header ──
+// Cross-origin cookies (SameSite=None) are increasingly blocked by browsers
+// (Safari ITP, Chrome third-party cookie deprecation). We use the Authorization
+// header as primary auth mechanism. The token is persisted in sessionStorage
+// (cleared on tab close) so it survives page refreshes but not new sessions.
+const TOKEN_STORAGE_KEY = 'rc_auth_token';
+let _inMemoryToken: string | null = sessionStorage.getItem(TOKEN_STORAGE_KEY);
+
+/** Set the JWT token for API requests. Called by auth store after login. */
+export function setApiAuthToken(token: string | null) {
+  _inMemoryToken = token;
+  if (token) {
+    sessionStorage.setItem(TOKEN_STORAGE_KEY, token);
+  } else {
+    sessionStorage.removeItem(TOKEN_STORAGE_KEY);
+  }
+}
+
+/** Get the current JWT token. Used by SignalR and other services. */
+export function getApiAuthToken(): string | null {
+  return _inMemoryToken;
+}
+
+// Request interceptor: attach Authorization header for cross-origin auth.
 api.interceptors.request.use(
-  (config) => config,
+  (config) => {
+    if (_inMemoryToken) {
+      config.headers.Authorization = `Bearer ${_inMemoryToken}`;
+    }
+    return config;
+  },
   (error) => Promise.reject(error)
 );
 
