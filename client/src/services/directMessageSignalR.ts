@@ -1,5 +1,6 @@
 import * as signalR from '@microsoft/signalr';
 import { useMessageStore } from '../stores/messageStore';
+import { getSignalRToken } from '../stores/authStore';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 const HUB_URL = API_BASE_URL.replace(/\/api\/?$/, '') + '/hubs/direct-messages';
@@ -35,7 +36,15 @@ export function startDirectMessageConnection() {
   console.log('[SignalR] Starting DirectMessage connection to:', HUB_URL);
 
   const newConnection = new signalR.HubConnectionBuilder()
-    .withUrl(HUB_URL, { withCredentials: true })
+    .withUrl(HUB_URL, {
+      // Pass the JWT via query string for WebSocket auth.
+      // Cross-origin WebSocket connections cannot reliably send HttpOnly cookies,
+      // so accessTokenFactory is the official Microsoft-recommended approach.
+      // The backend reads this from Request.Query["access_token"] in OnMessageReceived.
+      accessTokenFactory: () => getSignalRToken(),
+      // Still send cookies as a fallback (works for same-origin / dev proxy).
+      withCredentials: true,
+    })
     .withAutomaticReconnect([0, 2000, 5000, 10000, 30000]) // Progressive backoff
     .configureLogging(signalR.LogLevel.Information)
     .build();

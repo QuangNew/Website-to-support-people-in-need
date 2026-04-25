@@ -54,7 +54,7 @@ Dùng để triển khai frontend lên Azure Static Web Apps.
 
 **Lấy ở đâu:**
 1. Mở [Azure Portal](https://portal.azure.com)
-2. Tìm resource **Static Web Apps** của bạn (tên: `kind-ocean-0c3cec900.7`)
+2. Tìm resource **Static Web Apps** của bạn (tên: `reliefconnect-web` — custom domain: `hotrocuutro.site`)
 3. Nhấn **Manage deployment token** (hoặc **Overview → Deployment token**)
 4. Copy toàn bộ chuỗi token
 
@@ -280,7 +280,7 @@ Lập trình viên
       │                          Build React (Vite)
       │                               │
       │                          Upload dist/ ──▶ Azure Static Web Apps
-      │                                              (kind-ocean-0c3cec900.7)
+      │                                              (hotrocuutro.site)
       │
       └─── src/ thay đổi ──────▶ deploy-backend.yml
                                         │

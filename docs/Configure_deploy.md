@@ -356,7 +356,7 @@ Invoke-RestMethod "https://reliefconnect-api.azurewebsites.net/health"
 # Mong đợi: { status: "healthy" }
 
 # Frontend — mở trình duyệt
-Start-Process "https://kind-ocean-0c3cec900.7.azurestaticapps.net"
+Start-Process "https://hotrocuutro.site"
 # Nhấn Ctrl+Shift+R để hard refresh (xoá cache cũ)
 ```
 

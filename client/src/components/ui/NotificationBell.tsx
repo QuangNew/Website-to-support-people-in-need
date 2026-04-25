@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import * as signalR from '@microsoft/signalr';
 import { Bell, Check, CheckCheck, Trash2, Megaphone } from 'lucide-react';
 import { notificationApi, announcementApi } from '../../services/api';
-import { useAuthStore } from '../../stores/authStore';
+import { useAuthStore, getSignalRToken } from '../../stores/authStore';
 import { useLanguage } from '../../contexts/LanguageContext';
 
 const NOTIFICATION_POLL_MS = 10_000;
@@ -267,7 +267,10 @@ export default function NotificationBell() {
     }
 
     const connection = new signalR.HubConnectionBuilder()
-      .withUrl(NOTIFICATION_HUB_URL, { withCredentials: true })
+      .withUrl(NOTIFICATION_HUB_URL, {
+        accessTokenFactory: () => getSignalRToken(),
+        withCredentials: true,
+      })
       .withAutomaticReconnect()
       .configureLogging(signalR.LogLevel.Warning)
       .build();
