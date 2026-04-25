@@ -97,25 +97,25 @@
 
 ```
 ┌─────────────────────────┐     ┌──────────────────────────┐
-│      Frontend (SPA)     │     │     Backend (REST API)    │
+│      Frontend (SPA)     │     │     Backend (REST API)   │
 │  React 19 + Vite 8      │◄───►│  ASP.NET Core 10         │
-│  Zustand State Mgmt      │     │  Entity Framework Core   │
-│  Leaflet Maps            │     │  Identity + JWT Auth     │
-│  SignalR Client          │     │  SignalR Hubs            │
-│  Axios + Bearer Auth     │     │  Hangfire Background     │
+│  Zustand State Mgmt     │     │  Entity Framework Core   │
+│  Leaflet Maps           │     │  Identity + JWT Auth     │
+│  SignalR Client         │     │  SignalR Hubs            │
+│  Axios + Bearer Auth    │     │  Hangfire Background     │
 └─────────┬───────────────┘     └─────────┬────────────────┘
           │                               │
           │   Azure Static Web Apps       │   Azure App Service (B1)
           │   + Cloudflare CDN            │
           │                               │
           │                     ┌─────────▼────────────────┐
-          │                     │   PostgreSQL + PostGIS    │
-          │                     │   (Supabase)              │
+          │                     │   PostgreSQL + PostGIS   │
+          │                     │   (Supabase)             │
           │                     └──────────────────────────┘
           │                               │
           │                     ┌─────────▼────────────────┐
           └─────────────────────│   Supabase Storage       │
-                                │   (Image uploads)         │
+                                │   (Image uploads)        │
                                 └──────────────────────────┘
 ```
 
