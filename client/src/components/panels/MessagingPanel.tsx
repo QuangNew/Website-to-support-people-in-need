@@ -3,6 +3,7 @@ import { Search, ArrowLeft, Send, Loader2, MessageSquare, Clock } from 'lucide-r
 import { useMessageStore, type Conversation, type DeliveryStatus, type DirectMessage } from '../../stores/messageStore';
 import { useAuthStore } from '../../stores/authStore';
 import { messageApi } from '../../services/api';
+import { sendTypingIndicator } from '../../services/directMessageSignalR';
 import { useLanguage } from '../../contexts/LanguageContext';
 
 interface SearchUser {
@@ -38,6 +39,12 @@ export default function MessagingPanel() {
   const [inputText, setInputText] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  // Get typing indicator for the active conversation
+  const typingUser = useMessageStore((s) =>
+    activeConversationId ? s.typingUsers.get(activeConversationId) : undefined
+  );
 
   // Fetch conversations on mount
   useEffect(() => {
@@ -104,6 +111,20 @@ export default function MessagingPanel() {
     }
   };
 
+  // Emit typing indicator (debounced — only once per 2s)
+  const handleInputChange = (value: string) => {
+    setInputText(value);
+    if (activeConversationId && value.trim()) {
+      if (!typingTimeoutRef.current) {
+        sendTypingIndicator(activeConversationId);
+      }
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = setTimeout(() => {
+        typingTimeoutRef.current = undefined;
+      }, 2000);
+    }
+  };
+
   // Load more messages
   const loadMore = () => {
     if (activeConversationId && nextCursor) {
@@ -160,9 +181,9 @@ export default function MessagingPanel() {
             >
               <p className="messaging-bubble-text">{msg.content}</p>
               <div className="messaging-bubble-meta">
-                {msg.isMine && msg.deliveryStatus ? (
-                  <span className={`messaging-bubble-status ${msg.deliveryStatus}`}>
-                    {getDeliveryStatusLabel(msg.deliveryStatus, t)}
+                {msg.isMine ? (
+                  <span className={`messaging-bubble-status ${msg.isRead ? 'read' : (msg.deliveryStatus || 'sent')}`}>
+                    {msg.isRead ? t('messaging.statusRead') : getDeliveryStatusLabel(msg.deliveryStatus || 'sent', t)}
                   </span>
                 ) : null}
                 <span className="messaging-bubble-time">
@@ -177,6 +198,14 @@ export default function MessagingPanel() {
               <Loader2 size={20} className="animate-spin" />
             </div>
           )}
+          {typingUser && (
+            <div className="messaging-typing-indicator">
+              <span className="messaging-typing-dots">
+                <span /><span /><span />
+              </span>
+              <span className="messaging-typing-text">{typingUser.userName} {t('messaging.isTyping')}</span>
+            </div>
+          )}
         </div>
 
         {/* Input */}
@@ -186,7 +215,7 @@ export default function MessagingPanel() {
             className="messaging-input"
             placeholder={t('messaging.inputPlaceholder')}
             value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
+            onChange={(e) => handleInputChange(e.target.value)}
             onKeyDown={handleKeyDown}
             maxLength={2000}
           />

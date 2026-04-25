@@ -2,6 +2,17 @@ import { create } from 'zustand';
 import { authApi } from '../services/api';
 import { useMessageStore } from './messageStore';
 
+// ── SignalR Access Token (in-memory only, NOT persisted for security) ──
+// Cross-origin WebSocket connections cannot reliably send HttpOnly cookies.
+// The official Microsoft solution is to pass the JWT via query string using
+// accessTokenFactory. This variable holds the token in memory for that purpose.
+let _signalRToken: string | null = null;
+
+/** Retrieve the current JWT for SignalR accessTokenFactory. */
+export function getSignalRToken(): string {
+  return _signalRToken ?? '';
+}
+
 export interface User {
     id: string;
     userName: string;
@@ -61,6 +72,12 @@ function applyAuthResponse(
     data: AuthResponse,
     verificationStatus = ''
 ) {
+    // Store the JWT token in memory for SignalR accessTokenFactory.
+    // This is critical for cross-origin WebSocket auth where cookies are unreliable.
+    if (data.token) {
+        _signalRToken = data.token;
+    }
+
     set({
         isAuthenticated: true,
         authResolved: true,
@@ -90,6 +107,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         try {
             const res = await authApi.login({ email, password });
             applyAuthResponse(set, res.data);
+            // Brief delay to ensure the browser persists the Set-Cookie header
+            // before loadUser() fires /api/auth/me (cross-origin cookie race).
+            await new Promise(r => setTimeout(r, 150));
             await get().loadUser();
         } catch (err: unknown) {
             const axiosErr = err as { response?: { data?: { message?: string } } };
@@ -121,6 +141,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         try {
             const res = await authApi.googleLogin({ credential });
             applyAuthResponse(set, res.data);
+            // Brief delay to ensure the browser persists the Set-Cookie header
+            // before loadUser() fires /api/auth/me (cross-origin cookie race).
+            await new Promise(r => setTimeout(r, 150));
             await get().loadUser();
         } catch (err: unknown) {
             const axiosErr = err as { response?: { data?: { message?: string } } };
@@ -165,6 +188,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             }
         }
 
+        _signalRToken = null;
         clearPersistedAuth();
         useMessageStore.getState().reset();
         set({ user: null, isAuthenticated: false, authResolved: true });
@@ -182,6 +206,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             } catch (err: unknown) {
                 const axiosErr = err as { response?: { status?: number } };
                 if (axiosErr?.response?.status === 401) {
+                    // On production, cross-origin cookie may not be persisted yet.
+                    // Retry once after a short delay before giving up.
+                    await new Promise(r => setTimeout(r, 500));
+                    try {
+                        const retryRes = await authApi.getMe();
+                        set({ user: retryRes.data, isAuthenticated: true, authResolved: true });
+                        return;
+                    } catch {
+                        // Retry also failed — genuinely unauthenticated
+                    }
                     clearPersistedAuth();
                     set({ user: null, isAuthenticated: false, authResolved: true });
                     return;

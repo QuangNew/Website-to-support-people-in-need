@@ -30,10 +30,14 @@ export default function LoginModal() {
         callback: handleGoogleResponse,
       });
       if (googleBtnRef.current) {
+        // Google Identity Services expects `width` as an integer (pixels), NOT a string like '100%'.
+        // Passing a string causes the SDK to fallback to a small default (~200px).
+        // Compute the container's actual pixel width for a full-width button.
+        const containerWidth = googleBtnRef.current.offsetWidth || 340;
         (window as any).google.accounts.id.renderButton(googleBtnRef.current, {
           theme: 'outline',
           size: 'large',
-          width: '100%',
+          width: Math.min(containerWidth, 400),
           text: 'signin_with',
           shape: 'pill',
         });
@@ -42,7 +46,8 @@ export default function LoginModal() {
 
     // Google script may already be loaded
     if ((window as any).google?.accounts?.id) {
-      initGoogle();
+      // Slight delay to ensure modal is rendered and container has its final width
+      setTimeout(initGoogle, 50);
     } else {
       // Load the Google Identity Services script
       const existing = document.getElementById('google-gsi');

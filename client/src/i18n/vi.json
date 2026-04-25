@@ -261,10 +261,12 @@
     "sendMessage": "Gửi tin nhắn",
     "statusSending": "Đang gửi...",
     "statusSent": "Đã gửi",
+    "statusRead": "Đã xem",
     "statusFailed": "Gửi thất bại",
     "loadMore": "Tải thêm",
     "today": "Hôm nay",
-    "yesterday": "Hôm qua"
+    "yesterday": "Hôm qua",
+    "isTyping": "đang nhập..."
   },
   "sos": {
     "button": "S-O-S",

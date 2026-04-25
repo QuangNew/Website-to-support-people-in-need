@@ -104,7 +104,7 @@ public class MessageController : ControllerBase
     /// Get messages for a specific conversation (cursor-based, newest first).
     /// </summary>
     [HttpGet("conversations/{id:int}/messages")]
-    public async Task<IActionResult> GetMessages(int id, [FromQuery] int? before = null, [FromQuery] int limit = 30)
+    public async Task<IActionResult> GetMessages(int id, [FromQuery] int? before = null, [FromQuery] int? after = null, [FromQuery] int limit = 30)
     {
         var userId = GetUserId();
         if (userId == null) return Unauthorized();
@@ -129,6 +129,8 @@ public class MessageController : ControllerBase
 
         if (before.HasValue)
             query = query.Where(m => m.Id < before.Value);
+        else if (after.HasValue)
+            query = query.Where(m => m.Id > after.Value);
 
         var messages = await query
             .Take(limit + 1)
@@ -281,10 +283,9 @@ public class MessageController : ControllerBase
         // Persist first so optimistic UI can confirm delivery as soon as the DB write succeeds.
         await _db.SaveChangesAsync();
 
-        _ = UpdateConversationLastMessageAtAsync(id, now);
-
-        _ = WriteDirectMessageAuditAsync(userId, senderName, receiverId, id, now);
-        _ = BroadcastDirectMessageAsync(receiverId, id, message.Id, userId, senderName, null, sanitizedContent, now);
+        // Await background work instead of fire-and-forget to prevent connection pool exhaustion.
+        // Each fire-and-forget creates a new DbContext scope that competes for limited Supabase pool slots.
+        await PostSendBackgroundWorkAsync(id, now, userId, senderName, receiverId, message.Id, null, sanitizedContent);
 
         return Ok(new DirectMessageResponseDto
         {
@@ -309,17 +310,30 @@ public class MessageController : ControllerBase
         var userId = GetUserId();
         if (userId == null) return Unauthorized();
 
-        // Verify participation
-        var isParticipant = await _db.DirectConversations
+        // Verify participation and get the other user's ID
+        var conversation = await _db.DirectConversations
             .AsNoTracking()
-            .AnyAsync(c => c.Id == id && (c.User1Id == userId || c.User2Id == userId));
+            .FirstOrDefaultAsync(c => c.Id == id && (c.User1Id == userId || c.User2Id == userId));
 
-        if (!isParticipant)
+        if (conversation == null)
             return NotFound(new { message = "Conversation not found" });
+
+        var targetUserId = conversation.User1Id == userId ? conversation.User2Id : conversation.User1Id;
 
         var count = await _db.DirectMessages
             .Where(m => m.ConversationId == id && m.SenderId != userId && !m.IsRead && m.DeletedAt == null)
             .ExecuteUpdateAsync(m => m.SetProperty(x => x.IsRead, true));
+
+        if (count > 0)
+        {
+            // Broadcast to the sender that their messages were read
+            await _hubContext.Clients.User(targetUserId).SendAsync("ConversationRead", new
+            {
+                conversationId = id,
+                readerId = userId,
+                readAt = DateTime.UtcNow
+            });
+        }
 
         return Ok(new { markedRead = count });
     }
@@ -379,70 +393,73 @@ public class MessageController : ControllerBase
         return Ok(users);
     }
 
-    private async Task WriteDirectMessageAuditAsync(string userId, string userName, string receiverId, int conversationId, DateTime createdAt)
+    /// <summary>
+    /// Consolidated post-send work: update conversation timestamp, write audit log (single DB scope),
+    /// then broadcast via SignalR. Awaited instead of fire-and-forget to prevent connection pool exhaustion.
+    /// </summary>
+    private async Task PostSendBackgroundWorkAsync(
+        int conversationId,
+        DateTime now,
+        string senderId,
+        string senderName,
+        string receiverId,
+        int messageId,
+        string? senderAvatar,
+        string content)
     {
+        // 1. Single DB scope for both update + audit (halves connection usage)
         try
         {
             using var scope = _scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
+            // Update conversation last message timestamp
+            await db.DirectConversations
+                .Where(c => c.Id == conversationId)
+                .ExecuteUpdateAsync(s => s.SetProperty(c => c.LastMessageAt, now));
+
+            // Write audit log
             db.SystemLogs.Add(new SystemLog
             {
                 Action = "DirectMessage",
-                Details = $"User {userId} -> {receiverId} in conv {conversationId}",
-                UserId = userId,
-                UserName = userName,
-                CreatedAt = createdAt
+                Details = $"User {senderId} -> {receiverId} in conv {conversationId}",
+                UserId = senderId,
+                UserName = senderName,
+                CreatedAt = now
             });
 
             await db.SaveChangesAsync();
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to write direct message audit log for conversation {ConversationId}", conversationId);
+            _logger.LogWarning(ex, "Failed post-send DB work for conversation {ConversationId}", conversationId);
         }
-    }
 
-    private async Task UpdateConversationLastMessageAtAsync(int conversationId, DateTime lastMessageAt)
-    {
+        // 2. Broadcast via SignalR to BOTH sender and receiver.
+        // The sender's tab that initiated the API call already has the message via optimistic UI,
+        // but broadcasting to both ensures: (a) multi-tab/multi-device support for the sender,
+        // and (b) the receiver gets real-time delivery. The frontend deduplicates using senderId
+        // comparison — incoming messages with senderId === current user are ignored if already present.
         try
         {
-            using var scope = _scopeFactory.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var payload = new
+            {
+                messageId,
+                conversationId,
+                senderId,
+                senderName,
+                senderAvatar,
+                content,
+                sentAt = now
+            };
 
-            await db.DirectConversations
-                .Where(c => c.Id == conversationId)
-                .ExecuteUpdateAsync(s => s.SetProperty(c => c.LastMessageAt, lastMessageAt));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to update LastMessageAt for conversation {ConversationId}", conversationId);
-        }
-    }
-
-    private async Task BroadcastDirectMessageAsync(
-        string receiverId,
-        int conversationId,
-        int messageId,
-        string senderId,
-        string senderName,
-        string? senderAvatar,
-        string content,
-        DateTime sentAt)
-    {
-        try
-        {
+            // Broadcast to receiver
             await _hubContext.Clients.Group($"user_{receiverId}")
-                .SendAsync("ReceiveDirectMessage", new
-                {
-                    messageId,
-                    conversationId,
-                    senderId,
-                    senderName,
-                    senderAvatar,
-                    content,
-                    sentAt
-                });
+                .SendAsync("ReceiveDirectMessage", payload);
+
+            // Also broadcast to sender (for other tabs/devices)
+            await _hubContext.Clients.Group($"user_{senderId}")
+                .SendAsync("ReceiveDirectMessage", payload);
         }
         catch (Exception ex)
         {

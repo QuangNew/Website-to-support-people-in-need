@@ -35,16 +35,21 @@ interface MessageState {
   isLoadingConversations: boolean;
   isLoadingMessages: boolean;
   pendingSendCount: number;
+  /** Map of conversationId -> { userId, userName, expiresAt } for typing indicators */
+  typingUsers: Map<number, { userId: string; userName: string; expiresAt: number }>;
 
   fetchConversations: () => Promise<void>;
   fetchMessages: (conversationId: number, loadMore?: boolean) => Promise<void>;
+  syncMissedMessages: (conversationId: number) => Promise<void>;
   sendMessage: (conversationId: number, content: string) => Promise<void>;
   startConversation: (targetUserId: string) => Promise<number>;
   markRead: (conversationId: number) => Promise<void>;
+  markConversationAsReadLocally: (conversationId: number) => void;
   fetchUnreadCount: () => Promise<void>;
   setActiveConversation: (id: number | null) => void;
   addIncomingMessage: (msg: DirectMessage & { conversationId: number; senderAvatar?: string }) => void;
   updateUnreadFromSignalR: (conversationId: number, totalUnread: number) => void;
+  setTypingUser: (conversationId: number, userId: string, userName: string) => void;
   reset: () => void;
 }
 
@@ -57,6 +62,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   isLoadingConversations: false,
   isLoadingMessages: false,
   pendingSendCount: 0,
+  typingUsers: new Map(),
 
   fetchConversations: async () => {
     set({ isLoadingConversations: true });
@@ -95,6 +101,44 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       /* silent */
     } finally {
       set({ isLoadingMessages: false });
+    }
+  },
+
+  syncMissedMessages: async (conversationId: number) => {
+    const { messages, activeConversationId } = get();
+    // Only sync if this is the active conversation and we have existing messages
+    if (activeConversationId !== conversationId || messages.length === 0) return;
+
+    // Find the newest server message ID we have (first item with non-null ID, since array is sorted newest-first)
+    const latestServerMessage = messages.find(m => m.id !== null);
+    if (!latestServerMessage?.id) return;
+
+    try {
+      // Fetch up to 50 missed messages that occurred AFTER our latest known message
+      const res = await messageApi.getMessages(conversationId, { after: latestServerMessage.id, limit: 50 });
+      const missedMessages: DirectMessage[] = res.data.items.map((message: DirectMessage) => ({
+        ...message,
+        deliveryStatus: message.isMine ? 'sent' : undefined,
+      }));
+
+      if (missedMessages.length === 0) return;
+
+      set((state) => {
+        if (state.activeConversationId !== conversationId) return state;
+
+        // Deduplicate: avoid adding messages we might have already received via SignalR during the sync race
+        const existingIds = new Set(state.messages.map(m => m.id).filter(Boolean));
+        const newUniqueMessages = missedMessages.filter(m => m.id && !existingIds.has(m.id));
+
+        if (newUniqueMessages.length === 0) return state;
+
+        // API returns newest first, so we just prepend them to our list
+        return {
+          messages: [...newUniqueMessages, ...state.messages]
+        };
+      });
+    } catch {
+      /* silent */
     }
   },
 
@@ -198,6 +242,20 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     }
   },
 
+  markConversationAsReadLocally: (conversationId: number) => {
+    set((state) => {
+      // If we are currently viewing this conversation, update the messages array
+      if (state.activeConversationId === conversationId) {
+        return {
+          messages: state.messages.map((m) =>
+            m.isMine && !m.isRead ? { ...m, isRead: true } : m
+          ),
+        };
+      }
+      return state;
+    });
+  },
+
   fetchUnreadCount: async () => {
     try {
       const res = await messageApi.getUnreadCount();
@@ -212,11 +270,34 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   },
 
   addIncomingMessage: (msg) => {
-    const { activeConversationId, conversations } = get();
+    const { activeConversationId, conversations, messages } = get();
+    const currentUserId = useAuthStore.getState().user?.id;
     const hasConversation = conversations.some((c) => c.id === msg.conversationId);
+    const isOwnMessage = currentUserId != null && msg.senderId === currentUserId;
 
+    // Dedup: If this message ID already exists in the current view, skip it entirely.
+    // This handles the case where the sender's optimistic UI already added the message
+    // before the SignalR broadcast arrived back.
+    if (msg.id != null && messages.some((m) => m.id === msg.id)) {
+      return;
+    }
+
+    // Also dedup by checking if an optimistic message (id=null) with matching content
+    // and very close timestamp exists (sender's own message returning via SignalR).
+    if (isOwnMessage) {
+      const hasPending = messages.some(
+        (m) => m.id === null && m.isMine && m.content === msg.content
+      );
+      if (hasPending) {
+        // The optimistic message is still pending — the API response will update it.
+        // Skip the SignalR duplicate for the sender's active tab.
+        return;
+      }
+    }
+
+    // Update conversation list (last message, unread count)
     set((state) => ({
-      totalUnread: msg.conversationId === activeConversationId
+      totalUnread: msg.conversationId === activeConversationId || isOwnMessage
         ? state.totalUnread
         : state.totalUnread + 1,
       conversations: hasConversation
@@ -226,7 +307,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
                   ...c,
                   lastMessage: msg.content,
                   lastMessageAt: msg.sentAt,
-                  unreadCount: msg.conversationId === activeConversationId
+                  unreadCount: msg.conversationId === activeConversationId || isOwnMessage
                     ? c.unreadCount
                     : c.unreadCount + 1,
                 }
@@ -248,9 +329,9 @@ export const useMessageStore = create<MessageState>((set, get) => ({
           senderName: msg.senderName,
           content: msg.content,
           sentAt: msg.sentAt,
-          isRead: false,
-          isMine: false,
-          deliveryStatus: undefined,
+          isRead: isOwnMessage ? true : false,
+          isMine: isOwnMessage,
+          deliveryStatus: isOwnMessage ? 'sent' : undefined,
         }, ...state.messages],
       }));
     }
@@ -258,6 +339,26 @@ export const useMessageStore = create<MessageState>((set, get) => ({
 
   updateUnreadFromSignalR: (_conversationId: number, totalUnread: number) => {
     set({ totalUnread });
+  },
+
+  setTypingUser: (conversationId: number, userId: string, userName: string) => {
+    const typingUsers = new Map(get().typingUsers);
+    typingUsers.set(conversationId, {
+      userId,
+      userName,
+      expiresAt: Date.now() + 3000, // Auto-clear after 3 seconds
+    });
+    set({ typingUsers });
+
+    // Auto-clear typing indicator after 3 seconds
+    setTimeout(() => {
+      const current = get().typingUsers.get(conversationId);
+      if (current && current.userId === userId && current.expiresAt <= Date.now()) {
+        const updated = new Map(get().typingUsers);
+        updated.delete(conversationId);
+        set({ typingUsers: updated });
+      }
+    }, 3100);
   },
 
   reset: () => {
@@ -268,6 +369,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       totalUnread: 0,
       nextCursor: null,
       pendingSendCount: 0,
+      typingUsers: new Map(),
     });
   },
 }));

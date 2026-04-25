@@ -1,6 +1,8 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.EntityFrameworkCore;
+using ReliefConnect.Infrastructure.Data;
 
 namespace ReliefConnect.API.Hubs;
 
@@ -12,10 +14,12 @@ namespace ReliefConnect.API.Hubs;
 public class DirectMessageHub : Hub
 {
     private readonly ILogger<DirectMessageHub> _logger;
+    private readonly AppDbContext _db;
 
-    public DirectMessageHub(ILogger<DirectMessageHub> logger)
+    public DirectMessageHub(ILogger<DirectMessageHub> logger, AppDbContext db)
     {
         _logger = logger;
+        _db = db;
     }
 
     public override async Task OnConnectedAsync()
@@ -38,5 +42,37 @@ public class DirectMessageHub : Hub
             _logger.LogInformation("DM hub disconnected: {ConnectionId}, User: {UserId}", Context.ConnectionId, userId);
         }
         await base.OnDisconnectedAsync(exception);
+    }
+
+    /// <summary>
+    /// Send a typing indicator to the other participant in a conversation.
+    /// Lightweight — no DB write, just relay to the partner's SignalR group.
+    /// </summary>
+    public async Task Typing(int conversationId)
+    {
+        var userId = Context.User?.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrEmpty(userId)) return;
+
+        var userName = Context.User?.FindFirstValue("FullName")
+                    ?? Context.User?.FindFirstValue(ClaimTypes.Name)
+                    ?? "Unknown";
+
+        // Find the partner — lightweight query, no tracking
+        var conversation = await _db.DirectConversations
+            .AsNoTracking()
+            .Where(c => c.Id == conversationId && (c.User1Id == userId || c.User2Id == userId))
+            .Select(c => new { c.User1Id, c.User2Id })
+            .FirstOrDefaultAsync();
+
+        if (conversation == null) return;
+
+        var partnerId = conversation.User1Id == userId ? conversation.User2Id : conversation.User1Id;
+
+        await Clients.Group($"user_{partnerId}").SendAsync("UserTyping", new
+        {
+            conversationId,
+            userId,
+            userName
+        });
     }
 }
