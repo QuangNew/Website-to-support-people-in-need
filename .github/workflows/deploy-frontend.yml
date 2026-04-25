@@ -4,17 +4,11 @@ run-name: Frontend deploy • ${{ github.ref_name }} • ${{ github.event_name }
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
-    paths:
-      - 'client/**'
-      - '.github/workflows/deploy-frontend.yml'
-  pull_request:
-    types: [opened, synchronize, reopened, closed]
-    branches:
-      - main
-    paths:
-      - 'client/**'
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
 
 concurrency:
   group: deploy-frontend-${{ github.ref }}
@@ -24,7 +18,6 @@ jobs:
   build_and_deploy:
     name: Build & Deploy Frontend
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
 
     steps:
       - name: Checkout repository
@@ -48,12 +41,17 @@ jobs:
         working-directory: client
         run: pnpm build
         env:
-          # These are already in .env.production committed to the repo.
-          # Override here only if you need to inject secrets at build time.
           VITE_API_URL: ${{ vars.VITE_API_URL }}
           VITE_GOOGLE_CLIENT_ID: ${{ vars.VITE_GOOGLE_CLIENT_ID }}
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
+      - name: Verify build output
+        run: |
+          echo "Checking critical files in dist/..."
+          test -f client/dist/index.html || { echo "❌ index.html missing"; exit 1; }
+          test -f client/dist/staticwebapp.config.json || { echo "❌ staticwebapp.config.json missing"; exit 1; }
+          echo "✅ Build output verified"
 
       - name: Deploy to Azure Static Web Apps
         uses: Azure/static-web-apps-deploy@v1
@@ -61,89 +59,34 @@ jobs:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           action: 'upload'
-          # Vite outputs to client/dist
           app_location: 'client/dist'
-          # Compiled output — skip SWA's own build step
           skip_app_build: true
           output_location: ''
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Write deployment summary
         shell: bash
         run: |
           {
-            echo "## Frontend deployed"
+            echo "## 🚀 Frontend deployed"
             echo ""
-            echo "- Commit: \`${GITHUB_SHA}\`"
-            echo "- Branch: \`${GITHUB_REF_NAME}\`"
-            echo "- Trigger: \`${GITHUB_EVENT_NAME}\`"
-            echo "- Upload: \`client/dist\` → Azure Static Web Apps"
+            echo "| Key | Value |"
+            echo "|-----|-------|"
+            echo "| Tag | \`${GITHUB_REF_NAME}\` |"
+            echo "| Commit | \`${GITHUB_SHA::8}\` |"
+            echo "| Trigger | \`${GITHUB_EVENT_NAME}\` |"
+            echo "| Upload | \`client/dist\` → Azure Static Web Apps |"
             echo ""
-            echo "Redeploy cùng code: Actions → Deploy Frontend → Run workflow."
+            echo "Redeploy: Actions → Deploy Frontend → Run workflow."
           } >> "$GITHUB_STEP_SUMMARY"
-
-  preview_pull_request:
-    name: Preview Frontend PR
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request' && github.event.action != 'closed'
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: '10'
-
-      - name: Install dependencies
-        working-directory: client
-        run: pnpm install --frozen-lockfile
-
-      - name: Build for production
-        working-directory: client
-        run: pnpm build
-        env:
-          VITE_API_URL: ${{ vars.VITE_API_URL }}
-          VITE_GOOGLE_CLIENT_ID: ${{ vars.VITE_GOOGLE_CLIENT_ID }}
-          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-
-      - name: Deploy preview to Azure Static Web Apps
-        uses: Azure/static-web-apps-deploy@v1
-        with:
-          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          action: 'upload'
-          app_location: 'client/dist'
-          skip_app_build: true
-          output_location: ''
-
-      - name: Write preview summary
-        shell: bash
-        run: |
-          {
-            echo "## Frontend preview deployed"
-            echo ""
-            echo "- Commit: \`${GITHUB_SHA}\`"
-            echo "- Branch: \`${GITHUB_HEAD_REF}\`"
-            echo "- Trigger: \`pull_request\`"
-            echo "- Upload: \`client/dist\` → Azure Static Web Apps preview"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-  close_pull_request:
-    name: Close PR Preview Environment
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request' && github.event.action == 'closed'
-
-    steps:
-      - name: Close staging environment
-        uses: Azure/static-web-apps-deploy@v1
-        with:
-          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
-          app_location: 'client'
-          action: 'close'
