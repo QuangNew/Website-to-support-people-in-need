@@ -1,0 +1,77 @@
+name: Deploy Backend → Azure App Service
+run-name: Backend deploy • ${{ github.ref_name }} • ${{ github.event_name }}
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/**'
+      - '.github/workflows/deploy-backend.yml'
+
+concurrency:
+  group: deploy-backend-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_VERSION: '10.0.x'
+  # Azure App Service name (as it appears in the Azure Portal)
+  AZURE_WEBAPP_NAME: reliefconnect-api
+  # Path to the API project (startup project)
+  API_PROJECT: src/ReliefConnect.API/ReliefConnect.API.csproj
+
+jobs:
+  build_and_deploy:
+    name: Build & Deploy Backend
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET ${{ env.DOTNET_VERSION }}
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore NuGet packages
+        run: dotnet restore ${{ env.API_PROJECT }}
+
+      - name: Build (Release)
+        run: dotnet build ${{ env.API_PROJECT }} --configuration Release --no-restore
+
+      - name: Run unit tests
+        run: dotnet test src/ReliefConnect.Tests/ReliefConnect.Tests.csproj --configuration Release --no-build --verbosity normal
+        continue-on-error: false
+
+      - name: Publish (linux-x64, self-contained=false)
+        run: |
+          dotnet publish ${{ env.API_PROJECT }} \
+            --configuration Release \
+            --runtime linux-x64 \
+            --self-contained false \
+            --output ./publish
+
+      - name: Deploy to Azure App Service
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.AZURE_WEBAPP_NAME }}
+          # Store the publish profile from Azure Portal:
+          #   App Service → Overview → "Get publish profile" → download → paste full XML as secret
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          package: ./publish
+
+      - name: Write deployment summary
+        shell: bash
+        run: |
+          {
+            echo "## Backend deployed"
+            echo ""
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Branch: \`${GITHUB_REF_NAME}\`"
+            echo "- Trigger: \`${GITHUB_EVENT_NAME}\`"
+            echo "- URL: https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net"
+            echo ""
+            echo "Redeploy cùng code: Actions → Deploy Backend → Run workflow."
+          } >> "$GITHUB_STEP_SUMMARY"
