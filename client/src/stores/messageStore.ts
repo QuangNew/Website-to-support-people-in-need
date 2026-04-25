@@ -35,6 +35,8 @@ interface MessageState {
   isLoadingConversations: boolean;
   isLoadingMessages: boolean;
   pendingSendCount: number;
+  /** Map of conversationId -> { userId, userName, expiresAt } for typing indicators */
+  typingUsers: Map<number, { userId: string; userName: string; expiresAt: number }>;
 
   fetchConversations: () => Promise<void>;
   fetchMessages: (conversationId: number, loadMore?: boolean) => Promise<void>;
@@ -45,6 +47,7 @@ interface MessageState {
   setActiveConversation: (id: number | null) => void;
   addIncomingMessage: (msg: DirectMessage & { conversationId: number; senderAvatar?: string }) => void;
   updateUnreadFromSignalR: (conversationId: number, totalUnread: number) => void;
+  setTypingUser: (conversationId: number, userId: string, userName: string) => void;
   reset: () => void;
 }
 
@@ -57,6 +60,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   isLoadingConversations: false,
   isLoadingMessages: false,
   pendingSendCount: 0,
+  typingUsers: new Map(),
 
   fetchConversations: async () => {
     set({ isLoadingConversations: true });
@@ -260,6 +264,26 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     set({ totalUnread });
   },
 
+  setTypingUser: (conversationId: number, userId: string, userName: string) => {
+    const typingUsers = new Map(get().typingUsers);
+    typingUsers.set(conversationId, {
+      userId,
+      userName,
+      expiresAt: Date.now() + 3000, // Auto-clear after 3 seconds
+    });
+    set({ typingUsers });
+
+    // Auto-clear typing indicator after 3 seconds
+    setTimeout(() => {
+      const current = get().typingUsers.get(conversationId);
+      if (current && current.userId === userId && current.expiresAt <= Date.now()) {
+        const updated = new Map(get().typingUsers);
+        updated.delete(conversationId);
+        set({ typingUsers: updated });
+      }
+    }, 3100);
+  },
+
   reset: () => {
     set({
       conversations: [],
@@ -268,6 +292,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       totalUnread: 0,
       nextCursor: null,
       pendingSendCount: 0,
+      typingUsers: new Map(),
     });
   },
 }));

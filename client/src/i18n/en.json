@@ -264,7 +264,8 @@
         "statusFailed": "Failed",
         "loadMore": "Load more",
         "today": "Today",
-        "yesterday": "Yesterday"
+        "yesterday": "Yesterday",
+        "isTyping": "is typing..."
     },
     "sos": {
         "button": "S-O-S",

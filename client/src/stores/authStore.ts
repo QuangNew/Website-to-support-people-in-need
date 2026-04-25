@@ -90,6 +90,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         try {
             const res = await authApi.login({ email, password });
             applyAuthResponse(set, res.data);
+            // Brief delay to ensure the browser persists the Set-Cookie header
+            // before loadUser() fires /api/auth/me (cross-origin cookie race).
+            await new Promise(r => setTimeout(r, 150));
             await get().loadUser();
         } catch (err: unknown) {
             const axiosErr = err as { response?: { data?: { message?: string } } };
@@ -121,6 +124,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         try {
             const res = await authApi.googleLogin({ credential });
             applyAuthResponse(set, res.data);
+            // Brief delay to ensure the browser persists the Set-Cookie header
+            // before loadUser() fires /api/auth/me (cross-origin cookie race).
+            await new Promise(r => setTimeout(r, 150));
             await get().loadUser();
         } catch (err: unknown) {
             const axiosErr = err as { response?: { data?: { message?: string } } };
@@ -182,6 +188,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             } catch (err: unknown) {
                 const axiosErr = err as { response?: { status?: number } };
                 if (axiosErr?.response?.status === 401) {
+                    // On production, cross-origin cookie may not be persisted yet.
+                    // Retry once after a short delay before giving up.
+                    await new Promise(r => setTimeout(r, 500));
+                    try {
+                        const retryRes = await authApi.getMe();
+                        set({ user: retryRes.data, isAuthenticated: true, authResolved: true });
+                        return;
+                    } catch {
+                        // Retry also failed — genuinely unauthenticated
+                    }
                     clearPersistedAuth();
                     set({ user: null, isAuthenticated: false, authResolved: true });
                     return;

@@ -281,10 +281,9 @@ public class MessageController : ControllerBase
         // Persist first so optimistic UI can confirm delivery as soon as the DB write succeeds.
         await _db.SaveChangesAsync();
 
-        _ = UpdateConversationLastMessageAtAsync(id, now);
-
-        _ = WriteDirectMessageAuditAsync(userId, senderName, receiverId, id, now);
-        _ = BroadcastDirectMessageAsync(receiverId, id, message.Id, userId, senderName, null, sanitizedContent, now);
+        // Await background work instead of fire-and-forget to prevent connection pool exhaustion.
+        // Each fire-and-forget creates a new DbContext scope that competes for limited Supabase pool slots.
+        await PostSendBackgroundWorkAsync(id, now, userId, senderName, receiverId, message.Id, null, sanitizedContent);
 
         return Ok(new DirectMessageResponseDto
         {
@@ -379,57 +378,49 @@ public class MessageController : ControllerBase
         return Ok(users);
     }
 
-    private async Task WriteDirectMessageAuditAsync(string userId, string userName, string receiverId, int conversationId, DateTime createdAt)
+    /// <summary>
+    /// Consolidated post-send work: update conversation timestamp, write audit log (single DB scope),
+    /// then broadcast via SignalR. Awaited instead of fire-and-forget to prevent connection pool exhaustion.
+    /// </summary>
+    private async Task PostSendBackgroundWorkAsync(
+        int conversationId,
+        DateTime now,
+        string senderId,
+        string senderName,
+        string receiverId,
+        int messageId,
+        string? senderAvatar,
+        string content)
     {
+        // 1. Single DB scope for both update + audit (halves connection usage)
         try
         {
             using var scope = _scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
+            // Update conversation last message timestamp
+            await db.DirectConversations
+                .Where(c => c.Id == conversationId)
+                .ExecuteUpdateAsync(s => s.SetProperty(c => c.LastMessageAt, now));
+
+            // Write audit log
             db.SystemLogs.Add(new SystemLog
             {
                 Action = "DirectMessage",
-                Details = $"User {userId} -> {receiverId} in conv {conversationId}",
-                UserId = userId,
-                UserName = userName,
-                CreatedAt = createdAt
+                Details = $"User {senderId} -> {receiverId} in conv {conversationId}",
+                UserId = senderId,
+                UserName = senderName,
+                CreatedAt = now
             });
 
             await db.SaveChangesAsync();
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to write direct message audit log for conversation {ConversationId}", conversationId);
+            _logger.LogWarning(ex, "Failed post-send DB work for conversation {ConversationId}", conversationId);
         }
-    }
 
-    private async Task UpdateConversationLastMessageAtAsync(int conversationId, DateTime lastMessageAt)
-    {
-        try
-        {
-            using var scope = _scopeFactory.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-
-            await db.DirectConversations
-                .Where(c => c.Id == conversationId)
-                .ExecuteUpdateAsync(s => s.SetProperty(c => c.LastMessageAt, lastMessageAt));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to update LastMessageAt for conversation {ConversationId}", conversationId);
-        }
-    }
-
-    private async Task BroadcastDirectMessageAsync(
-        string receiverId,
-        int conversationId,
-        int messageId,
-        string senderId,
-        string senderName,
-        string? senderAvatar,
-        string content,
-        DateTime sentAt)
-    {
+        // 2. Broadcast via SignalR (no DB connection needed)
         try
         {
             await _hubContext.Clients.Group($"user_{receiverId}")
@@ -441,7 +432,7 @@ public class MessageController : ControllerBase
                     senderName,
                     senderAvatar,
                     content,
-                    sentAt
+                    sentAt = now
                 });
         }
         catch (Exception ex)

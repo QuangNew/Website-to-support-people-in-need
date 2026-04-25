@@ -712,6 +712,13 @@ export function mapBackendPing(payload: Record<string, unknown>): PingData {
     };
 }
 
+// ─── Ping cache bounds tracking ───
+// Tracks the largest geographic area we've already fetched pings for.
+// When the user zooms in, the viewport shrinks inside this area → no API call needed.
+// When the user pans/zooms out beyond this area → fetch new pings and expand the cached region.
+let cachedPingsBounds: { north: number; south: number; east: number; west: number } | null = null;
+let lastFetchedBoundsKey = '';
+
 export const useMapStore = create<MapState>((set, get) => ({
     center: { lat: 15.8, lng: 106.6 },
     zoom: 6,
@@ -783,23 +790,54 @@ export const useMapStore = create<MapState>((set, get) => ({
             const res = await mapApi.getPings();
             const backendPings = (res.data as Array<Record<string, unknown>>).map(mapBackendPing);
             set({ pings: backendPings, pingsLoading: false });
+            // Reset bounds cache since we just loaded the full dataset
+            cachedPingsBounds = null;
+            lastFetchedBoundsKey = '';
         } catch {
             console.warn('[MapStore] Backend unavailable, keeping current pings');
             set({ pingsLoading: false });
         }
     },
 
-    // Fetch pings with spatial bounds - only gets pings within visible map area
+    // Fetch pings with spatial bounds — merge strategy to avoid cache invalidation on zoom.
+    // Instead of replacing the entire pings array (which clears pings outside viewport on zoom-in),
+    // we merge new results with the existing cache and only call the API when the viewport extends
+    // beyond what we've already fetched.
     fetchPingsInBounds: async (bounds: { north: number; south: number; east: number; west: number }) => {
+        // Skip if the new bounds are entirely within what we've already fetched (zoom-in case)
+        const cached = cachedPingsBounds;
+        if (
+            cached &&
+            bounds.north <= cached.north &&
+            bounds.south >= cached.south &&
+            bounds.east <= cached.east &&
+            bounds.west >= cached.west
+        ) {
+            // Already have all data for this viewport — no API call needed
+            return;
+        }
+
+        // Debounce protection: skip if we just fetched with a very similar bounds
+        const boundsKey = `${bounds.north.toFixed(3)}:${bounds.south.toFixed(3)}:${bounds.east.toFixed(3)}:${bounds.west.toFixed(3)}`;
+        if (boundsKey === lastFetchedBoundsKey) return;
+
         set({ pingsLoading: true });
         try {
-            // Calculate center and radius from visible bounds
-            const centerLat = (bounds.north + bounds.south) / 2;
-            const centerLng = (bounds.east + bounds.west) / 2;
-            // Proper half-diagonal distance with longitude correction
-            const latKm = (bounds.north - bounds.south) * 111;
-            const lngKm = (bounds.east - bounds.west) * 111 * Math.cos(centerLat * Math.PI / 180);
-            // Half-diagonal + 15% margin to cover viewport corners
+            // Expand the fetch area by 50% to pre-fetch surrounding pings and reduce future calls
+            const latSpan = bounds.north - bounds.south;
+            const lngSpan = bounds.east - bounds.west;
+            const expandedBounds = {
+                north: bounds.north + latSpan * 0.25,
+                south: bounds.south - latSpan * 0.25,
+                east: bounds.east + lngSpan * 0.25,
+                west: bounds.west - lngSpan * 0.25,
+            };
+
+            // Calculate center and radius from expanded bounds
+            const centerLat = (expandedBounds.north + expandedBounds.south) / 2;
+            const centerLng = (expandedBounds.east + expandedBounds.west) / 2;
+            const latKm = (expandedBounds.north - expandedBounds.south) * 111;
+            const lngKm = (expandedBounds.east - expandedBounds.west) * 111 * Math.cos(centerLat * Math.PI / 180);
             const radiusKm = Math.sqrt(latKm * latKm + lngKm * lngKm) / 2 * 1.15;
 
             const res = await mapApi.getPings({
@@ -808,7 +846,28 @@ export const useMapStore = create<MapState>((set, get) => ({
                 radiusKm: Math.max(radiusKm, 20), // 20km minimum; backend validates ≤10000km
             });
             const backendPings = (res.data as Array<Record<string, unknown>>).map(mapBackendPing);
-            set({ pings: backendPings, pingsLoading: false });
+
+            // Merge new pings with existing cache (upsert by ID)
+            set((state) => {
+                const pingMap = new Map(state.pings.map((p) => [p.id, p]));
+                for (const ping of backendPings) {
+                    pingMap.set(ping.id, ping); // overwrite with fresh data
+                }
+                return { pings: Array.from(pingMap.values()), pingsLoading: false };
+            });
+
+            // Update cached bounds to the union of old + new expanded bounds
+            if (cached) {
+                cachedPingsBounds = {
+                    north: Math.max(cached.north, expandedBounds.north),
+                    south: Math.min(cached.south, expandedBounds.south),
+                    east: Math.max(cached.east, expandedBounds.east),
+                    west: Math.min(cached.west, expandedBounds.west),
+                };
+            } else {
+                cachedPingsBounds = { ...expandedBounds };
+            }
+            lastFetchedBoundsKey = boundsKey;
         } catch {
             console.warn('[MapStore] Failed to fetch pings in bounds');
             set({ pingsLoading: false });

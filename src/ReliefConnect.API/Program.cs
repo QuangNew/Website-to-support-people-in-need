@@ -442,6 +442,9 @@ static string BuildAppConnectionString(string connectionString)
         // PgBouncer handles server-side pooling; Npgsql pooling on top is fine and critical for performance.
         builder.Enlist = false;          // No distributed transactions (PgBouncer incompatible)
         builder.NoResetOnClose = true;   // Skip DISCARD ALL — PgBouncer handles session cleanup
+        builder.MaxPoolSize = 5;         // Supabase free tier pool_size ~15-20; keep well under to avoid MaxClientsInSessionMode
+        builder.MinPoolSize = 1;         // Keep at least 1 warm connection for fast first request
+        builder.ConnectionIdleLifetime = 60; // Close idle connections after 60s to free pool slots
     }
 
     return builder.ConnectionString;

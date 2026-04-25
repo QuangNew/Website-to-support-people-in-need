@@ -701,7 +701,9 @@ public class AuthController : ControllerBase
             // backend on Azure App Service are different origins). None requires Secure=true.
             SameSite = sameSite,
             Expires = new DateTimeOffset(expiresAt),
-            MaxAge = expiresAt - DateTime.UtcNow,
+            // Do NOT set MaxAge — when both Expires and MaxAge are present, MaxAge takes priority
+            // (RFC 6265). If there is clock drift between the server and browser, MaxAge can evaluate
+            // to near-zero, causing the cookie to expire immediately and triggering an auto-logout loop.
             Path = "/",
             IsEssential = true,
         });
