@@ -349,15 +349,26 @@ function rankAlternativeCandidates(primary: RouteCandidate, candidates: RouteCan
             };
         });
 
+    // Only keep alternatives that represent genuinely different paths.
+    // Filter out routes that share most of the same roads or only deviate
+    // by a single turn — those aren't useful to the user.
     const distinctEnough = scored.filter((entry) => {
-        if (entry.overlapRatio !== null && entry.overlapRatio >= 0.92 && entry.deviationKm < 0.18) {
+        // Hard reject: very high road overlap with tiny spatial deviation
+        // (just a minor detour on essentially the same path)
+        if (entry.overlapRatio !== null && entry.overlapRatio >= 0.7 && entry.deviationKm < 0.5) {
             return false;
         }
 
-        return entry.score >= 0.1 || entry.deviationKm >= 0.2 || (entry.overlapRatio ?? 1) < 0.9;
+        // Require meaningful deviation: either significantly different roads,
+        // OR substantial spatial separation from the primary route
+        const hasDifferentRoads = (entry.overlapRatio ?? 1) < 0.7;
+        const hasSignificantDeviation = entry.deviationKm >= 0.5;
+        const hasGoodScore = entry.score >= 0.25;
+
+        return (hasDifferentRoads || hasSignificantDeviation) && hasGoodScore;
     });
 
-    return (distinctEnough.length > 0 ? distinctEnough : scored)
+    return (distinctEnough.length > 0 ? distinctEnough : [])
         .sort((first, second) => second.score - first.score || first.candidate.info.durationMin - second.candidate.info.durationMin);
 }
 
