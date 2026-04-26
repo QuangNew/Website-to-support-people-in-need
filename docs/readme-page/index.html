@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ReliefConnect — Relief Connection Platform</title>
+  <meta name="description" content="ReliefConnect is a map-centric, community-driven support platform designed to assist people in need through real-time SOS pinging, volunteer coordination, AI-powered assistance, and secure community interactions." />
+  <link rel="icon" href="../Icon/ReliefConnect.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #e53e3e;
+      --primary-light: #feb2b2;
+      --accent: #f6ad55;
+      --bg: #0f1117;
+      --bg-card: #1a1d28;
+      --bg-card-hover: #22263a;
+      --text: #e2e8f0;
+      --text-muted: #94a3b8;
+      --border: #2d3348;
+      --gradient-primary: linear-gradient(135deg, #e53e3e 0%, #f6ad55 100%);
+      --shadow-glow: 0 0 30px rgba(229, 62, 62, 0.15);
+      --radius: 16px;
+      --radius-sm: 10px;
+      --radius-xs: 6px;
+      --font: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.7;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ─── Hero ─── */
+    .hero {
+      text-align: center;
+      padding: 80px 24px 48px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: -120px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 600px;
+      height: 600px;
+      background: radial-gradient(circle, rgba(229,62,62,0.12) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .hero-logo { width: 88px; height: 88px; margin-bottom: 20px; filter: drop-shadow(0 0 20px rgba(229,62,62,0.3)); }
+    .hero h1 { font-size: clamp(2rem, 5vw, 3.2rem); font-weight: 800; letter-spacing: -0.02em; }
+    .hero h1 span { background: var(--gradient-primary); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    .hero p { color: var(--text-muted); font-size: 1.1rem; max-width: 560px; margin: 12px auto 0; }
+
+    .badges { display: flex; gap: 8px; justify-content: center; margin-top: 20px; flex-wrap: wrap; }
+    .badges img { height: 24px; }
+
+    /* ─── Language Tabs ─── */
+    .lang-tabs {
+      display: flex;
+      justify-content: center;
+      gap: 6px;
+      margin: 36px auto 0;
+      padding: 4px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      width: fit-content;
+    }
+
+    .lang-tab {
+      padding: 8px 22px;
+      border: none;
+      border-radius: 999px;
+      background: transparent;
+      color: var(--text-muted);
+      font-family: var(--font);
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .lang-tab:hover { color: var(--text); }
+    .lang-tab.active {
+      background: var(--gradient-primary);
+      color: #fff;
+      box-shadow: 0 2px 12px rgba(229,62,62,0.3);
+    }
+
+    /* ─── Container ─── */
+    .container { max-width: 960px; margin: 0 auto; padding: 0 24px 60px; }
+
+    /* ─── Language Sections ─── */
+    .lang-section { display: none; animation: fadeIn 0.3s ease; }
+    .lang-section.active { display: block; }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ─── Section ─── */
+    .section { margin-top: 48px; }
+    .section h2 {
+      font-size: 1.6rem;
+      font-weight: 700;
+      margin-bottom: 16px;
+      padding-bottom: 8px;
+      border-bottom: 2px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .section h3 { font-size: 1.15rem; font-weight: 600; margin: 24px 0 8px; }
+    .section p { color: var(--text-muted); margin-bottom: 12px; }
+    .section ul { padding-left: 20px; color: var(--text-muted); }
+    .section li { margin-bottom: 6px; }
+    .section strong { color: var(--text); }
+
+    /* ─── Feature Cards ─── */
+    .feature-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; margin-top: 16px; }
+    .feature-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+      transition: all 0.2s ease;
+    }
+    .feature-card:hover { border-color: rgba(229,62,62,0.3); box-shadow: var(--shadow-glow); transform: translateY(-2px); }
+    .feature-card .emoji { font-size: 28px; margin-bottom: 12px; display: block; }
+    .feature-card h4 { font-size: 1rem; font-weight: 700; margin-bottom: 8px; }
+    .feature-card p { font-size: 0.9rem; color: var(--text-muted); margin: 0; }
+
+    /* ─── Table ─── */
+    .table-wrap { overflow-x: auto; margin-top: 12px; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    th, td { padding: 10px 16px; text-align: left; border-bottom: 1px solid var(--border); }
+    th { color: var(--text); font-weight: 600; background: var(--bg-card); }
+    td { color: var(--text-muted); }
+
+    /* ─── Code ─── */
+    pre { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 16px 20px; overflow-x: auto; font-size: 0.85rem; line-height: 1.6; margin: 12px 0; }
+    code { font-family: 'Fira Code', monospace; color: #f6ad55; }
+    pre code { color: var(--text); }
+
+    /* ─── Footer ─── */
+    .footer { text-align: center; padding: 40px 24px; border-top: 1px solid var(--border); color: var(--text-muted); font-size: 0.85rem; }
+    .footer a { color: var(--primary); text-decoration: none; }
+
+    /* ─── Responsive ─── */
+    @media (max-width: 640px) {
+      .hero { padding: 48px 16px 32px; }
+      .feature-grid { grid-template-columns: 1fr; }
+      .container { padding: 0 16px 40px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Hero -->
+<div class="hero">
+  <img src="../Icon/ReliefConnect.svg" alt="ReliefConnect" class="hero-logo" onerror="this.style.display='none'" />
+  <h1><span>ReliefConnect</span></h1>
+  <p id="hero-desc">A relief connection platform — supporting people in need</p>
+  <div class="badges">
+    <img alt="React" src="https://img.shields.io/badge/React-19-61dafb?logo=react" />
+    <img alt=".NET" src="https://img.shields.io/badge/.NET-10-512bd4?logo=dotnet" />
+    <img alt="PostgreSQL" src="https://img.shields.io/badge/PostgreSQL-PostGIS-336791?logo=postgresql" />
+    <img alt="Azure" src="https://img.shields.io/badge/Azure-Deployed-0078d4?logo=microsoftazure" />
+  </div>
+  <div class="lang-tabs">
+    <button class="lang-tab active" data-lang="en">English</button>
+    <button class="lang-tab" data-lang="vi">Tiếng Việt</button>
+    <button class="lang-tab" data-lang="ja">日本語</button>
+  </div>
+</div>
+
+<div class="container">
+
+<!-- ═══════ ENGLISH ═══════ -->
+<div class="lang-section active" id="lang-en">
+
+  <div class="section">
+    <h2>📖 About</h2>
+    <p><strong>ReliefConnect</strong> is a web application that connects people in need with organizations and individuals who want to help. The platform operates on a <strong>real-time interactive map</strong>, allowing users to send SOS signals, post supply information, and coordinate relief efforts during natural disasters, epidemics, or difficult circumstances.</p>
+  </div>
+
+  <div class="section">
+    <h2>✨ Key Features</h2>
+    <div class="feature-grid">
+      <div class="feature-card"><span class="emoji">🗺️</span><h4>Interactive Map</h4><p>Leaflet + OpenStreetMap with real-time SOS pings, supply points, danger zones, and PostGIS spatial indexing.</p></div>
+      <div class="feature-card"><span class="emoji">🔍</span><h4>Smart Routing</h4><p>OSRM integration with custom route deviation analysis, fallback alternative generation, and composite scoring.</p></div>
+      <div class="feature-card"><span class="emoji">💬</span><h4>Real-time Messaging</h4><p>SignalR WebSocket with read receipts, typing indicators, offline sync, and notification bell.</p></div>
+      <div class="feature-card"><span class="emoji">🤖</span><h4>AI Assistant</h4><p>Gemini AI chatbot for relief guidance, content moderation, and API key pool rotation.</p></div>
+      <div class="feature-card"><span class="emoji">🔐</span><h4>Auth & Security</h4><p>JWT + Cookie dual auth, Google OAuth, role-based access, email verification, and KYC workflow.</p></div>
+      <div class="feature-card"><span class="emoji">💰</span><h4>Donation System</h4><p>PayOS QR code payments, automatic webhook verification, and donation leaderboard.</p></div>
+      <div class="feature-card"><span class="emoji">🛡️</span><h4>Admin Dashboard</h4><p>User management, content moderation, audit logs, CSV exports, and soft-delete with restore.</p></div>
+      <div class="feature-card"><span class="emoji">🌍</span><h4>Multilingual</h4><p>Vietnamese + English i18n, dark/light mode, responsive desktop + mobile, glassmorphism UI.</p></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>🏗️ Tech Stack</h2>
+    <div class="table-wrap">
+      <table>
+        <tr><th>Layer</th><th>Technologies</th></tr>
+        <tr><td>Frontend</td><td>React 19, Vite 8, TypeScript 5.9, Zustand 5, Leaflet 1.9, SignalR Client</td></tr>
+        <tr><td>Backend</td><td>ASP.NET Core 10, Entity Framework Core, SignalR Hubs, Hangfire, Serilog</td></tr>
+        <tr><td>Database</td><td>PostgreSQL + PostGIS (Supabase), Supabase Storage</td></tr>
+        <tr><td>Infrastructure</td><td>Azure Static Web Apps, Azure App Service, Cloudflare, GitHub Actions</td></tr>
+        <tr><td>AI & Payments</td><td>Google Gemini AI, PayOS</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>🧮 Notable Algorithms</h2>
+    <h3>Spatial Query Optimization</h3>
+    <p>PostGIS GIST spatial index enables <strong>O(log n)</strong> SOS radius searches.</p>
+    <h3>Route Deviation Scoring</h3>
+    <p>Custom composite score combining node overlap ratio, spatial deviation, and distance/duration penalties.</p>
+    <h3>Viewport Ping Caching</h3>
+    <p>Only fetches new pings when viewport exceeds cached bounds; merges results to prevent data loss.</p>
+    <h3>Cross-origin Auth Strategy</h3>
+    <p>Bearer header as primary auth, HttpOnly cookie fallback, query string for SignalR WebSocket.</p>
+  </div>
+
+  <div class="section">
+    <h2>🚀 Quick Start</h2>
+    <pre><code># Frontend
+cd client && pnpm install && pnpm dev
+
+# Backend
+cd src && dotnet restore && dotnet run --project ReliefConnect.API</code></pre>
+  </div>
+</div>
+
+<!-- ═══════ TIẾNG VIỆT ═══════ -->
+<div class="lang-section" id="lang-vi">
+
+  <div class="section">
+    <h2>📖 Giới thiệu</h2>
+    <p><strong>ReliefConnect</strong> là ứng dụng web hỗ trợ kết nối người cần cứu trợ với các tổ chức/cá nhân muốn giúp đỡ. Nền tảng hoạt động dựa trên <strong>bản đồ thời gian thực</strong>, cho phép người dùng gửi tín hiệu SOS, đăng thông tin cung cấp vật tư, và phối hợp cứu trợ trong các tình huống thiên tai, dịch bệnh hoặc hoàn cảnh khó khăn.</p>
+  </div>
+
+  <div class="section">
+    <h2>✨ Tính năng chính</h2>
+    <div class="feature-grid">
+      <div class="feature-card"><span class="emoji">🗺️</span><h4>Bản đồ tương tác</h4><p>Leaflet + OpenStreetMap hiển thị SOS pings, điểm cung cấp vật tư, vùng nguy hiểm với PostGIS spatial indexing.</p></div>
+      <div class="feature-card"><span class="emoji">🔍</span><h4>Tìm đường thông minh</h4><p>Tích hợp OSRM với thuật toán phân tích độ lệch tuyến đường, tạo tuyến thay thế tự động, và hệ thống chấm điểm.</p></div>
+      <div class="feature-card"><span class="emoji">💬</span><h4>Nhắn tin thời gian thực</h4><p>SignalR WebSocket với xác nhận đã đọc, chỉ báo đang nhập, đồng bộ offline, và chuông thông báo.</p></div>
+      <div class="feature-card"><span class="emoji">🤖</span><h4>Trợ lý AI</h4><p>Chatbot Gemini AI hỗ trợ thông tin cứu trợ, kiểm duyệt nội dung, và xoay vòng API key.</p></div>
+      <div class="feature-card"><span class="emoji">🔐</span><h4>Xác thực & Bảo mật</h4><p>JWT + Cookie dual auth, Google OAuth, phân quyền theo vai trò, xác minh email, và quy trình KYC.</p></div>
+      <div class="feature-card"><span class="emoji">💰</span><h4>Hệ thống quyên góp</h4><p>Thanh toán QR code PayOS, webhook tự động xác nhận, và bảng xếp hạng quyên góp.</p></div>
+      <div class="feature-card"><span class="emoji">🛡️</span><h4>Bảng điều khiển Admin</h4><p>Quản lý người dùng, kiểm duyệt nội dung, nhật ký hệ thống, xuất CSV, và khôi phục mục đã xóa.</p></div>
+      <div class="feature-card"><span class="emoji">🌍</span><h4>Đa ngôn ngữ</h4><p>Tiếng Việt + Tiếng Anh, chế độ tối/sáng, responsive desktop + mobile, giao diện Glassmorphism.</p></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>🏗️ Công nghệ sử dụng</h2>
+    <div class="table-wrap">
+      <table>
+        <tr><th>Tầng</th><th>Công nghệ</th></tr>
+        <tr><td>Frontend</td><td>React 19, Vite 8, TypeScript 5.9, Zustand 5, Leaflet 1.9, SignalR Client</td></tr>
+        <tr><td>Backend</td><td>ASP.NET Core 10, Entity Framework Core, SignalR Hubs, Hangfire, Serilog</td></tr>
+        <tr><td>Cơ sở dữ liệu</td><td>PostgreSQL + PostGIS (Supabase), Supabase Storage</td></tr>
+        <tr><td>Hạ tầng</td><td>Azure Static Web Apps, Azure App Service, Cloudflare, GitHub Actions</td></tr>
+        <tr><td>AI & Thanh toán</td><td>Google Gemini AI, PayOS</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>🧮 Thuật toán nổi bật</h2>
+    <h3>Tối ưu truy vấn không gian</h3>
+    <p>PostGIS GIST spatial index cho phép tìm kiếm SOS trong bán kính với <strong>O(log n)</strong>.</p>
+    <h3>Chấm điểm độ lệch tuyến đường</h3>
+    <p>Hệ thống scoring tự phát triển kết hợp tỷ lệ trùng lặp node, độ lệch không gian, và phạt khoảng cách/thời gian.</p>
+    <h3>Caching ping theo viewport</h3>
+    <p>Chỉ fetch ping mới khi viewport vượt vùng cache; merge kết quả để tránh mất dữ liệu.</p>
+    <h3>Chiến lược xác thực cross-origin</h3>
+    <p>Bearer header làm auth chính, HttpOnly cookie dự phòng, query string cho SignalR WebSocket.</p>
+  </div>
+
+  <div class="section">
+    <h2>🚀 Bắt đầu nhanh</h2>
+    <pre><code># Frontend
+cd client && pnpm install && pnpm dev
+
+# Backend
+cd src && dotnet restore && dotnet run --project ReliefConnect.API</code></pre>
+  </div>
+</div>
+
+<!-- ═══════ 日本語 ═══════ -->
+<div class="lang-section" id="lang-ja">
+
+  <div class="section">
+    <h2>📖 概要</h2>
+    <p><strong>ReliefConnect</strong> は、支援を必要とする人々と支援を提供したい組織・個人をつなぐWebアプリケーションです。<strong>リアルタイム対話型マップ</strong>を基盤とし、SOSシグナルの送信、物資情報の投稿、自然災害・疫病・困難な状況における救援活動の調整を可能にします。</p>
+  </div>
+
+  <div class="section">
+    <h2>✨ 主な機能</h2>
+    <div class="feature-grid">
+      <div class="feature-card"><span class="emoji">🗺️</span><h4>インタラクティブマップ</h4><p>Leaflet + OpenStreetMapによるSOSピン、物資拠点、危険区域のリアルタイム表示。PostGIS空間インデックス対応。</p></div>
+      <div class="feature-card"><span class="emoji">🔍</span><h4>スマートルーティング</h4><p>OSRM統合によるカスタムルート偏差分析、代替ルート自動生成、複合スコアリング。</p></div>
+      <div class="feature-card"><span class="emoji">💬</span><h4>リアルタイムメッセージング</h4><p>SignalR WebSocketによる既読確認、タイピングインジケーター、オフライン同期、通知ベル。</p></div>
+      <div class="feature-card"><span class="emoji">🤖</span><h4>AIアシスタント</h4><p>Gemini AIチャットボットによる救援情報案内、コンテンツモデレーション、APIキープールローテーション。</p></div>
+      <div class="feature-card"><span class="emoji">🔐</span><h4>認証とセキュリティ</h4><p>JWT + Cookie二重認証、Google OAuth、ロールベースアクセス制御、メール検証、KYCワークフロー。</p></div>
+      <div class="feature-card"><span class="emoji">💰</span><h4>寄付システム</h4><p>PayOS QRコード決済、自動Webhook検証、寄付リーダーボード。</p></div>
+      <div class="feature-card"><span class="emoji">🛡️</span><h4>管理ダッシュボード</h4><p>ユーザー管理、コンテンツモデレーション、監査ログ、CSVエクスポート、論理削除と復元。</p></div>
+      <div class="feature-card"><span class="emoji">🌍</span><h4>多言語対応</h4><p>ベトナム語 + 英語、ダーク/ライトモード、レスポンシブ対応、Glassmorphism UIデザイン。</p></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>🏗️ 技術スタック</h2>
+    <div class="table-wrap">
+      <table>
+        <tr><th>レイヤー</th><th>技術</th></tr>
+        <tr><td>フロントエンド</td><td>React 19, Vite 8, TypeScript 5.9, Zustand 5, Leaflet 1.9, SignalR Client</td></tr>
+        <tr><td>バックエンド</td><td>ASP.NET Core 10, Entity Framework Core, SignalR Hubs, Hangfire, Serilog</td></tr>
+        <tr><td>データベース</td><td>PostgreSQL + PostGIS (Supabase), Supabase Storage</td></tr>
+        <tr><td>インフラ</td><td>Azure Static Web Apps, Azure App Service, Cloudflare, GitHub Actions</td></tr>
+        <tr><td>AI & 決済</td><td>Google Gemini AI, PayOS</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>🧮 注目のアルゴリズム</h2>
+    <h3>空間クエリ最適化</h3>
+    <p>PostGIS GIST空間インデックスにより、SOS半径検索を<strong>O(log n)</strong>で実行。</p>
+    <h3>ルート偏差スコアリング</h3>
+    <p>ノード重複率、空間偏差、距離/時間ペナルティを組み合わせたカスタムスコアリングシステム。</p>
+    <h3>ビューポートベースのピンキャッシング</h3>
+    <p>ビューポートがキャッシュ範囲を超えた場合のみ新規ピンを取得し、データ損失を防止。</p>
+    <h3>クロスオリジン認証戦略</h3>
+    <p>Bearerヘッダーを主要認証とし、HttpOnly Cookieをフォールバック、SignalR WebSocket用にクエリストリング。</p>
+  </div>
+
+  <div class="section">
+    <h2>🚀 クイックスタート</h2>
+    <pre><code># フロントエンド
+cd client && pnpm install && pnpm dev
+
+# バックエンド
+cd src && dotnet restore && dotnet run --project ReliefConnect.API</code></pre>
+  </div>
+</div>
+
+</div>
+
+<!-- Footer -->
+<div class="footer">
+  <p>MIT License — <a href="https://github.com/QuangNew/Website-to-support-people-in-need">GitHub Repository</a></p>
+</div>
+
+<script>
+  const heroDescs = {
+    en: 'A relief connection platform — supporting people in need',
+    vi: 'Nền tảng kết nối cứu trợ — hỗ trợ những người có hoàn cảnh khó khăn',
+    ja: '救援接続プラットフォーム — 困難な状況にある人々を支援'
+  };
+
+  document.querySelectorAll('.lang-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      const lang = tab.dataset.lang;
+
+      document.querySelectorAll('.lang-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+
+      document.querySelectorAll('.lang-section').forEach(s => s.classList.remove('active'));
+      document.getElementById('lang-' + lang).classList.add('active');
+
+      document.getElementById('hero-desc').textContent = heroDescs[lang] || heroDescs.en;
+      document.documentElement.lang = lang;
+    });
+  });
+</script>
+
+</body>
+</html>

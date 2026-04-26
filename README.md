@@ -5,7 +5,7 @@
 <h1 align="center">ReliefConnect</h1>
 
 <p align="center">
-  <strong>Nền tảng kết nối cứu trợ — hỗ trợ những người có hoàn cảnh khó khăn</strong>
+  <strong>A relief connection platform — supporting people in need</strong>
 </p>
 
 <p align="center">
@@ -18,82 +18,82 @@
 
 ---
 
-## Giới thiệu
+## Introduction
 
-**ReliefConnect** là ứng dụng web hỗ trợ kết nối người cần cứu trợ với các tổ chức/cá nhân muốn giúp đỡ. Nền tảng hoạt động dựa trên **bản đồ thời gian thực**, cho phép người dùng gửi tín hiệu SOS, đăng thông tin cung cấp vật tư, và phối hợp cứu trợ trong các tình huống thiên tai, dịch bệnh hoặc hoàn cảnh khó khăn.
+**ReliefConnect** is a web application that connects people in need with organizations and individuals who want to help. The platform operates on a **real-time interactive map**, allowing users to send SOS signals, post supply information, and coordinate relief efforts during natural disasters, epidemics, or difficult circumstances.
 
-### Vai trò trong hệ thống
+### System Roles
 
-| Vai trò | Mô tả |
-|---------|-------|
-| **Người cần hỗ trợ** | Gửi SOS, cập nhật tình trạng, nhận hỗ trợ trực tiếp |
-| **Nhà tài trợ** | Xác nhận hỗ trợ, đóng góp tài chính qua PayOS, theo dõi lịch sử |
-| **Tình nguyện viên** | Nhận nhiệm vụ, phối hợp vận chuyển, cập nhật tiến trình |
-| **Admin** | Quản lý người dùng, kiểm duyệt nội dung, xem thống kê hệ thống |
+| Role | Description |
+|------|-------------|
+| **Person in Need** | Send SOS requests, update status, receive direct support |
+| **Sponsor** | Confirm support, donate via PayOS, track history |
+| **Volunteer** | Accept tasks, coordinate transportation, update progress |
+| **Admin** | Manage users, moderate content, view system statistics |
 
 ---
 
-## Tính năng chính
+## Key Features
 
-### 🗺️ Bản đồ tương tác (Map-centric UI)
-- Bản đồ Leaflet + OpenStreetMap làm giao diện chính
-- Hiển thị **SOS pings**, điểm cung cấp vật tư, trạm hỗ trợ theo thời gian thực
-- **Vùng nguy hiểm** (danger zones) hiển thị dưới dạng polygon trên bản đồ
-- Spatial indexing với **PostGIS GIST index** cho truy vấn `ST_DWithin` tối ưu
-- Caching thông minh: chỉ fetch API khi viewport mở rộng, merge kết quả với cache hiện tại
+### 🗺️ Interactive Map (Map-centric UI)
+- Leaflet + OpenStreetMap as the primary interface
+- Real-time display of **SOS pings**, supply points, and support stations
+- **Danger zones** displayed as polygons on the map
+- Spatial indexing with **PostGIS GIST index** for optimized `ST_DWithin` queries
+- Smart caching: only fetch API when viewport expands, merge results with existing cache
 
-### 🔍 Tìm đường thông minh (Smart Routing)
-- Tích hợp **OSRM (Open Source Routing Machine)** API cho tìm đường driving
-- Thuật toán **Route Deviation Analysis** tự phát triển:
-  - **Haversine Distance**: tính khoảng cách giữa 2 điểm trên mặt cầu
-  - **Average Nearest Distance**: đo độ lệch trung bình giữa 2 tuyến đường bằng cách sampling N điểm
-  - **Node Overlap Ratio**: so sánh tỷ lệ trùng lặp các node (đoạn đường) giữa tuyến chính và tuyến phụ
-  - **Composite Scoring**: kết hợp deviation, overlap, distance penalty, duration penalty để xếp hạng
-- **Fallback Alternative Generation**: khi OSRM trả về ít tuyến phụ, hệ thống tự tạo waypoint bằng cách dịch vuông góc từ midpoint của tuyến chính, sau đó query OSRM qua waypoint mới
-- Chỉ hiển thị tuyến phụ khi **thực sự khác biệt** (< 70% overlap HOẶC > 0.5km deviation)
+### 🔍 Smart Routing
+- Integrated **OSRM (Open Source Routing Machine)** API for driving directions
+- Custom-built **Route Deviation Analysis** algorithm:
+  - **Haversine Distance**: calculates distance between 2 points on a sphere
+  - **Average Nearest Distance**: measures average deviation between 2 routes by sampling N points
+  - **Node Overlap Ratio**: compares road segment overlap between primary and alternative routes
+  - **Composite Scoring**: combines deviation, overlap, distance penalty, duration penalty for ranking
+- **Fallback Alternative Generation**: when OSRM returns few alternatives, the system generates waypoints by perpendicular offset from the primary route midpoints, then queries OSRM via new waypoints
+- Only displays alternatives when **genuinely different** (< 70% overlap OR > 0.5km deviation)
 
-### 💬 Nhắn tin thời gian thực
-- **SignalR WebSocket** cho direct messaging và SOS alerts
-- Read receipts (blue ticks) với offline sync
-- Local-first caching: messages được lưu trong Zustand store, sync khi reconnect
-- Notification bell với real-time push qua `NotificationHub`
+### 💬 Real-time Messaging
+- **SignalR WebSocket** for direct messaging and SOS alerts
+- Read receipts (blue ticks) with offline sync
+- Local-first caching: messages stored in Zustand store, synced on reconnect
+- Notification bell with real-time push via `NotificationHub`
 
 ### 🤖 AI-Powered Features
-- **Gemini AI Chatbot** hỗ trợ giải đáp thắc mắc về cứu trợ
-- **Content Moderation** tự động kiểm duyệt bài viết bằng Gemini + regex patterns
-- API key pool rotation cho load balancing Gemini requests
+- **Gemini AI Chatbot** for relief information assistance
+- **Content Moderation** with Gemini + regex pattern matching
+- API key pool rotation for load balancing Gemini requests
 
 ### 🔐 Authentication & Authorization
 - **JWT + HttpOnly Cookie** dual auth mechanism
-- **Google OAuth 2.0** đăng nhập nhanh
-- **Authorization Bearer header** as primary auth (bypass third-party cookie blocking)
-- Token blacklisting cho secure logout
-- Email verification với 6-digit code
+- **Google OAuth 2.0** quick login
+- **Authorization Bearer header** as primary auth (bypasses third-party cookie blocking)
+- Token blacklisting for secure logout
+- Email verification with 6-digit code
 - KYC verification workflow (Guest → PersonInNeed / Sponsor / Volunteer)
-- Role-based access control với custom `[Authorize]` policies
+- Role-based access control with custom `[Authorize]` policies
 
-### 💰 Hệ thống quyên góp
-- Tích hợp **PayOS** cho thanh toán QR code
-- Webhook xác nhận giao dịch tự động
-- Lịch sử quyên góp với leaderboard
+### 💰 Donation System
+- Integrated **PayOS** for QR code payments
+- Automatic webhook transaction confirmation
+- Donation history with leaderboard
 
 ### 🛡️ Admin Dashboard
-- Thống kê tổng quan (users, SOS, posts, verifications)
-- Quản lý người dùng, KYC approval/rejection
-- Content moderation: hide comments, delete posts, xử lý reports
-- System logs với audit trail
-- CSV export cho reports
-- Soft-delete với khả năng restore
+- Overview statistics (users, SOS, posts, verifications)
+- User management, KYC approval/rejection
+- Content moderation: hide comments, delete posts, handle reports
+- System logs with audit trail
+- CSV export for reports
+- Soft-delete with restore capability
 
-### 🌍 Đa ngôn ngữ & Accessibility
-- i18n: Tiếng Việt + English
+### 🌍 Multilingual & Accessibility
+- i18n: Vietnamese + English
 - Dark/Light mode
 - Responsive: desktop + mobile
 - Glassmorphism UI design
 
 ---
 
-## Kiến trúc hệ thống
+## System Architecture
 
 ```
 ┌─────────────────────────┐     ┌──────────────────────────┐
@@ -124,8 +124,8 @@
 ## Tech Stack
 
 ### Frontend
-| Công nghệ | Version | Mục đích |
-|-----------|---------|----------|
+| Technology | Version | Purpose |
+|-----------|---------|---------|
 | React | 19.2 | UI framework |
 | Vite | 8.x | Build tool |
 | TypeScript | 5.9 | Type safety |
@@ -137,8 +137,8 @@
 | TanStack Query | 5.x | Server state caching |
 
 ### Backend
-| Công nghệ | Version | Mục đích |
-|-----------|---------|----------|
+| Technology | Version | Purpose |
+|-----------|---------|---------|
 | ASP.NET Core | 10.0 | Web API framework |
 | Entity Framework Core | 10.0 | ORM |
 | PostgreSQL + PostGIS | — | Database + spatial |
@@ -149,8 +149,8 @@
 | Google.Apis.Auth | — | OAuth token validation |
 
 ### Infrastructure
-| Service | Mục đích |
-|---------|----------|
+| Service | Purpose |
+|---------|---------|
 | Azure Static Web Apps | Frontend hosting |
 | Azure App Service (B1) | Backend hosting |
 | Cloudflare | DNS + CDN + SSL |
@@ -160,18 +160,18 @@
 
 ---
 
-## Thuật toán nổi bật
+## Notable Algorithms
 
 ### 1. Spatial Query Optimization (PostGIS)
-Sử dụng **GIST spatial index** trên bảng `Pings` để tối ưu truy vấn bán kính:
+Uses **GIST spatial index** on the `Pings` table for radius-based queries:
 ```sql
 CREATE INDEX ix_pings_location ON "Pings" USING GIST ("Location");
 -- Query: ST_DWithin(location, point, radius_meters)
 ```
-Cho phép tìm kiếm SOS trong bán kính với **O(log n)** thay vì O(n) full scan.
+Enables SOS searches within a radius at **O(log n)** instead of O(n) full scan.
 
 ### 2. Route Deviation Scoring
-Hệ thống scoring tự phát triển để đánh giá mức độ khác biệt giữa các tuyến đường:
+Custom-built scoring system to evaluate route distinctiveness:
 
 ```
 Score = (1 - overlapPenalty) × 0.7
@@ -180,34 +180,34 @@ Score = (1 - overlapPenalty) × 0.7
       - durationPenalty × 0.2
 ```
 
-- **overlapPenalty**: tỷ lệ node trùng lặp (0.0 = hoàn toàn khác, 1.0 = giống hệt)
-- **normalizedDeviation**: độ lệch trung bình giữa 2 tuyến / max deviation threshold
-- **distancePenalty / durationPenalty**: phạt tuyến phụ đi xa hơn / lâu hơn tuyến chính
+- **overlapPenalty**: ratio of shared road nodes (0.0 = completely different, 1.0 = identical)
+- **normalizedDeviation**: average spatial deviation / max deviation threshold
+- **distancePenalty / durationPenalty**: penalizes alternatives that are longer / slower
 
 ### 3. Viewport-based Ping Caching
-Cache pings theo vùng đã fetch, mở rộng 50% buffer:
-- Zoom in → viewport nằm trong cache → **không gọi API**
-- Pan/zoom out → viewport vượt cache → fetch vùng mới → **merge** với cache cũ
-- Tránh trường hợp zoom in xóa pings ngoài viewport
+Caches pings by previously fetched region, expanding 50% buffer:
+- Zoom in → viewport inside cache → **no API call**
+- Pan/zoom out → viewport exceeds cache → fetch new region → **merge** with existing cache
+- Prevents pings outside viewport from being deleted on zoom-in
 
 ### 4. Fallback Route Generation
-Khi OSRM chỉ trả về 1 tuyến:
-1. Lấy N anchor points trên tuyến chính (28%, 50%, 72%)
-2. Tính vector vuông góc tại mỗi anchor
-3. Offset perpendicular 0.3–4.5km tạo waypoint mới
+When OSRM returns only 1 route:
+1. Sample N anchor points on the primary route (28%, 50%, 72%)
+2. Compute perpendicular vector at each anchor
+3. Offset perpendicular 0.3–4.5km to create new waypoints
 4. Query OSRM: `origin → waypoint → destination`
-5. Dedup + scoring + filter → chọn tuyến phụ tốt nhất
+5. Dedup + scoring + filter → select best alternative
 
 ### 5. Cross-origin Auth Strategy
-Giải quyết vấn đề third-party cookie blocking:
-- Primary: `Authorization: Bearer <JWT>` header (luôn hoạt động)
+Solves third-party cookie blocking:
+- Primary: `Authorization: Bearer <JWT>` header (always works)
 - Fallback: `auth_token` HttpOnly cookie (SameSite=None)
-- SignalR: `access_token` query string cho WebSocket
-- Token persist: `sessionStorage` (survive refresh, clear on tab close)
+- SignalR: `access_token` query string for WebSocket
+- Token persistence: `sessionStorage` (survives refresh, clears on tab close)
 
 ---
 
-## Cấu trúc dự án
+## Project Structure
 
 ```
 Website-to-support-people-in-need/
@@ -245,12 +245,12 @@ Website-to-support-people-in-need/
 
 ---
 
-## Cài đặt & Chạy local
+## Installation & Local Development
 
-### Yêu cầu
+### Requirements
 - **Node.js** ≥ 22 + **pnpm** ≥ 10
 - **.NET SDK** 10.0
-- **PostgreSQL** 15+ với PostGIS extension
+- **PostgreSQL** 15+ with PostGIS extension
 
 ### Frontend
 ```bash
@@ -267,8 +267,8 @@ dotnet run --project ReliefConnect.API
 # → https://localhost:5001
 ```
 
-### Biến môi trường
-Tạo `client/.env.local`:
+### Environment Variables
+Create `client/.env.local`:
 ```env
 VITE_API_URL=https://localhost:5001/api
 VITE_GOOGLE_CLIENT_ID=your-google-client-id
@@ -276,13 +276,13 @@ VITE_SUPABASE_URL=https://xxx.supabase.co
 VITE_SUPABASE_ANON_KEY=your-anon-key
 ```
 
-Cấu hình backend trong `appsettings.Development.json` hoặc user-secrets.
+Configure backend in `appsettings.Development.json` or user-secrets.
 
 ---
 
-## Deploy
+## Deployment
 
-Deploy được kích hoạt khi tạo **tag mới** trên nhánh `main`:
+Deployment is triggered when creating a **new tag** on the `main` branch:
 
 ```bash
 git tag v1.0.0
@@ -294,22 +294,22 @@ git push origin v1.0.0
 | `deploy-frontend.yml` | Tag `v*` | Azure Static Web Apps |
 | `deploy-backend.yml` | Tag `v*` | Azure App Service |
 
-Frontend workflow tự động tạo **GitHub Release** kèm release notes.
+Frontend workflow automatically creates a **GitHub Release** with release notes.
 
-Chi tiết cấu hình: xem `docs/Configure_deploy.md`.
+See `docs/Configure_deploy.md` for detailed configuration.
 
 ---
 
-## Đóng góp
+## Contributing
 
-1. Fork repository
-2. Tạo feature branch: `git checkout -b feature/ten-tinh-nang`
-3. Commit: `git commit -m "feat: mô tả"`
-4. Push: `git push origin feature/ten-tinh-nang`
-5. Tạo Pull Request
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/feature-name`
+3. Commit: `git commit -m "feat: description"`
+4. Push: `git push origin feature/feature-name`
+5. Create a Pull Request
 
 ---
 
 ## License
 
-MIT License — xem [LICENSE](LICENSE) cho chi tiết.
+MIT License — see [LICENSE](LICENSE) for details.

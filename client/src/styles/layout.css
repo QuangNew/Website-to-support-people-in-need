@@ -1512,6 +1512,29 @@
   margin: 2px 0 0;
 }
 
+.social-comment-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 2px;
+  margin-left: 32px;
+}
+
+.social-comment-actions .btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 0.65rem;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+
+.social-comment-actions .btn-ghost:hover {
+  opacity: 1;
+}
+
 .user-preview-modal {
   width: min(720px, 100%);
   max-height: 88vh;
@@ -3440,7 +3463,8 @@
 
   /* ─── MOBILE NAV (enhanced) ─── */
   .mobile-nav {
-    display: block;
+    display: flex;
+    align-items: stretch;
     position: fixed;
     bottom: 0;
     left: 0;
@@ -3451,9 +3475,43 @@
     -webkit-backdrop-filter: blur(var(--glass-blur-lg));
     border-top: 1px solid var(--glass-border);
     z-index: var(--z-sidebar);
-    /* Right-edge fade to hint scrollability */
-    -webkit-mask-image: linear-gradient(to right, black calc(100% - 32px), transparent 100%);
-    mask-image: linear-gradient(to right, black calc(100% - 32px), transparent 100%);
+  }
+
+  /* SOS Floating Action Button — fixed left of mobile nav */
+  .mobile-sos-fab {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 52px;
+    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    font-family: inherit;
+    font-weight: 700;
+    font-size: 12px;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    position: relative;
+    border-right: 1px solid rgba(255, 255, 255, 0.15);
+  }
+
+  .mobile-sos-fab::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at center, rgba(255,255,255,0.2) 0%, transparent 70%);
+    animation: sos-fab-pulse 2s ease-in-out infinite;
+    pointer-events: none;
+  }
+
+  @keyframes sos-fab-pulse {
+    0%, 100% { opacity: 0; }
+    50% { opacity: 1; }
+  }
+
+  .mobile-sos-fab:active {
+    transform: scale(0.92);
   }
 
   .mobile-nav-items {
@@ -4711,10 +4769,15 @@
     height: auto;
     flex-direction: column;
     align-items: stretch;
-    padding: var(--sp-2) var(--sp-3);
-    position: static;
-    gap: var(--sp-1);
+    padding: var(--sp-2) var(--sp-2);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    gap: 0;
     overflow: visible;
+    background: var(--bg-elevated);
+    border-bottom: 1px solid var(--border-default);
+    border-right: none;
   }
 
   .admin-sidebar__header {
@@ -4727,15 +4790,32 @@
 
   .admin-sidebar__nav {
     flex-direction: row;
-    flex-wrap: wrap;
-    gap: var(--sp-1);
+    flex-wrap: nowrap;
+    gap: 4px;
     justify-content: flex-start;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 2px;
+  }
+
+  .admin-sidebar__nav::-webkit-scrollbar {
+    display: none;
   }
 
   .admin-nav-btn {
-    padding: var(--sp-1) var(--sp-2);
-    font-size: var(--text-xs);
+    padding: 5px 10px;
+    font-size: 11px;
     flex: 0 0 auto;
+    gap: 5px;
+    white-space: nowrap;
+    border-radius: var(--radius-full);
+  }
+
+  .admin-nav-btn svg {
+    width: 14px;
+    height: 14px;
   }
 
   .admin-nav-btn--back {
@@ -4768,6 +4848,14 @@
   .admin-table-wrap {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
+  }
+
+  /* Admin modal — full-screen on mobile */
+  .admin-user-modal {
+    width: 95vw !important;
+    max-width: none !important;
+    max-height: 85vh;
+    overflow-y: auto;
   }
 }
 

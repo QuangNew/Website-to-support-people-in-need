@@ -71,13 +71,12 @@ export default function MobileNav() {
 
   return (
     <nav className="mobile-nav" aria-label="Mobile navigation">
-      <div className="mobile-nav-items" ref={scrollRef}>
+      {/* SOS FAB — always visible outside the scrollable area */}
+      <button type="button" className="mobile-sos-fab" onClick={() => triggerSOS()} aria-label="SOS">
+        <AlertCircle size={24} strokeWidth={2.5} />
+      </button>
 
-        {/* Cần giúp — SOS trigger, always red, pinned first */}
-        <button type="button" className="mobile-nav-item mobile-nav-item--sos" onClick={() => triggerSOS()}>
-          <AlertCircle size={22} strokeWidth={2.5} />
-          <span>{t('filter.needHelp')}</span>
-        </button>
+      <div className="mobile-nav-items" ref={scrollRef}>
 
         {/* Danh sách */}
         <button type="button" className={`mobile-nav-item${activePanel === 'list' ? ' active' : ''}`} onClick={() => handleNav('list')}>

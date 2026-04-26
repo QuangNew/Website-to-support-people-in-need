@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import {
   Users, Shield, FileText, Flag, ScrollText, Megaphone, BarChart3,
   ChevronDown, ChevronRight, RefreshCw, Download, Trash2, Pin, Ban,
-  LogOut, Eye,
+  LogOut, Eye, MessageSquare,
   ArrowLeft, Search, CheckCircle2, XCircle, AlertTriangle,
   Heart, BookOpen, Stethoscope, Home, Activity, ShieldCheck, Plus, Edit2,
   MapPin, Package, X, Key, RotateCcw,
@@ -15,6 +15,8 @@ import { toExternalHref, toTelegramHref } from '../utils/contactLinks';
 import { VIETNAM_PROVINCES } from '../utils/vietnamProvinces';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuthStore } from '../stores/authStore';
+import { useMessageStore } from '../stores/messageStore';
+import { useMapStore } from '../stores/mapStore';
 import { useBatchStore } from '../stores/batchStore';
 import type {
   AdminUser,
@@ -553,6 +555,8 @@ function VerificationsPanel() {
 
 function UsersPanel() {
   const { t } = useLanguage();
+  const navigate = useNavigate();
+  const currentUser = useAuthStore((s) => s.user);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -914,6 +918,31 @@ function UsersPanel() {
                         <strong>{detailUser.pingCount}</strong>
                       </div>
                     </div>
+
+                    {/* Contact button — only show if viewing another user */}
+                    {detailUser.id !== currentUser?.id && (
+                      <div style={{ display: 'flex', gap: 'var(--sp-2)', marginTop: 'var(--sp-3)' }}>
+                        <button
+                          type="button"
+                          className="btn btn-primary btn-sm"
+                          onClick={async () => {
+                            try {
+                              const conversationId = await useMessageStore.getState().startConversation(detailUser.id);
+                              useMessageStore.getState().setActiveConversation(conversationId);
+                              await useMessageStore.getState().fetchMessages(conversationId);
+                              useMapStore.setState({ activePanel: 'messages' });
+                              closeUserDetail();
+                              navigate('/');
+                            } catch {
+                              toast.error(t('messaging.blocked'));
+                            }
+                          }}
+                        >
+                          <MessageSquare size={15} />
+                          {t('admin.contactThisUser')}
+                        </button>
+                      </div>
+                    )}
 
                     <div className="admin-user-history">
                       <div className="admin-user-history__header">

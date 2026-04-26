@@ -213,6 +213,10 @@
     "hideCommentSubmit": "Ẩn bình luận",
     "addImage": "Thêm ảnh",
     "contactUser": "Liên hệ",
+    "replyComment": "Trả lời",
+    "reportComment": "Báo cáo bình luận",
+    "reportCommentTitle": "Báo cáo bình luận",
+    "reportCommentSubtitle": "Cho đội moderation biết vì sao bình luận này không phù hợp.",
     "category": {
       "Livelihood": "Gia cảnh",
       "Medical": "Bệnh tật",
@@ -266,7 +270,8 @@
     "loadMore": "Tải thêm",
     "today": "Hôm nay",
     "yesterday": "Hôm qua",
-    "isTyping": "đang nhập..."
+    "isTyping": "đang nhập...",
+    "newConversation": "Cuộc trò chuyện mới"
   },
   "sos": {
     "button": "S-O-S",
@@ -410,7 +415,9 @@
     "reviewedAt": "Duyệt lúc",
     "reviewedBy": "Duyệt bởi",
     "commentsCount": "Bình luận",
-    "pingsCount": "SOS/Ping"
+    "pingsCount": "SOS/Ping",
+    "posts": "Bài viết",
+    "contactThisUser": "Liên hệ người dùng"
   },
   "pendingBar": {
     "writing": "Đang ghi…",

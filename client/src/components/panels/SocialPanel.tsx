@@ -12,6 +12,7 @@ import {
   X,
   EyeOff,
   Flag,
+  CornerDownRight,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '../../stores/authStore';
@@ -546,6 +547,33 @@ export default function SocialPanel() {
                         <EyeOff size={12} />
                       </button>
                     )}
+                    {/* Reply & Report for comments */}
+                    <div className="social-comment-actions">
+                      <button
+                        className="btn-ghost btn-sm"
+                        onClick={() => {
+                          setCommentInputs(prev => ({ ...prev, [post.id]: `@${c.userName} ` }));
+                          // Focus the comment input
+                          const input = document.querySelector<HTMLInputElement>(`.social-comments input[type="text"]`);
+                          input?.focus();
+                        }}
+                        title={t('social.replyComment')}
+                        style={{ fontSize: '0.65rem', color: 'var(--text-muted)', gap: '3px' }}
+                      >
+                        <CornerDownRight size={11} />
+                        {t('social.replyComment')}
+                      </button>
+                      {c.userId !== user?.id && (
+                        <button
+                          className="btn-ghost btn-sm"
+                          onClick={() => openReportPost(post)}
+                          title={t('social.reportComment')}
+                          style={{ fontSize: '0.65rem', color: 'var(--text-muted)', gap: '3px' }}
+                        >
+                          <Flag size={11} />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ))}
                 {expandedComments[post.id].length === 0 && (

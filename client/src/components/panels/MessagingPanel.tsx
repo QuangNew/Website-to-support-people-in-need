@@ -316,8 +316,8 @@ export default function MessagingPanel() {
                     )}
                   </div>
                   <div className="messaging-conv-bottom">
-                    <span className="messaging-conv-preview">
-                      {conv.lastMessage || '...'}
+                    <span className={`messaging-conv-preview${!conv.lastMessage ? ' messaging-conv-preview--empty' : ''}`}>
+                      {conv.lastMessage || t('messaging.newConversation')}
                     </span>
                     {conv.unreadCount > 0 && (
                       <span className="messaging-unread-badge">{conv.unreadCount}</span>

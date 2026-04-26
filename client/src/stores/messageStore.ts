@@ -295,12 +295,9 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       }
     }
 
-    // Update conversation list (last message, unread count)
-    set((state) => ({
-      totalUnread: msg.conversationId === activeConversationId || isOwnMessage
-        ? state.totalUnread
-        : state.totalUnread + 1,
-      conversations: hasConversation
+    // Update conversation list (last message, unread count) and sort to top
+    set((state) => {
+      const updatedConversations = hasConversation
         ? state.conversations.map((c) =>
             c.id === msg.conversationId
               ? {
@@ -313,8 +310,22 @@ export const useMessageStore = create<MessageState>((set, get) => ({
                 }
               : c
           )
-        : state.conversations,
-    }));
+        : state.conversations;
+
+      // Sort conversations so the one with the latest message is on top
+      const sorted = [...updatedConversations].sort((a, b) => {
+        const aTime = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
+        const bTime = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
+        return bTime - aTime;
+      });
+
+      return {
+        totalUnread: msg.conversationId === activeConversationId || isOwnMessage
+          ? state.totalUnread
+          : state.totalUnread + 1,
+        conversations: sorted,
+      };
+    });
 
     if (!hasConversation) {
       void get().fetchConversations();

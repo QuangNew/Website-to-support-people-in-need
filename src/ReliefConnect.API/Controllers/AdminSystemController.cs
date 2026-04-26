@@ -278,7 +278,8 @@ public class AdminSystemController : ControllerBase
         }
 
         if (!string.IsNullOrWhiteSpace(userId))
-            query = query.Where(l => l.UserId == userId);
+            query = query.Where(l => l.UserId == userId ||
+                                     (l.Details != null && l.Details.Contains($"key={userId}")));
 
         if (DateTime.TryParse(from, out var fromDate))
             query = query.Where(l => l.CreatedAt >= fromDate);

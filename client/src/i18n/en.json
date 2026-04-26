@@ -213,6 +213,10 @@
         "hideCommentSubmit": "Hide comment",
         "addImage": "Add image",
         "contactUser": "Contact",
+        "replyComment": "Reply",
+        "reportComment": "Report comment",
+        "reportCommentTitle": "Report comment",
+        "reportCommentSubtitle": "Tell the moderation team why this comment is inappropriate.",
         "category": {
             "Livelihood": "Livelihood",
             "Medical": "Medical",
@@ -266,7 +270,8 @@
         "loadMore": "Load more",
         "today": "Today",
         "yesterday": "Yesterday",
-        "isTyping": "is typing..."
+        "isTyping": "is typing...",
+        "newConversation": "New conversation"
     },
     "sos": {
         "button": "S-O-S",
@@ -410,7 +415,9 @@
         "reviewedAt": "Reviewed at",
         "reviewedBy": "Reviewed by",
         "commentsCount": "Comments",
-        "pingsCount": "SOS/Pings"
+        "pingsCount": "SOS/Pings",
+        "posts": "Posts",
+        "contactThisUser": "Contact this user"
     },
     "pendingBar": {
         "writing": "Writing...",
