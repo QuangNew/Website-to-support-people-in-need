@@ -271,14 +271,14 @@ export const socialApi = {
   getComments: (postId: number, params?: { cursor?: string; limit?: number }) =>
     api.get(`/social/posts/${postId}/comments`, { params }),
 
-  addComment: (postId: number, data: { content: string }) =>
+  addComment: (postId: number, data: { content: string; parentCommentId?: number }) =>
     api.post(`/social/posts/${postId}/comments`, data),
 
   getUserWall: (userId: string, params?: { cursor?: string; limit?: number }) =>
     api.get(`/social/users/${userId}/wall`, { params }),
 
-  deletePost: (id: number) =>
-    api.delete(`/social/posts/${id}`),
+  deletePost: (id: number, data: { reason: string }) =>
+    api.delete(`/social/posts/${id}`, { data }),
 
   hideComment: (postId: number, commentId: number, data: HideCommentRequest) =>
     api.post(`/admin/moderation/posts/${postId}/comments/${commentId}/hide`, data),
@@ -343,11 +343,20 @@ export const adminApi = {
   getPosts: (params?: { page?: number; pageSize?: number; category?: string }) =>
     api.get('/admin/moderation/posts', { params }),
 
+  getPendingPosts: (params?: { page?: number; pageSize?: number; category?: string }) =>
+    api.get('/admin/moderation/posts/pending', { params }),
+
+  approvePost: (postId: number) =>
+    api.post(`/admin/moderation/posts/${postId}/approve`),
+
+  rejectPost: (postId: number, data: { reason: string }) =>
+    api.post(`/admin/moderation/posts/${postId}/reject`, data),
+
   pinPost: (postId: number) =>
     api.post(`/admin/moderation/posts/${postId}/pin`),
 
-  deletePost: (postId: number) =>
-    api.delete(`/admin/moderation/posts/${postId}`),
+  deletePost: (postId: number, data: { reason: string }) =>
+    api.delete(`/admin/moderation/posts/${postId}`, { data }),
 
   deleteComment: (postId: number, commentId: number) =>
     api.delete(`/admin/moderation/posts/${postId}/comments/${commentId}`),
@@ -411,7 +420,7 @@ export const adminApi = {
   createApiKey: (data: { provider: string; label: string; keyValue: string; model: string }) =>
     api.post('/admin/api-keys', data),
 
-  updateApiKey: (id: number, data: { label?: string; keyValue?: string; model?: string; isActive?: boolean }) =>
+  updateApiKey: (id: number, data: { provider?: string; label?: string; keyValue?: string; model?: string; isActive?: boolean }) =>
     api.put(`/admin/api-keys/${id}`, data),
 
   deleteApiKey: (id: number) =>

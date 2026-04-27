@@ -39,6 +39,22 @@ function cleanExpiredImages(msgs: ChatMessage[]): ChatMessage[] {
   });
 }
 
+function getBotContent(data: unknown, locale: string): string {
+  if (!data || typeof data !== 'object') {
+    return locale === 'vi'
+      ? 'Mô hình AI chưa trả về nội dung văn bản phù hợp.'
+      : 'The AI model did not return suitable text content.';
+  }
+
+  const payload = data as Record<string, unknown>;
+  const value = payload.content ?? payload.Content ?? payload.response ?? payload.Response ?? payload.text ?? payload.Text;
+  return typeof value === 'string' && value.trim()
+    ? value
+    : locale === 'vi'
+      ? 'Mô hình AI chưa trả về nội dung văn bản phù hợp.'
+      : 'The AI model did not return suitable text content.';
+}
+
 export default function ChatPanel() {
   const { t, locale } = useLanguage();
   const { isAuthenticated, user } = useAuthStore();
@@ -304,7 +320,7 @@ export default function ChatPanel() {
         }
       }
 
-      const botContent = res.data.content || res.data.Content;
+      const botContent = getBotContent(res.data, locale);
       const hasSafetyWarning = res.data.hasSafetyWarning || res.data.HasSafetyWarning || false;
 
       const aiMsg: ChatMessage = {

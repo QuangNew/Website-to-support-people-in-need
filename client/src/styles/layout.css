@@ -1342,18 +1342,30 @@
 
 .social-compose-tools {
   display: flex;
-  gap: var(--sp-1);
+  align-items: center;
+  gap: var(--sp-2);
 }
 
-.social-compose-tools select {
-  color: var(--text-secondary);
-  background: var(--bg-hover);
+.social-category-select {
+  min-height: 32px;
+  padding: 0 var(--sp-3);
+  color: var(--text-primary);
+  background: linear-gradient(135deg, var(--bg-hover), var(--bg-secondary));
   border: 1px solid var(--glass-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-full);
   cursor: pointer;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
 }
 
-.social-compose-tools select option {
+.social-category-select:focus {
+  outline: none;
+  border-color: var(--primary-400);
+  box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.12);
+}
+
+.social-category-select option {
   color: var(--text-primary);
   background: var(--bg-elevated);
 }
@@ -1476,6 +1488,42 @@
   gap: var(--sp-2);
   margin-bottom: 0.4rem;
   font-size: 0.8rem;
+}
+
+.social-comment-row--reply {
+  margin-left: 2rem;
+  padding-left: var(--sp-2);
+  border-left: 2px solid var(--border-subtle);
+}
+
+.social-replying-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  margin-bottom: var(--sp-2);
+  padding: 4px 8px;
+  border-radius: var(--radius-full);
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.social-replying-pill button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.social-replying-pill button:hover {
+  background: var(--bg-subtle);
+  color: var(--text-primary);
 }
 
 .social-comment-user-trigger {
@@ -1726,7 +1774,9 @@
 /* ── Messages area ── */
 .chat-panel-messages {
   flex: 1;
+  min-width: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: var(--sp-4) var(--sp-4);
   display: flex;
   flex-direction: column;
@@ -1779,6 +1829,8 @@
 .chat-panel-msg-wrapper {
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  max-width: 100%;
 }
 
 /* ── Emergency alert ── */
@@ -1826,7 +1878,9 @@
 .chat-panel-msg {
   display: flex;
   gap: var(--sp-2);
-  max-width: 90%;
+  width: fit-content;
+  max-width: 100%;
+  min-width: 0;
   animation: chat-msg-in 0.2s ease-out;
 }
 
@@ -1875,10 +1929,14 @@
 
 /* ── Bubble ── */
 .chat-panel-msg-bubble {
+  max-width: min(100%, 320px);
+  min-width: 0;
   padding: var(--sp-2) var(--sp-3);
   border-radius: var(--radius-lg);
   font-size: var(--text-sm);
   line-height: var(--leading-relaxed);
+  overflow: hidden;
+  overflow-wrap: anywhere;
   word-break: break-word;
 }
 
@@ -1897,9 +1955,10 @@
 }
 
 .chat-panel-msg-text {
+  max-width: 100%;
+  min-width: 0;
   margin: 0;
-  /* Remove white-space: pre-wrap so Markdown blocks line-up properly, 
-     ReactMarkdown will handle structure. If needed, can add pre-wrap just for p tags */
+  overflow: hidden;
 }
 
 .chat-panel-msg-text p {
@@ -1969,6 +2028,20 @@
 .chat-panel-msg-text a {
   color: #3b82f6;
   text-decoration: underline;
+  overflow-wrap: anywhere;
+}
+
+.chat-panel-msg-text pre,
+.chat-panel-msg-text code,
+.chat-panel-msg-text table {
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+
+.chat-panel-msg-text img {
+  max-width: 100%;
+  height: auto;
 }
 
 .chat-panel-msg-text h1,
@@ -3991,6 +4064,26 @@
   white-space: nowrap;
 }
 
+.admin-td-content--wrap {
+  max-width: 460px;
+  white-space: normal;
+  line-height: var(--leading-relaxed);
+}
+
+.admin-post-review-preview {
+  margin-top: var(--sp-3);
+  padding: var(--sp-3);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+}
+
+.admin-post-review-preview p {
+  margin: var(--sp-2) 0 0;
+  line-height: var(--leading-relaxed);
+}
+
 .admin-td-reason {
   max-width: 200px;
   overflow: hidden;
@@ -4316,6 +4409,12 @@
 
 .admin-user-stat-pill strong {
   font-size: var(--text-sm);
+}
+
+.admin-user-profile-actions {
+  display: flex;
+  justify-content: flex-start;
+  gap: var(--sp-2);
 }
 
 .admin-user-history {

@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using ReliefConnect.API.Extensions;
 using ReliefConnect.Core.DTOs;
 using ReliefConnect.Core.Entities;
 using ReliefConnect.Core.Enums;
@@ -29,21 +30,9 @@ public class ApiKeyController : ControllerBase
         var keys = await _db.ApiKeys
             .AsNoTracking()
             .OrderByDescending(k => k.CreatedAt)
-            .Select(k => new ApiKeyResponseDto
-            {
-                Id = k.Id,
-                Provider = k.Provider.ToString(),
-                Label = k.Label,
-                MaskedKey = MaskKey(k.KeyValue),
-                Model = k.Model,
-                IsActive = k.IsActive,
-                UsageCount = k.UsageCount,
-                LastUsedAt = k.LastUsedAt,
-                CreatedAt = k.CreatedAt,
-            })
             .ToListAsync();
 
-        return Ok(keys);
+        return Ok(keys.Select(MapToDto));
     }
 
     /// <summary>Add a new API key.</summary>
@@ -56,46 +45,100 @@ public class ApiKeyController : ControllerBase
         var entity = new ApiKey
         {
             Provider = provider,
-            Label = dto.Label,
-            KeyValue = dto.KeyValue,
-            Model = dto.Model,
+            Label = dto.Label.Trim(),
+            KeyValue = dto.KeyValue.Trim(),
+            Model = dto.Model.Trim(),
             IsActive = true,
         };
 
         _db.ApiKeys.Add(entity);
         await _db.SaveChangesAsync();
+        await this.LogUserActivity(_db, "ApiKeyCreated", $"Created API key #{entity.Id}; apiKey={entity.Id}; provider={entity.Provider}; label={entity.Label}; model={entity.Model}; active={entity.IsActive}");
 
-        _logger.LogInformation("API key created: {Label} ({Provider})", dto.Label, dto.Provider);
+        _logger.LogInformation("API key created: {Label} ({Provider})", entity.Label, entity.Provider);
 
-        return Ok(new ApiKeyResponseDto
-        {
-            Id = entity.Id,
-            Provider = entity.Provider.ToString(),
-            Label = entity.Label,
-            MaskedKey = MaskKey(entity.KeyValue),
-            Model = entity.Model,
-            IsActive = entity.IsActive,
-            UsageCount = 0,
-            CreatedAt = entity.CreatedAt,
-        });
+        return Ok(MapToDto(entity));
     }
 
     /// <summary>Update an API key.</summary>
     [HttpPut("{id}")]
-    public async Task<ActionResult> Update(int id, [FromBody] UpdateApiKeyDto dto)
+    public async Task<ActionResult<ApiKeyResponseDto>> Update(int id, [FromBody] UpdateApiKeyDto dto)
     {
         var key = await _db.ApiKeys.FindAsync(id);
         if (key == null) return NotFound();
 
-        if (dto.Label != null) key.Label = dto.Label;
-        if (dto.KeyValue != null) key.KeyValue = dto.KeyValue;
-        if (dto.Model != null) key.Model = dto.Model;
-        if (dto.IsActive.HasValue) key.IsActive = dto.IsActive.Value;
+        var changed = false;
+        var activeChanged = false;
+
+        if (!string.IsNullOrWhiteSpace(dto.Provider))
+        {
+            if (!Enum.TryParse<AiProvider>(dto.Provider, true, out var provider))
+                return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Invalid provider. Use: Gemini, Claude, or GPT." });
+
+            if (key.Provider != provider)
+            {
+                key.Provider = provider;
+                changed = true;
+            }
+        }
+
+        if (dto.Label != null)
+        {
+            var nextLabel = dto.Label.Trim();
+            if (nextLabel.Length == 0)
+                return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Label is required." });
+
+            if (key.Label != nextLabel)
+            {
+                key.Label = nextLabel;
+                changed = true;
+            }
+        }
+
+        if (dto.KeyValue != null)
+        {
+            var nextKeyValue = dto.KeyValue.Trim();
+            if (nextKeyValue.Length == 0)
+                return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "API key value cannot be empty." });
+
+            if (key.KeyValue != nextKeyValue)
+            {
+                key.KeyValue = nextKeyValue;
+                changed = true;
+            }
+        }
+
+        if (dto.Model != null)
+        {
+            var nextModel = dto.Model.Trim();
+            if (nextModel.Length == 0)
+                return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Model is required." });
+
+            if (key.Model != nextModel)
+            {
+                key.Model = nextModel;
+                changed = true;
+            }
+        }
+
+        if (dto.IsActive.HasValue && key.IsActive != dto.IsActive.Value)
+        {
+            key.IsActive = dto.IsActive.Value;
+            changed = true;
+            activeChanged = true;
+        }
+
+        if (!changed)
+            return Ok(MapToDto(key));
 
         await _db.SaveChangesAsync();
+        var action = activeChanged && dto.IsActive.HasValue
+            ? dto.IsActive.Value ? "ApiKeyActivated" : "ApiKeyDeactivated"
+            : "ApiKeyUpdated";
+        await this.LogUserActivity(_db, action, $"{action} API key #{key.Id}; apiKey={key.Id}; provider={key.Provider}; label={key.Label}; model={key.Model}; active={key.IsActive}");
         _logger.LogInformation("API key updated: {Id}", id);
 
-        return Ok(new { message = "API key updated." });
+        return Ok(MapToDto(key));
     }
 
     /// <summary>Delete an API key.</summary>
@@ -107,10 +150,24 @@ public class ApiKeyController : ControllerBase
 
         _db.ApiKeys.Remove(key);
         await _db.SaveChangesAsync();
+        await this.LogUserActivity(_db, "ApiKeyDeleted", $"Deleted API key #{id}; apiKey={id}; provider={key.Provider}; label={key.Label}; model={key.Model}; active={key.IsActive}");
         _logger.LogInformation("API key deleted: {Id} ({Label})", id, key.Label);
 
         return Ok(new { message = "API key deleted." });
     }
+
+    private static ApiKeyResponseDto MapToDto(ApiKey key) => new()
+    {
+        Id = key.Id,
+        Provider = key.Provider.ToString(),
+        Label = key.Label,
+        MaskedKey = MaskKey(key.KeyValue),
+        Model = key.Model,
+        IsActive = key.IsActive,
+        UsageCount = key.UsageCount,
+        LastUsedAt = key.LastUsedAt,
+        CreatedAt = key.CreatedAt,
+    };
 
     private static string MaskKey(string key)
     {

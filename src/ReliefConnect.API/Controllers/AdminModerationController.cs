@@ -55,7 +55,7 @@ public class AdminModerationController : ControllerBase
         if (!string.IsNullOrWhiteSpace(category) && !Enum.TryParse<PostCategory>(category, true, out _))
             return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Invalid category." });
 
-        var query = _db.Posts.AsNoTracking().Where(p => !p.IsDeleted).AsQueryable();
+        var query = _db.Posts.AsNoTracking().Where(p => !p.IsDeleted && p.IsApproved).AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(category) && Enum.TryParse<PostCategory>(category, true, out var cat))
             query = query.Where(p => p.Category == cat);
@@ -69,11 +69,17 @@ public class AdminModerationController : ControllerBase
             {
                 Id           = p.Id,
                 Content      = p.Content.Length > 200 ? p.Content.Substring(0, 200) : p.Content,
+                ImageUrl     = p.ImageUrl,
                 Category     = p.Category.ToString(),
                 AuthorId     = p.AuthorId,
                 AuthorName   = p.Author != null ? (p.Author.FullName ?? p.Author.UserName ?? "Ẩn danh") : "Ẩn danh",
                 CreatedAt    = p.CreatedAt,
                 IsPinned     = p.IsPinned,
+                IsApproved   = p.IsApproved,
+                ApprovalStatus = p.IsApproved ? "Approved" : p.RejectedAt != null ? "Rejected" : "Pending",
+                ApprovedAt   = p.ApprovedAt,
+                RejectionReason = p.RejectionReason,
+                DeletedReason = p.DeletedReason,
                 CommentCount  = p.Comments.Count,
                 ReactionCount = p.Reactions.Count
             })
@@ -87,6 +93,137 @@ public class AdminModerationController : ControllerBase
             pageSize,
             totalPages = (int)Math.Ceiling(total / (double)pageSize)
         });
+    }
+
+    [HttpGet("posts/pending")]
+    public async Task<ActionResult> GetPendingPosts(
+        [FromQuery] string? category,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20)
+    {
+        if (pageSize > 100) pageSize = 100;
+
+        if (!string.IsNullOrWhiteSpace(category) && !Enum.TryParse<PostCategory>(category, true, out _))
+            return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Invalid category." });
+
+        var query = _db.Posts
+            .AsNoTracking()
+            .Where(p => !p.IsDeleted && !p.IsApproved && p.RejectedAt == null);
+
+        if (!string.IsNullOrWhiteSpace(category) && Enum.TryParse<PostCategory>(category, true, out var cat))
+            query = query.Where(p => p.Category == cat);
+
+        var total = await query.CountAsync();
+        var posts = await query
+            .OrderByDescending(p => p.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(p => new AdminPostDto
+            {
+                Id = p.Id,
+                Content = p.Content,
+                ImageUrl = p.ImageUrl,
+                Category = p.Category.ToString(),
+                AuthorId = p.AuthorId,
+                AuthorName = p.Author != null ? (p.Author.FullName ?? p.Author.UserName ?? "Ẩn danh") : "Ẩn danh",
+                CreatedAt = p.CreatedAt,
+                IsPinned = p.IsPinned,
+                IsApproved = p.IsApproved,
+                ApprovalStatus = p.IsApproved ? "Approved" : p.RejectedAt != null ? "Rejected" : "Pending",
+                RejectionReason = p.RejectionReason,
+                DeletedReason = p.DeletedReason,
+                CommentCount = p.Comments.Count(c => !c.IsHidden),
+                ReactionCount = p.Reactions.Count
+            })
+            .ToListAsync();
+
+        return Ok(new
+        {
+            items = posts,
+            total,
+            page,
+            pageSize,
+            totalPages = (int)Math.Ceiling(total / (double)pageSize)
+        });
+    }
+
+    [HttpPost("posts/{postId}/approve")]
+    public async Task<ActionResult> ApprovePost(int postId)
+    {
+        var post = await _db.Posts
+            .AsTracking()
+            .Where(p => p.Id == postId && !p.IsDeleted)
+            .FirstOrDefaultAsync();
+
+        if (post == null)
+            return NotFound(new ApiErrorResponse { StatusCode = 404, Message = "Bài viết không tồn tại." });
+
+        if (post.IsApproved)
+            return Ok(new { message = "Bài viết đã được duyệt trước đó." });
+
+        var adminId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        var now = DateTime.UtcNow;
+        post.IsApproved = true;
+        post.ApprovedAt = now;
+        post.ApprovedByAdminId = adminId;
+        post.RejectedAt = null;
+        post.RejectedByAdminId = null;
+        post.RejectionReason = null;
+        await _db.SaveChangesAsync();
+
+        await this.LogAdminAction(_db, "PostApproved", $"Approved post #{postId}");
+        try
+        {
+            await _notifications.SendAsync(post.AuthorId, "Bài viết của bạn đã được quản trị viên duyệt và hiển thị công khai.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to notify user about approved post {PostId}", postId);
+        }
+
+        return Ok(new { message = "Đã duyệt bài viết." });
+    }
+
+    [HttpPost("posts/{postId}/reject")]
+    public async Task<ActionResult> RejectPost(int postId, [FromBody] ReviewPostRequestDto dto)
+    {
+        var reason = dto.Reason?.Trim();
+        if (string.IsNullOrWhiteSpace(reason))
+            return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Vui lòng nhập lý do từ chối bài viết." });
+
+        if (reason.Length > 500)
+            return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Lý do từ chối không được vượt quá 500 ký tự." });
+
+        var post = await _db.Posts
+            .AsTracking()
+            .Where(p => p.Id == postId && !p.IsDeleted && !p.IsApproved)
+            .FirstOrDefaultAsync();
+
+        if (post == null)
+            return NotFound(new ApiErrorResponse { StatusCode = 404, Message = "Bài viết chờ duyệt không tồn tại." });
+
+        var adminId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        var now = DateTime.UtcNow;
+        post.RejectedAt = now;
+        post.RejectedByAdminId = adminId;
+        post.RejectionReason = reason;
+        post.IsDeleted = true;
+        post.DeletedAt = now;
+        post.DeletedByAdminId = adminId;
+        post.DeletedReason = reason;
+        await _db.SaveChangesAsync();
+
+        await this.LogAdminAction(_db, "PostRejected", $"Rejected post #{postId}; reason: {reason}");
+        try
+        {
+            await _notifications.SendAsync(post.AuthorId, $"Bài viết của bạn đã bị từ chối. Lý do: {reason}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to notify user about rejected post {PostId}", postId);
+        }
+
+        return Ok(new { message = "Đã từ chối bài viết." });
     }
 
     // ═══════════════════════════════════════════
@@ -123,7 +260,7 @@ public class AdminModerationController : ControllerBase
     /// Soft-delete a post (content moderation). Restorable within 7 days.
     /// </summary>
     [HttpDelete("posts/{postId}")]
-    public async Task<ActionResult> DeletePost(int postId)
+    public async Task<ActionResult> DeletePost(int postId, [FromBody] DeletePostRequestDto dto)
     {
         var post = await _db.Posts
             .AsTracking()
@@ -134,15 +271,23 @@ public class AdminModerationController : ControllerBase
         if (post == null)
             return NotFound(new ApiErrorResponse { StatusCode = 404, Message = "Bài viết không tồn tại." });
 
+        var reason = dto.Reason?.Trim();
+        if (string.IsNullOrWhiteSpace(reason))
+            return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Vui lòng nhập lý do xóa bài viết." });
+
+        if (reason.Length > 500)
+            return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Lý do xóa bài viết không được vượt quá 500 ký tự." });
+
         var adminId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         var authorName = post.Author?.UserName ?? "unknown";
 
         post.IsDeleted = true;
         post.DeletedAt = DateTime.UtcNow;
         post.DeletedByAdminId = adminId;
+        post.DeletedReason = reason;
         await _db.SaveChangesAsync();
 
-        await this.LogAdminAction(_db, "PostDeleted", $"Soft-deleted post #{postId} by {authorName} (restorable 7 days)");
+        await this.LogAdminAction(_db, "PostDeleted", $"Soft-deleted post #{postId} by {authorName} (restorable 7 days); reason: {reason}");
         _logger.LogInformation("Admin soft-deleted post #{PostId} by {Author}", postId, authorName);
 
         return Ok(new { message = "Đã xóa bài viết. Có thể khôi phục trong 7 ngày." });
@@ -169,9 +314,17 @@ public class AdminModerationController : ControllerBase
         if (post.DeletedAt.HasValue && post.DeletedAt.Value < DateTime.UtcNow.AddDays(-7))
             return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Đã quá hạn khôi phục (7 ngày)." });
 
+        var adminId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         post.IsDeleted = false;
         post.DeletedAt = null;
         post.DeletedByAdminId = null;
+        post.DeletedReason = null;
+        post.IsApproved = true;
+        post.ApprovedAt = DateTime.UtcNow;
+        post.ApprovedByAdminId = adminId;
+        post.RejectedAt = null;
+        post.RejectedByAdminId = null;
+        post.RejectionReason = null;
         await _db.SaveChangesAsync();
 
         await this.LogAdminAction(_db, "PostRestored", $"Restored post #{postId}");
@@ -212,7 +365,8 @@ public class AdminModerationController : ControllerBase
                 AuthorName = p.Author != null ? (p.Author.FullName ?? p.Author.UserName ?? "Ẩn danh") : "Ẩn danh",
                 p.CreatedAt,
                 p.DeletedAt,
-                p.DeletedByAdminId
+                p.DeletedByAdminId,
+                p.DeletedReason
             })
             .ToListAsync();
 
@@ -242,6 +396,7 @@ public class AdminModerationController : ControllerBase
             DeletedByAdminName = p.DeletedByAdminId != null
                 ? adminNames.GetValueOrDefault(p.DeletedByAdminId, "Admin")
                 : null,
+            DeletedReason = p.DeletedReason,
             DaysRemaining = p.DeletedAt.HasValue ? Math.Max(0, 7 - (int)(now - p.DeletedAt.Value).TotalDays) : 0
         }).ToList();
 

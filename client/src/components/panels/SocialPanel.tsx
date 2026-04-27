@@ -21,6 +21,7 @@ import { useLanguage } from '../../contexts/LanguageContext';
 import HideCommentModal from '../ui/HideCommentModal';
 import ReportPostModal from '../ui/ReportPostModal';
 import UserPreviewModal from '../ui/UserPreviewModal';
+import Modal from '../ui/Modal';
 import { socialApi, getImageUrl, type HideCommentRequest } from '../../services/api';
 
 interface PostDto {
@@ -37,6 +38,8 @@ interface PostDto {
   prayCount: number;
   commentCount: number;
   userReaction?: string;
+  isApproved?: boolean;
+  approvalStatus?: string;
 }
 
 interface CommentDto {
@@ -46,6 +49,9 @@ interface CommentDto {
   userId: string;
   userName: string;
   userAvatar?: string;
+  parentCommentId?: number;
+  parentUserId?: string;
+  parentUserName?: string;
 }
 
 interface HideCommentTarget {
@@ -61,13 +67,47 @@ interface ReportPostTarget {
   authorName: string;
 }
 
+interface DeletePostTarget {
+  postId: number;
+  content: string;
+  authorName: string;
+}
+
+interface ReplyTarget {
+  commentId: number;
+  userName: string;
+}
+
 interface PreviewUserTarget {
   userId: string;
   fallbackName: string;
   fallbackAvatar?: string;
 }
 
-const CATEGORIES = ['Livelihood', 'Medical', 'Education'] as const;
+const CATEGORIES = ['Livelihood', 'Medical', 'Education', 'Volunteer', 'Appeal'] as const;
+
+function orderCommentsForDisplay(comments: CommentDto[]): CommentDto[] {
+  const byParent = new Map<number, CommentDto[]>();
+  const commentIds = new Set(comments.map((comment) => comment.id));
+  const roots: CommentDto[] = [];
+
+  comments.forEach((comment) => {
+    if (comment.parentCommentId && commentIds.has(comment.parentCommentId)) {
+      byParent.set(comment.parentCommentId, [...(byParent.get(comment.parentCommentId) || []), comment]);
+    } else {
+      roots.push(comment);
+    }
+  });
+
+  const ordered: CommentDto[] = [];
+  const append = (comment: CommentDto) => {
+    ordered.push(comment);
+    [...(byParent.get(comment.id) || [])].reverse().forEach(append);
+  };
+
+  roots.forEach(append);
+  return ordered;
+}
 
 function timeAgo(dateStr: string, t: (key: string) => string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -93,6 +133,99 @@ function handleAvatarError(e: React.SyntheticEvent<HTMLImageElement>) {
   if (fallback) fallback.style.display = '';
 }
 
+function DeletePostModal({
+  isOpen,
+  postPreview,
+  submitting = false,
+  onClose,
+  onConfirm,
+}: {
+  isOpen: boolean;
+  postPreview?: string;
+  submitting?: boolean;
+  onClose: () => void;
+  onConfirm: (reason: string) => Promise<void> | void;
+}) {
+  const { t } = useLanguage();
+  const [reason, setReason] = useState('');
+
+  useEffect(() => {
+    if (isOpen) setReason('');
+  }, [isOpen]);
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const trimmed = reason.trim();
+    if (!trimmed || submitting) return;
+    await onConfirm(trimmed);
+  };
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} size="md">
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', marginBottom: 'var(--sp-2)' }}>
+            <div className="auth-logo" style={{ width: 42, height: 42, margin: 0 }}>
+              <Trash2 size={18} />
+            </div>
+            <div>
+              <h2 style={{ margin: 0, fontSize: 'var(--text-xl)' }}>{t('social.deletePostTitle')}</h2>
+              <p className="auth-subtitle" style={{ margin: '4px 0 0' }}>{t('social.deletePostSubtitle')}</p>
+            </div>
+          </div>
+
+          {postPreview && (
+            <div style={{
+              marginTop: 'var(--sp-3)',
+              padding: 'var(--sp-3)',
+              borderRadius: 'var(--radius-lg)',
+              border: '1px solid var(--glass-border)',
+              background: 'var(--bg-secondary)',
+              color: 'var(--text-secondary)',
+              fontSize: 'var(--text-sm)',
+              lineHeight: 1.6,
+            }}>
+              “{postPreview.length > 180 ? `${postPreview.slice(0, 180)}...` : postPreview}”
+            </div>
+          )}
+        </div>
+
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)' }}>
+          <span style={{ fontWeight: 600 }}>{t('social.deleteReasonLabel')}</span>
+          <textarea
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+            placeholder={t('social.deleteReasonPlaceholder')}
+            disabled={submitting}
+            rows={4}
+            style={{
+              width: '100%',
+              resize: 'vertical',
+              border: '1px solid var(--glass-border)',
+              borderRadius: 'var(--radius-md)',
+              background: 'transparent',
+              color: 'inherit',
+              padding: '12px',
+              font: 'inherit',
+              lineHeight: 1.6,
+            }}
+          />
+        </label>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--sp-2)' }}>
+          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={submitting}>
+            {t('common.cancel')}
+          </button>
+          <button type="submit" className="btn btn-danger" disabled={submitting || !reason.trim()}>
+            {submitting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+            {t('social.deletePostSubmit')}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
 export default function SocialPanel() {
   const { isAuthenticated, user } = useAuthStore();
   const { setAuthModal } = useMapStore();
@@ -115,6 +248,9 @@ export default function SocialPanel() {
   const [hidingComment, setHidingComment] = useState(false);
   const [reportPostTarget, setReportPostTarget] = useState<ReportPostTarget | null>(null);
   const [reportingPost, setReportingPost] = useState(false);
+  const [deletePostTarget, setDeletePostTarget] = useState<DeletePostTarget | null>(null);
+  const [deletingPost, setDeletingPost] = useState(false);
+  const [replyTargets, setReplyTargets] = useState<Record<number, ReplyTarget | undefined>>({});
   const [previewUserTarget, setPreviewUserTarget] = useState<PreviewUserTarget | null>(null);
   const observerRef = useRef<HTMLDivElement>(null);
   const inflightRef = useRef(false); // Track inflight requests to prevent race conditions
@@ -186,11 +322,15 @@ export default function SocialPanel() {
         imageUrl = uploadRes.data.imageUrl;
       }
       const res = await socialApi.createPost({ content: newPost.trim(), category, imageUrl });
-      const data = res.data as PostDto | { post: PostDto; spamWarning: string };
-      const post = 'post' in data ? data.post : data;
-      setPosts(prev => [post, ...prev]);
+      const data = res.data as PostDto | { post: PostDto; spamWarning?: string; message?: string; pendingApproval?: boolean };
       setNewPost('');
       removeImage();
+      if ('pendingApproval' in data && data.pendingApproval) {
+        toast.success(data.message || t('social.postPendingApproval'), { duration: 5000 });
+      } else {
+        const post = 'post' in data ? data.post : data;
+        setPosts(prev => [post, ...prev]);
+      }
       if ('spamWarning' in data && data.spamWarning) {
         toast(data.spamWarning, { icon: '⚠️', duration: 6000 });
       }
@@ -249,7 +389,8 @@ export default function SocialPanel() {
     const content = commentInputs[postId]?.trim();
     if (!content) return;
     try {
-      const res = await socialApi.addComment(postId, { content });
+      const replyTarget = replyTargets[postId];
+      const res = await socialApi.addComment(postId, { content, parentCommentId: replyTarget?.commentId });
       const cData = res.data as CommentDto | { comment: CommentDto; spamWarning: string };
       const newComment = 'comment' in cData ? cData.comment : cData;
       setExpandedComments(prev => ({
@@ -257,6 +398,7 @@ export default function SocialPanel() {
         [postId]: [newComment, ...(prev[postId] || [])],
       }));
       setCommentInputs(prev => ({ ...prev, [postId]: '' }));
+      setReplyTargets(prev => ({ ...prev, [postId]: undefined }));
       setPosts(prev => prev.map(p => p.id === postId ? { ...p, commentCount: p.commentCount + 1 } : p));
       if ('spamWarning' in cData && cData.spamWarning) {
         toast(cData.spamWarning, { icon: '⚠️', duration: 6000 });
@@ -282,11 +424,25 @@ export default function SocialPanel() {
     }
   };
 
-  const handleDelete = async (postId: number) => {
+  const openDeletePost = (post: PostDto) => {
+    setDeletePostTarget({ postId: post.id, content: post.content, authorName: post.authorName });
+  };
+
+  const handleDeletePost = async (reason: string) => {
+    if (!deletePostTarget) return;
+
+    setDeletingPost(true);
     try {
-      await socialApi.deletePost(postId);
-      setPosts(prev => prev.filter(p => p.id !== postId));
-    } catch { /* ignore */ }
+      await socialApi.deletePost(deletePostTarget.postId, { reason });
+      setPosts(prev => prev.filter(p => p.id !== deletePostTarget.postId));
+      toast.success(t('social.postDeleted'));
+      setDeletePostTarget(null);
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { message?: string } } };
+      toast.error(axiosErr.response?.data?.message || t('common.error'));
+    } finally {
+      setDeletingPost(false);
+    }
   };
 
   const openReportPost = (post: PostDto) => {
@@ -374,10 +530,9 @@ export default function SocialPanel() {
         <div className="social-compose-actions">
           <div className="social-compose-tools">
             <select
-              className="btn-ghost btn-sm"
+              className="social-category-select"
               value={category}
               onChange={(e) => setCategory(e.target.value)}
-              style={{ fontSize: '0.75rem', padding: '2px 6px' }}
             >
               {CATEGORIES.map(c => (
                 <option key={c} value={c}>{t(`social.category.${c}`)}</option>
@@ -435,7 +590,7 @@ export default function SocialPanel() {
                 </div>
               </button>
               {(post.authorId === user?.id || user?.role === 'Admin') && (
-                <button className="btn-ghost btn-sm social-post-more" onClick={() => handleDelete(post.id)} title={t('social.delete')}>
+                <button className="btn-ghost btn-sm social-post-more" onClick={() => openDeletePost(post)} title={t('social.delete')}>
                   <Trash2 size={14} />
                 </button>
               )}
@@ -490,6 +645,21 @@ export default function SocialPanel() {
             {loadingComments[post.id] && <div style={{ textAlign: 'center', padding: '0.5rem' }}><Loader2 size={16} className="spin" /></div>}
             {expandedComments[post.id] && (
               <div className="social-comments" style={{ borderTop: '1px solid var(--glass-border)', paddingTop: '0.5rem', marginTop: '0.5rem' }}>
+                {replyTargets[post.id] && (
+                  <div className="social-replying-pill">
+                    <CornerDownRight size={12} />
+                    <span>{t('social.replyingTo')} @{replyTargets[post.id]?.userName}</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setReplyTargets(prev => ({ ...prev, [post.id]: undefined }));
+                        setCommentInputs(prev => ({ ...prev, [post.id]: '' }));
+                      }}
+                    >
+                      <X size={11} />
+                    </button>
+                  </div>
+                )}
                 {/* Comment input */}
                 <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
                   <input
@@ -504,8 +674,8 @@ export default function SocialPanel() {
                     <Send size={12} />
                   </button>
                 </div>
-                {expandedComments[post.id].map(c => (
-                  <div key={c.id} className="social-comment-row">
+                {orderCommentsForDisplay(expandedComments[post.id]).map(c => (
+                  <div key={c.id} className={`social-comment-row ${c.parentCommentId ? 'social-comment-row--reply' : ''}`}>
                     <button
                       type="button"
                       className="social-comment-user-trigger"
@@ -552,8 +722,8 @@ export default function SocialPanel() {
                       <button
                         className="btn-ghost btn-sm"
                         onClick={() => {
+                          setReplyTargets(prev => ({ ...prev, [post.id]: { commentId: c.id, userName: c.userName } }));
                           setCommentInputs(prev => ({ ...prev, [post.id]: `@${c.userName} ` }));
-                          // Focus the comment input
                           const input = document.querySelector<HTMLInputElement>(`.social-comments input[type="text"]`);
                           input?.focus();
                         }}
@@ -609,6 +779,14 @@ export default function SocialPanel() {
         submitting={reportingPost}
         onClose={() => !reportingPost && setReportPostTarget(null)}
         onConfirm={handleReportPost}
+      />
+
+      <DeletePostModal
+        isOpen={!!deletePostTarget}
+        postPreview={deletePostTarget ? `${deletePostTarget.authorName}: ${deletePostTarget.content}` : undefined}
+        submitting={deletingPost}
+        onClose={() => !deletingPost && setDeletePostTarget(null)}
+        onConfirm={handleDeletePost}
       />
 
       <UserPreviewModal

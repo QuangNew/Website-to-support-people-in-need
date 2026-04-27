@@ -4,10 +4,12 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
+using ReliefConnect.API.Extensions;
 using ReliefConnect.Core.DTOs;
 using ReliefConnect.Core.Entities;
 using ReliefConnect.Core.Enums;
 using ReliefConnect.Core.Interfaces;
+using ReliefConnect.Infrastructure.Data;
 
 namespace ReliefConnect.API.Controllers;
 
@@ -25,19 +27,22 @@ public class MapController : ControllerBase
     private readonly INotificationService _notifications;
     private readonly ILogger<MapController> _logger;
     private readonly ISpamGuardService _spamGuard;
+    private readonly AppDbContext _db;
 
     public MapController(
         IPingRepository pingRepo,
         UserManager<ApplicationUser> userManager,
         INotificationService notifications,
         ILogger<MapController> logger,
-        ISpamGuardService spamGuard)
+        ISpamGuardService spamGuard,
+        AppDbContext db)
     {
         _pingRepo = pingRepo;
         _userManager = userManager;
         _notifications = notifications;
         _logger = logger;
         _spamGuard = spamGuard;
+        _db = db;
     }
 
     // ─────────────────────────────────────
@@ -184,6 +189,7 @@ public class MapController : ControllerBase
 
         var created = await _pingRepo.AddAsync(ping);
         _logger.LogInformation("Ping created: Id={PingId}, Type={Type}, User={UserId}", created.Id, dto.Type, userId);
+        await this.LogUserActivity(_db, "PingCreated", $"Created {created.Type} ping #{created.Id}; ping={created.Id}; status={created.Status}", userId, currentUser.DisplayName ?? currentUser.UserName);
 
         // Notify volunteers about new SOS request
         if (ping.Type == MapItemType.SOS)
@@ -245,6 +251,7 @@ public class MapController : ControllerBase
         if (!Enum.TryParse<SOSStatus>(dto.Status, true, out var newStatus))
             return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Trạng thái không hợp lệ. Chấp nhận: Pending, InProgress, Resolved, VerifiedSafe." });
 
+        var oldStatus = ping.Status;
         ping.Status = newStatus;
 
         // If resolved/safe, stop blinking
@@ -255,6 +262,7 @@ public class MapController : ControllerBase
 
         await _pingRepo.UpdateAsync(ping);
         _logger.LogInformation("Ping {PingId} status updated to {Status}", id, dto.Status);
+        await this.LogUserActivity(_db, "PingStatusUpdated", $"Updated ping #{id} status {oldStatus} -> {newStatus}; ping={id}; target={ping.UserId}");
 
         // Notify ping owner about status change
         try
@@ -295,6 +303,7 @@ public class MapController : ControllerBase
 
         await _pingRepo.UpdateAsync(ping);
         _logger.LogInformation("Ping {PingId} confirmed safe by user {UserId}", id, userId);
+        await this.LogUserActivity(_db, "PingConfirmedSafe", $"Confirmed safe for ping #{id}; ping={id}", userId);
 
         // Notify volunteers that user confirmed safe
         try
@@ -335,6 +344,7 @@ public class MapController : ControllerBase
 
         await _pingRepo.DeleteAsync(id);
         _logger.LogInformation("Ping {PingId} deleted by admin", id);
+        await this.LogUserActivity(_db, "PingDeleted", $"Deleted ping #{id}; ping={id}; target={ping.UserId}");
         return NoContent();
     }
 

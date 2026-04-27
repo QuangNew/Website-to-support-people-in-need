@@ -45,11 +45,18 @@ export interface AdminUserDetail extends AdminUser {
 export interface AdminPost {
   id: number;
   content: string;
+  imageUrl?: string;
   category: string;
   authorId: string;
   authorName: string;
   createdAt: string;
   isPinned: boolean;
+  isApproved: boolean;
+  approvalStatus: string;
+  approvedAt?: string;
+  approvedByAdminName?: string;
+  rejectionReason?: string;
+  deletedReason?: string;
   commentCount: number;
   reactionCount: number;
 }

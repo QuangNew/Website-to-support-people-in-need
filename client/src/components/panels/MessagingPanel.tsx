@@ -39,6 +39,7 @@ export default function MessagingPanel() {
   const [inputText, setInputText] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const searchRequestRef = useRef(0);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   // Get typing indicator for the active conversation
@@ -61,17 +62,24 @@ export default function MessagingPanel() {
       return;
     }
 
+    const requestId = ++searchRequestRef.current;
     searchTimeoutRef.current = setTimeout(async () => {
       setIsSearching(true);
       try {
-        const res = await messageApi.searchUsers(query);
-        setSearchResults(res.data);
+        const res = await messageApi.searchUsers(query.trim());
+        if (requestId === searchRequestRef.current) {
+          setSearchResults(res.data);
+        }
       } catch {
-        setSearchResults([]);
+        if (requestId === searchRequestRef.current) {
+          setSearchResults([]);
+        }
       } finally {
-        setIsSearching(false);
+        if (requestId === searchRequestRef.current) {
+          setIsSearching(false);
+        }
       }
-    }, 300);
+    }, 250);
   }, []);
 
   // Open conversation

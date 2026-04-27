@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using ReliefConnect.Core.DTOs;
 using ReliefConnect.Core.Entities;
 using ReliefConnect.Core.Enums;
+using ReliefConnect.API.Extensions;
 using ReliefConnect.Core.Interfaces;
 using ReliefConnect.Infrastructure.Data;
 
@@ -134,7 +135,7 @@ public class PostController : ControllerBase
         }
 
         if (!Enum.TryParse<PostCategory>(dto.Category, true, out var category))
-            return BadRequest(new { message = "Danh mục không hợp lệ. Chọn: Livelihood, Medical, Education" });
+            return BadRequest(new { message = "Danh mục không hợp lệ. Chọn: Livelihood, Medical, Education, Volunteer, Appeal" });
 
         int? tagId = category switch
         {
@@ -144,6 +145,12 @@ public class PostController : ControllerBase
             _ => null
         };
 
+        var author = await _db.Users
+            .AsNoTracking()
+            .Where(u => u.Id == userId)
+            .Select(u => new { u.FullName, u.UserName, u.AvatarUrl, u.Role })
+            .FirstOrDefaultAsync();
+
         var post = new Post
         {
             Content = _sanitizer.Sanitize(dto.Content),
@@ -151,18 +158,44 @@ public class PostController : ControllerBase
             CategoryId = tagId,
             ImageUrl = dto.ImageUrl,
             AuthorId = userId,
-            CreatedAt = DateTime.UtcNow
+            CreatedAt = DateTime.UtcNow,
+            IsApproved = false
         };
 
         var created = await _postRepo.AddAsync(post);
-        var full = await _postRepo.GetPostWithDetailsAsync(created.Id);
-        var response = MapToDto(full!, userId);
+        await this.LogUserActivity(_db, "PostCreated", $"Created pending post #{created.Id}; category={created.Category}; post={created.Id}", userId, author?.FullName ?? author?.UserName);
+
+        var response = new PostResponseDto
+        {
+            Id = created.Id,
+            Content = created.Content,
+            ImageUrl = created.ImageUrl,
+            Category = created.Category.ToString(),
+            CreatedAt = created.CreatedAt,
+            AuthorId = userId,
+            AuthorName = author?.FullName ?? author?.UserName ?? "Ẩn danh",
+            AuthorAvatar = author?.AvatarUrl,
+            AuthorRole = author?.Role.ToString() ?? "Guest",
+            LikeCount = 0,
+            LoveCount = 0,
+            PrayCount = 0,
+            CommentCount = 0,
+            IsApproved = false,
+            ApprovalStatus = "Pending"
+        };
+
+        var payload = new
+        {
+            post = response,
+            pendingApproval = true,
+            message = "Bài viết đã được gửi và đang chờ quản trị viên duyệt."
+        };
 
         // Attach spam warning if approaching limit
         if (spamCheck.Verdict == SpamVerdict.Warning)
-            return CreatedAtAction(nameof(GetPost), new { id = created.Id }, new { post = response, spamWarning = spamCheck.WarningMessage });
+            return Ok(new { payload.post, payload.pendingApproval, payload.message, spamWarning = spamCheck.WarningMessage });
 
-        return CreatedAtAction(nameof(GetPost), new { id = created.Id }, response);
+        return Ok(payload);
     }
 
     [Authorize]
@@ -227,13 +260,14 @@ public class PostController : ControllerBase
         if (userId == null) return Unauthorized();
 
         // Lightweight existence check — no full entity load
-        var postExists = await _db.Posts.AnyAsync(p => p.Id == postId);
+        var postExists = await _db.Posts.AnyAsync(p => p.Id == postId && !p.IsDeleted && p.IsApproved);
         if (!postExists) return NotFound();
 
         if (!Enum.TryParse<ReactionType>(dto.Type, true, out var reactionType))
             return BadRequest(new { message = "Loại reaction không hợp lệ. Chọn: Like, Love, Pray" });
 
         bool wasToggledOff = false;
+        bool wasChanged = false;
 
         // Retry once on duplicate-key race condition (double-click)
         for (int attempt = 0; attempt < 2; attempt++)
@@ -252,6 +286,7 @@ public class PostController : ControllerBase
                 else
                 {
                     existing.Type = reactionType;
+                    wasChanged = true;
                 }
             }
             else
@@ -288,6 +323,12 @@ public class PostController : ControllerBase
             .ToListAsync();
 
         var userReaction = wasToggledOff ? (ReactionType?)null : reactionType;
+        var reactionAction = wasToggledOff
+            ? "PostReactionRemoved"
+            : wasChanged
+                ? "PostReactionChanged"
+                : "PostReactionAdded";
+        await this.LogUserActivity(_db, reactionAction, $"{reactionAction} on post #{postId}; post={postId}; reaction={reactionType}");
 
         return Ok(new
         {
@@ -305,9 +346,13 @@ public class PostController : ControllerBase
         if (limit < 1) limit = 1;
         if (limit > 50) limit = 50;
 
+        var postExists = await _db.Posts.AnyAsync(p => p.Id == postId && !p.IsDeleted && p.IsApproved);
+        if (!postExists) return NotFound();
+
         var query = _db.Comments
             .AsNoTracking()
             .Include(c => c.User)
+            .Include(c => c.ParentComment).ThenInclude(parent => parent!.User)
             .Where(c => c.PostId == postId && !c.IsHidden)
             .OrderByDescending(c => c.CreatedAt)
             .AsQueryable();
@@ -332,7 +377,10 @@ public class PostController : ControllerBase
             CreatedAt = c.CreatedAt,
             UserId = c.UserId,
             UserName = c.User?.FullName ?? c.User?.UserName ?? "Ẩn danh",
-            UserAvatar = c.User?.AvatarUrl
+            UserAvatar = c.User?.AvatarUrl,
+            ParentCommentId = c.ParentCommentId,
+            ParentUserId = c.ParentComment?.UserId,
+            ParentUserName = c.ParentComment?.User?.FullName ?? c.ParentComment?.User?.UserName
         });
 
         return Ok(new PaginatedResponse<CommentResponseDto>
@@ -364,10 +412,26 @@ public class PostController : ControllerBase
             return StatusCode(429, new { message = "Tài khoản của bạn đã bị tạm khóa do bình luận quá nhiều.", suspended = true });
         }
 
-        var postExists = await _db.Posts.AnyAsync(p => p.Id == postId);
+        var postExists = await _db.Posts.AnyAsync(p => p.Id == postId && !p.IsDeleted && p.IsApproved);
         if (!postExists) return NotFound();
 
-        var sanitizedContent = _sanitizer.Sanitize(dto.Content);
+        var parentComment = dto.ParentCommentId.HasValue
+            ? await _db.Comments
+                .AsNoTracking()
+                .Where(c => c.Id == dto.ParentCommentId.Value && c.PostId == postId && !c.IsHidden)
+                .Select(c => new
+                {
+                    c.Id,
+                    c.UserId,
+                    UserName = c.User != null ? (c.User.FullName ?? c.User.UserName ?? "Ẩn danh") : "Ẩn danh"
+                })
+                .FirstOrDefaultAsync()
+            : null;
+
+        if (dto.ParentCommentId.HasValue && parentComment == null)
+            return BadRequest(new { message = "Bình luận cha không tồn tại hoặc đã bị ẩn." });
+
+        var sanitizedContent = _sanitizer.Sanitize(dto.Content).Trim();
 
         // ── Content Moderation Check ──
         var violationReason = _moderation.CheckContent(dto.Content);
@@ -419,16 +483,32 @@ public class PostController : ControllerBase
             });
         }
 
+        if (string.IsNullOrWhiteSpace(sanitizedContent))
+            return BadRequest(new { message = "Nội dung bình luận không hợp lệ." });
+
+        var finalContent = sanitizedContent;
+        if (parentComment != null)
+        {
+            var replyTag = $"@{parentComment.UserName}";
+            if (!finalContent.StartsWith(replyTag, StringComparison.OrdinalIgnoreCase))
+                finalContent = $"{replyTag} {finalContent}";
+        }
+
         var comment = new Comment
         {
-            Content = sanitizedContent,
+            Content = finalContent,
             PostId = postId,
             UserId = userId,
+            ParentCommentId = parentComment?.Id,
             CreatedAt = DateTime.UtcNow
         };
 
         _db.Comments.Add(comment);
         await _db.SaveChangesAsync();
+        var commentDetails = parentComment != null
+            ? $"Replied to comment #{parentComment.Id} on post #{postId}; post={postId}; comment={comment.Id}; target={parentComment.UserId}"
+            : $"Commented on post #{postId}; post={postId}; comment={comment.Id}";
+        await this.LogUserActivity(_db, "CommentCreated", commentDetails, userId, user.FullName ?? user.UserName);
 
         var commentDto = new CommentResponseDto
         {
@@ -437,7 +517,10 @@ public class PostController : ControllerBase
             CreatedAt = comment.CreatedAt,
             UserId = userId,
             UserName = user.FullName ?? user.UserName ?? "Ẩn danh",
-            UserAvatar = user.AvatarUrl
+            UserAvatar = user.AvatarUrl,
+            ParentCommentId = comment.ParentCommentId,
+            ParentUserId = parentComment?.UserId,
+            ParentUserName = parentComment?.UserName
         };
 
         // Attach spam warning if approaching limit
@@ -468,7 +551,7 @@ public class PostController : ControllerBase
     // DELETE /api/social/posts/{id}
     [Authorize]
     [HttpDelete("posts/{id}")]
-    public async Task<IActionResult> DeletePost(int id)
+    public async Task<IActionResult> DeletePost(int id, [FromBody] DeletePostRequestDto dto)
     {
         var userId = GetUserId();
         if (userId == null) return Unauthorized();
@@ -479,6 +562,13 @@ public class PostController : ControllerBase
             .FirstOrDefaultAsync();
 
         if (post == null) return NotFound();
+
+        var reason = dto.Reason?.Trim();
+        if (string.IsNullOrWhiteSpace(reason))
+            return BadRequest(new { message = "Vui lòng nhập lý do xóa bài viết." });
+
+        if (reason.Length > 500)
+            return BadRequest(new { message = "Lý do xóa bài viết không được vượt quá 500 ký tự." });
 
         if (post.AuthorId != userId)
         {
@@ -495,9 +585,18 @@ public class PostController : ControllerBase
         post.IsDeleted = true;
         post.DeletedAt = DateTime.UtcNow;
         post.DeletedByAdminId = post.AuthorId != userId ? userId : null;
+        post.DeletedReason = reason;
         await _db.SaveChangesAsync();
+        var deleteAction = post.AuthorId == userId ? "UserPostDeleted" : "PostDeleted";
+        await this.LogUserActivity(_db, deleteAction, $"Soft-deleted post #{id}; post={id}; reason={reason}");
 
-        return NoContent();
+        return Ok(new { message = "Đã xóa bài viết.", reason });
+    }
+
+    private static string GetApprovalStatus(Post post)
+    {
+        if (post.IsApproved) return "Approved";
+        return post.RejectedAt.HasValue ? "Rejected" : "Pending";
     }
 
     /// <summary>
@@ -520,7 +619,9 @@ public class PostController : ControllerBase
         LoveCount    = pwc.LoveCount,
         PrayCount    = pwc.PrayCount,
         CommentCount = pwc.CommentCount,
-        UserReaction = pwc.UserReaction?.ToString()
+        UserReaction = pwc.UserReaction?.ToString(),
+        IsApproved = pwc.Post.IsApproved,
+        ApprovalStatus = GetApprovalStatus(pwc.Post)
     };
 
     /// <summary>
@@ -546,7 +647,9 @@ public class PostController : ControllerBase
             CommentCount = p.Comments?.Count ?? 0,
             UserReaction = currentUserId != null
                 ? p.Reactions?.FirstOrDefault(r => r.UserId == currentUserId)?.Type.ToString()
-                : null
+                : null,
+            IsApproved = p.IsApproved,
+            ApprovalStatus = GetApprovalStatus(p)
         };
     }
 }

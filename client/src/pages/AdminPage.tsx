@@ -17,7 +17,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { useAuthStore } from '../stores/authStore';
 import { useMessageStore } from '../stores/messageStore';
 import { useMapStore } from '../stores/mapStore';
-import { useBatchStore } from '../stores/batchStore';
+import Modal from '../components/ui/Modal';
 import type {
   AdminUser,
   AdminUserDetail,
@@ -98,7 +98,9 @@ function VerificationImageGallery({
   );
 }
 
-type Tab = 'stats' | 'verifications' | 'users' | 'posts' | 'reports' | 'logs' | 'restore' | 'announcements' | 'zones' | 'supply' | 'apikeys';
+type Tab = 'stats' | 'verifications' | 'users' | 'posts' | 'postApprovals' | 'reports' | 'logs' | 'restore' | 'announcements' | 'zones' | 'supply' | 'apikeys';
+
+const POST_CATEGORY_VALUES = ['Livelihood', 'Medical', 'Education', 'Volunteer', 'Appeal'] as const;
 
 // ═══════════════════════════════════════════
 //  ADMIN PAGE
@@ -165,6 +167,7 @@ export default function AdminPage() {
     { key: 'verifications', label: t('admin.verifications'), icon: ShieldCheck },
     { key: 'users', label: t('admin.users'), icon: Users },
     { key: 'posts', label: t('admin.posts'), icon: FileText },
+    { key: 'postApprovals', label: t('admin.postApprovals'), icon: CheckCircle2 },
     { key: 'reports', label: 'Reports', icon: Flag },
     { key: 'logs', label: t('admin.logs'), icon: ScrollText },
     { key: 'restore', label: t('admin.restoreTab'), icon: RotateCcw },
@@ -214,6 +217,7 @@ export default function AdminPage() {
           {activeTab === 'verifications' && <VerificationsPanel />}
           {activeTab === 'users' && <UsersPanel />}
           {activeTab === 'posts' && <PostsPanel />}
+          {activeTab === 'postApprovals' && <PostApprovalsPanel />}
           {activeTab === 'reports' && <ReportsPanel />}
           {activeTab === 'logs' && <LogsPanel />}
           {activeTab === 'restore' && <RestorePanel />}
@@ -477,7 +481,7 @@ function VerificationsPanel() {
                       <div className="admin-user-cell">
                         <div className="admin-avatar" style={{ background: 'var(--bg-subtle)' }}>
                           {v.avatarUrl
-                            ? <img src={v.avatarUrl} alt="" />
+                            ? <img src={getImageUrl(v.avatarUrl)} alt="" loading="lazy" decoding="async" />
                             : <span>{v.fullName.charAt(0)}</span>}
                         </div>
                         <div>
@@ -720,7 +724,7 @@ function UsersPanel() {
                         <div className="admin-user-cell">
                           <div className="admin-avatar" style={{ background: 'var(--bg-subtle)' }}>
                             {u.avatarUrl
-                              ? <img src={u.avatarUrl} alt="" />
+                              ? <img src={getImageUrl(u.avatarUrl)} alt="" loading="lazy" decoding="async" />
                               : <span>{u.fullName.charAt(0)}</span>}
                           </div>
                           <div>
@@ -854,6 +858,30 @@ function UsersPanel() {
                       </div>
                     </div>
 
+                    {detailUser.id !== currentUser?.id && (
+                      <div className="admin-user-profile-actions">
+                        <button
+                          type="button"
+                          className="btn btn-primary btn-sm"
+                          onClick={async () => {
+                            try {
+                              const conversationId = await useMessageStore.getState().startConversation(detailUser.id);
+                              useMessageStore.getState().setActiveConversation(conversationId);
+                              await useMessageStore.getState().fetchMessages(conversationId);
+                              useMapStore.setState({ activePanel: 'messages' });
+                              closeUserDetail();
+                              navigate('/');
+                            } catch {
+                              toast.error(t('messaging.blocked'));
+                            }
+                          }}
+                        >
+                          <MessageSquare size={15} />
+                          {t('admin.contactThisUser')}
+                        </button>
+                      </div>
+                    )}
+
                     <div className="admin-user-history">
                       <div className="admin-user-history__header">
                         <div>
@@ -918,31 +946,6 @@ function UsersPanel() {
                         <strong>{detailUser.pingCount}</strong>
                       </div>
                     </div>
-
-                    {/* Contact button — only show if viewing another user */}
-                    {detailUser.id !== currentUser?.id && (
-                      <div style={{ display: 'flex', gap: 'var(--sp-2)', marginTop: 'var(--sp-3)' }}>
-                        <button
-                          type="button"
-                          className="btn btn-primary btn-sm"
-                          onClick={async () => {
-                            try {
-                              const conversationId = await useMessageStore.getState().startConversation(detailUser.id);
-                              useMessageStore.getState().setActiveConversation(conversationId);
-                              await useMessageStore.getState().fetchMessages(conversationId);
-                              useMapStore.setState({ activePanel: 'messages' });
-                              closeUserDetail();
-                              navigate('/');
-                            } catch {
-                              toast.error(t('messaging.blocked'));
-                            }
-                          }}
-                        >
-                          <MessageSquare size={15} />
-                          {t('admin.contactThisUser')}
-                        </button>
-                      </div>
-                    )}
 
                     <div className="admin-user-history">
                       <div className="admin-user-history__header">
@@ -1017,12 +1020,13 @@ function UsersPanel() {
 
 function PostsPanel() {
   const { t } = useLanguage();
-  const { ops, enqueue } = useBatchStore();
   const [posts, setPosts] = useState<AdminPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [categoryFilter, setCategoryFilter] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<AdminPost | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -1036,34 +1040,22 @@ function PostsPanel() {
       .finally(() => setLoading(false));
   }, [page, categoryFilter, t]);
 
-  const silentRefresh = useCallback(() => {
-    adminApi.getPosts({ page, pageSize: 20, category: categoryFilter || undefined })
-      .then((res) => {
-        const data: PagedResponse<AdminPost> = res.data;
-        setPosts(data.items);
-        setTotalPages(data.totalPages);
-      })
-      .catch(() => {});
-  }, [page, categoryFilter]);
-
   useEffect(() => { load(); }, [load]);
-  useEffect(() => {
-    window.addEventListener('batch-flush-done', silentRefresh);
-    return () => window.removeEventListener('batch-flush-done', silentRefresh);
-  }, [silentRefresh]);
 
-  const queuedPostIds = new Set(
-    ops.filter((o) => o.type === 'deletePost').map((o) => o.postId!)
-  );
-  const visiblePosts = posts.filter((p) => !queuedPostIds.has(p.id));
-
-  const handleDelete = (post: AdminPost) => {
-    enqueue({
-      type: 'deletePost',
-      postId: post.id,
-      rollbackLabel: `Delete post #${post.id} by ${post.authorName}`,
-    });
-    toast(`⏳ Queued: delete post #${post.id}`, { duration: 2000 });
+  const handleDelete = async (reason: string) => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await adminApi.deletePost(deleteTarget.id, { reason });
+      toast.success(t('admin.postDeleted'));
+      setDeleteTarget(null);
+      load();
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error(msg || t('common.error'));
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const handlePin = async (postId: number) => {
@@ -1087,9 +1079,9 @@ function PostsPanel() {
           onChange={(e) => { setCategoryFilter(e.target.value); setPage(1); }}
         >
           <option value="">{t('admin.allCategories')}</option>
-          <option value="Livelihood">{t('admin.postsLivelihood')}</option>
-          <option value="Medical">{t('admin.postsMedical')}</option>
-          <option value="Education">{t('admin.postsEducation')}</option>
+          {POST_CATEGORY_VALUES.map((value) => (
+            <option key={value} value={value}>{t(`social.category.${value}`)}</option>
+          ))}
         </select>
         <button className="btn btn-ghost btn-sm" onClick={load}><RefreshCw size={16} /></button>
       </div>
@@ -1108,7 +1100,7 @@ function PostsPanel() {
             </tr>
           </thead>
           <tbody>
-            {visiblePosts.map((p) => (
+            {posts.map((p) => (
               <tr key={p.id}>
                 <td>#{p.id}</td>
                 <td>{p.authorName}</td>
@@ -1116,7 +1108,7 @@ function PostsPanel() {
                   {p.isPinned && <Pin size={12} style={{ color: 'var(--primary-400)', marginRight: 4 }} />}
                   {p.content.substring(0, 100)}{p.content.length > 100 ? '…' : ''}
                 </td>
-                <td><span className="admin-badge">{p.category}</span></td>
+                <td><span className="admin-badge">{t(`social.category.${p.category}`)}</span></td>
                 <td style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
                   💬 {p.commentCount} · ❤️ {p.reactionCount}
                 </td>
@@ -1130,16 +1122,16 @@ function PostsPanel() {
                     >
                       <Pin size={14} />
                     </button>
-                    <button className="btn btn-ghost btn-sm btn-danger-text" onClick={() => handleDelete(p)}>
+                    <button className="btn btn-ghost btn-sm btn-danger-text" onClick={() => setDeleteTarget(p)}>
                       <Trash2 size={14} /> {t('admin.delete')}
                     </button>
                   </div>
                 </td>
               </tr>
             ))}
-            {visiblePosts.length === 0 && (
+            {posts.length === 0 && (
               <tr><td colSpan={7} style={{ textAlign: 'center', padding: 'var(--sp-8)', color: 'var(--text-muted)' }}>
-                {ops.length > 0 ? t('admin.queuedAllDelete') : t('admin.noData')}
+                {t('admin.noData')}
               </td></tr>
             )}
           </tbody>
@@ -1153,7 +1145,249 @@ function PostsPanel() {
           <button className="btn btn-ghost btn-sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>Next →</button>
         </div>
       )}
+
+      <PostReasonModal
+        isOpen={!!deleteTarget}
+        title={t('admin.deletePostTitle')}
+        subtitle={t('admin.deletePostSubtitle')}
+        reasonLabel={t('admin.deleteReasonLabel')}
+        reasonPlaceholder={t('admin.deleteReasonPlaceholder')}
+        submitLabel={t('admin.delete')}
+        danger
+        submitting={deleting}
+        post={deleteTarget}
+        onClose={() => !deleting && setDeleteTarget(null)}
+        onConfirm={handleDelete}
+      />
     </div>
+  );
+}
+
+function PostApprovalsPanel() {
+  const { t } = useLanguage();
+  const [posts, setPosts] = useState<AdminPost[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [categoryFilter, setCategoryFilter] = useState('');
+  const [rejectTarget, setRejectTarget] = useState<AdminPost | null>(null);
+  const [processingId, setProcessingId] = useState<number | null>(null);
+  const [rejecting, setRejecting] = useState(false);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    adminApi.getPendingPosts({ page, pageSize: 20, category: categoryFilter || undefined })
+      .then((res) => {
+        const data: PagedResponse<AdminPost> = res.data;
+        setPosts(data.items);
+        setTotalPages(data.totalPages);
+      })
+      .catch(() => toast.error(t('common.error')))
+      .finally(() => setLoading(false));
+  }, [page, categoryFilter, t]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleApprove = async (post: AdminPost) => {
+    setProcessingId(post.id);
+    try {
+      await adminApi.approvePost(post.id);
+      toast.success(t('admin.postApproved'));
+      load();
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error(msg || t('common.error'));
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  const handleReject = async (reason: string) => {
+    if (!rejectTarget) return;
+    setRejecting(true);
+    setProcessingId(rejectTarget.id);
+    try {
+      await adminApi.rejectPost(rejectTarget.id, { reason });
+      toast.success(t('admin.postRejected'));
+      setRejectTarget(null);
+      load();
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error(msg || t('common.error'));
+    } finally {
+      setRejecting(false);
+      setProcessingId(null);
+    }
+  };
+
+  if (loading) return <div className="admin-loading"><span className="spinner" /></div>;
+
+  return (
+    <div className="animate-fade-in-up">
+      <div className="admin-filters">
+        <select
+          className="admin-select"
+          value={categoryFilter}
+          onChange={(e) => { setCategoryFilter(e.target.value); setPage(1); }}
+        >
+          <option value="">{t('admin.allCategories')}</option>
+          {POST_CATEGORY_VALUES.map((value) => (
+            <option key={value} value={value}>{t(`social.category.${value}`)}</option>
+          ))}
+        </select>
+        <button className="btn btn-ghost btn-sm" onClick={load}><RefreshCw size={16} /></button>
+      </div>
+
+      <div className="admin-table-wrap">
+        <table className="admin-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>{t('admin.user')}</th>
+              <th>Content</th>
+              <th>Category</th>
+              <th>{t('admin.date')}</th>
+              <th>{t('admin.action')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {posts.map((p) => {
+              const isProcessing = processingId === p.id;
+              return (
+                <tr key={p.id}>
+                  <td>#{p.id}</td>
+                  <td>{p.authorName}</td>
+                  <td className="admin-td-content admin-td-content--wrap">{p.content}</td>
+                  <td><span className="admin-badge admin-badge--warning">{t(`social.category.${p.category}`)}</span></td>
+                  <td className="admin-td-date">{new Date(p.createdAt).toLocaleDateString()}</td>
+                  <td>
+                    <div className="admin-action-btns">
+                      <button className="btn btn-sm btn-primary" onClick={() => handleApprove(p)} disabled={isProcessing}>
+                        <CheckCircle2 size={14} /> {t('admin.approve')}
+                      </button>
+                      <button className="btn btn-sm btn-danger" onClick={() => setRejectTarget(p)} disabled={isProcessing}>
+                        <XCircle size={14} /> {t('admin.reject')}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+            {posts.length === 0 && (
+              <tr><td colSpan={6} style={{ textAlign: 'center', padding: 'var(--sp-8)', color: 'var(--text-muted)' }}>
+                {t('admin.noPendingPosts')}
+              </td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {totalPages > 1 && (
+        <div className="admin-pagination">
+          <button className="btn btn-ghost btn-sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>← Prev</button>
+          <span className="admin-page-info">{page} / {totalPages}</span>
+          <button className="btn btn-ghost btn-sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>Next →</button>
+        </div>
+      )}
+
+      <PostReasonModal
+        isOpen={!!rejectTarget}
+        title={t('admin.rejectPostTitle')}
+        subtitle={t('admin.rejectPostSubtitle')}
+        reasonLabel={t('admin.rejectReasonLabel')}
+        reasonPlaceholder={t('admin.rejectReasonPlaceholder')}
+        submitLabel={t('admin.reject')}
+        danger
+        submitting={rejecting}
+        post={rejectTarget}
+        onClose={() => !rejecting && setRejectTarget(null)}
+        onConfirm={handleReject}
+      />
+    </div>
+  );
+}
+
+function PostReasonModal({
+  isOpen,
+  title,
+  subtitle,
+  reasonLabel,
+  reasonPlaceholder,
+  submitLabel,
+  post,
+  submitting,
+  danger = false,
+  onClose,
+  onConfirm,
+}: {
+  isOpen: boolean;
+  title: string;
+  subtitle: string;
+  reasonLabel: string;
+  reasonPlaceholder: string;
+  submitLabel: string;
+  post: AdminPost | null;
+  submitting: boolean;
+  danger?: boolean;
+  onClose: () => void;
+  onConfirm: (reason: string) => Promise<void> | void;
+}) {
+  const { t } = useLanguage();
+  const [reason, setReason] = useState('');
+
+  useEffect(() => {
+    if (isOpen) setReason('');
+  }, [isOpen]);
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const trimmed = reason.trim();
+    if (!trimmed || submitting) return;
+    await onConfirm(trimmed);
+  };
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} size="md">
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 'var(--text-xl)' }}>{title}</h2>
+          <p className="auth-subtitle" style={{ margin: '4px 0 0' }}>{subtitle}</p>
+          {post && (
+            <div className="admin-post-review-preview">
+              <strong>#{post.id} · {post.authorName}</strong>
+              <p>{post.content.length > 220 ? `${post.content.slice(0, 220)}...` : post.content}</p>
+            </div>
+          )}
+        </div>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)' }}>
+          <span style={{ fontWeight: 600 }}>{reasonLabel}</span>
+          <textarea
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+            placeholder={reasonPlaceholder}
+            disabled={submitting}
+            rows={4}
+            style={{
+              width: '100%',
+              resize: 'vertical',
+              border: '1px solid var(--glass-border)',
+              borderRadius: 'var(--radius-md)',
+              background: 'transparent',
+              color: 'inherit',
+              padding: '12px',
+              font: 'inherit',
+              lineHeight: 1.6,
+            }}
+          />
+        </label>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--sp-2)' }}>
+          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={submitting}>{t('common.cancel')}</button>
+          <button type="submit" className={`btn ${danger ? 'btn-danger' : 'btn-primary'}`} disabled={submitting || !reason.trim()}>
+            {submitLabel}
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
@@ -1292,13 +1526,29 @@ const ADMIN_LOG_ACTIONS = [
   'AnnouncementCreated',
   'AnnouncementUpdated',
   'AnnouncementDeleted',
+  'ApiKeyCreated',
+  'ApiKeyUpdated',
+  'ApiKeyActivated',
+  'ApiKeyDeactivated',
+  'ApiKeyDeleted',
   'BatchActions',
+  'CommentCreated',
   'CommentHidden',
   'CommentRestored',
   'DirectMessage',
   'MessageCleanup',
+  'PingCreated',
+  'PingStatusUpdated',
+  'PingConfirmedSafe',
+  'PingDeleted',
+  'PostApproved',
+  'PostCreated',
   'PostDeleted',
   'PostPinned',
+  'PostReactionAdded',
+  'PostReactionChanged',
+  'PostReactionRemoved',
+  'PostRejected',
   'PostRestored',
   'PostUnpinned',
   'ReportDismissed',
@@ -1307,6 +1557,7 @@ const ADMIN_LOG_ACTIONS = [
   'SOSForceResolved',
   'UserBanned',
   'UserForceLogout',
+  'UserPostDeleted',
   'UserSuspended',
   'UserUnsuspended',
   'VerificationRejected',
@@ -2743,18 +2994,21 @@ function ApiKeysPanel() {
     setSaving(true);
     try {
       if (editingId !== null) {
-        const payload: Record<string, unknown> = { label: form.label, model: form.model };
+        const payload: Record<string, unknown> = { provider: form.provider, label: form.label, model: form.model };
         if (form.keyValue.trim()) payload.keyValue = form.keyValue;
-        await adminApi.updateApiKey(editingId, payload as Parameters<typeof adminApi.updateApiKey>[1]);
+        const res = await adminApi.updateApiKey(editingId, payload as Parameters<typeof adminApi.updateApiKey>[1]);
+        const saved = res.data as ApiKeyRow;
+        setKeys((prev) => prev.map((key) => key.id === saved.id ? saved : key));
         toast.success('API key updated');
       } else {
-        await adminApi.createApiKey(form);
+        const res = await adminApi.createApiKey(form);
+        const saved = res.data as ApiKeyRow;
+        setKeys((prev) => [saved, ...prev]);
         toast.success('API key created');
       }
       setShowForm(false);
       setForm(emptyKeyForm);
       setEditingId(null);
-      await load();
     } catch {
       toast.error(t('common.error'));
     } finally {
@@ -2764,9 +3018,10 @@ function ApiKeysPanel() {
 
   const handleToggle = async (k: ApiKeyRow) => {
     try {
-      await adminApi.updateApiKey(k.id, { isActive: !k.isActive });
+      const res = await adminApi.updateApiKey(k.id, { isActive: !k.isActive });
+      const saved = res.data as ApiKeyRow;
+      setKeys((prev) => prev.map((key) => key.id === saved.id ? saved : key));
       toast.success(k.isActive ? 'Key deactivated' : 'Key activated');
-      await load();
     } catch {
       toast.error(t('common.error'));
     }
@@ -2819,7 +3074,6 @@ function ApiKeysPanel() {
                 className="admin-select"
                 value={form.provider}
                 onChange={(e) => setForm((f) => ({ ...f, provider: e.target.value }))}
-                disabled={editingId !== null}
                 style={{ width: '100%' }}
               >
                 {PROVIDERS.map((p) => <option key={p} value={p}>{p}</option>)}

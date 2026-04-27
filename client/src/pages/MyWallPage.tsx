@@ -256,8 +256,10 @@ export default function MyWallPage() {
   };
 
   const handleDelete = async (postId: number) => {
+    const reason = window.prompt(t('social.deleteReasonPrompt'));
+    if (!reason?.trim()) return;
     try {
-      await socialApi.deletePost(postId);
+      await socialApi.deletePost(postId, { reason: reason.trim() });
       setPosts(prev => prev.filter(p => p.id !== postId));
     } catch { /* ignore */ }
   };

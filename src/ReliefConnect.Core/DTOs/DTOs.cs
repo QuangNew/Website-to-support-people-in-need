@@ -145,11 +145,18 @@ public class AdminPostDto
 {
     public int Id { get; set; }
     public string Content { get; set; } = string.Empty;
+    public string? ImageUrl { get; set; }
     public string Category { get; set; } = string.Empty;
     public string AuthorId { get; set; } = string.Empty;
     public string AuthorName { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; }
     public bool IsPinned { get; set; }
+    public bool IsApproved { get; set; }
+    public string ApprovalStatus { get; set; } = string.Empty;
+    public DateTime? ApprovedAt { get; set; }
+    public string? ApprovedByAdminName { get; set; }
+    public string? RejectionReason { get; set; }
+    public string? DeletedReason { get; set; }
     public int CommentCount { get; set; }
     public int ReactionCount { get; set; }
 }
@@ -236,7 +243,7 @@ public class CreatePostDto
     public string Content { get; set; } = string.Empty;
 
     [Required]
-    public string Category { get; set; } = string.Empty; // "Livelihood", "Medical", "Education"
+    public string Category { get; set; } = string.Empty;
 
     public string? ImageUrl { get; set; }
 }
@@ -257,6 +264,8 @@ public class PostResponseDto
     public int PrayCount { get; set; }
     public int CommentCount { get; set; }
     public string? UserReaction { get; set; } // Current user's reaction, null if none
+    public bool IsApproved { get; set; }
+    public string ApprovalStatus { get; set; } = string.Empty;
 }
 
 public class PaginatedResponse<T>
@@ -276,6 +285,8 @@ public class CreateCommentDto
 {
     [Required, StringLength(2000)]
     public string Content { get; set; } = string.Empty;
+
+    public int? ParentCommentId { get; set; }
 }
 
 public class CommentResponseDto
@@ -286,6 +297,21 @@ public class CommentResponseDto
     public string UserId { get; set; } = string.Empty;
     public string UserName { get; set; } = string.Empty;
     public string? UserAvatar { get; set; }
+    public int? ParentCommentId { get; set; }
+    public string? ParentUserId { get; set; }
+    public string? ParentUserName { get; set; }
+}
+
+public class DeletePostRequestDto
+{
+    [Required, StringLength(500)]
+    public string Reason { get; set; } = string.Empty;
+}
+
+public class ReviewPostRequestDto
+{
+    [StringLength(500)]
+    public string? Reason { get; set; }
 }
 
 // ═══════════════════════════════════════════
@@ -709,6 +735,8 @@ public class CreateApiKeyDto
 
 public class UpdateApiKeyDto
 {
+    public string? Provider { get; set; }
+
     [StringLength(100)]
     public string? Label { get; set; }
 
@@ -766,6 +794,7 @@ public class DeletedPostDto
     public DateTime CreatedAt { get; set; }
     public DateTime? DeletedAt { get; set; }
     public string? DeletedByAdminName { get; set; }
+    public string? DeletedReason { get; set; }
     public int DaysRemaining { get; set; }
 }
 

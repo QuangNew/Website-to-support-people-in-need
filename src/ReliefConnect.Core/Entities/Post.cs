@@ -36,6 +36,15 @@ public class Post
     /// <summary>Admin who deleted the post (null if author self-deleted).</summary>
     public string? DeletedByAdminId { get; set; }
 
+    public string? DeletedReason { get; set; }
+
+    public bool IsApproved { get; set; }
+    public DateTime? ApprovedAt { get; set; }
+    public string? ApprovedByAdminId { get; set; }
+    public DateTime? RejectedAt { get; set; }
+    public string? RejectedByAdminId { get; set; }
+    public string? RejectionReason { get; set; }
+
     // Foreign keys
     public string AuthorId { get; set; } = string.Empty;
     public ApplicationUser Author { get; set; } = null!;

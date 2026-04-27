@@ -12,5 +12,11 @@ public enum PostCategory
     Medical = 1,
 
     /// <summary>Giáo dục — Education Support</summary>
-    Education = 2
+    Education = 2,
+
+    /// <summary>Tình nguyện — Volunteer Support</summary>
+    Volunteer = 3,
+
+    /// <summary>Kêu gọi — Relief Appeal</summary>
+    Appeal = 4
 }

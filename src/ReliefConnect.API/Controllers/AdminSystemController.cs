@@ -31,6 +31,9 @@ public class AdminSystemController : ControllerBase
     private readonly INotificationRealtimeDispatcher _notificationRealtimeDispatcher;
 
     private static readonly Regex LogKeyRegex = new(@"\bkey=(?<id>[^\s|]+)", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    private static readonly Regex LogTargetRegex = new(@"\btarget=(?<id>[0-9a-fA-F-]{36})\b", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    private static readonly Regex DirectMessageTargetRegex = new(@"\bUser\s+[0-9a-fA-F-]{36}\s*->\s*(?<id>[0-9a-fA-F-]{36})\b", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    private static readonly Regex UserIdRegex = new(@"\b(?<id>[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\b", RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     public AdminSystemController(
         AppDbContext db,
@@ -98,8 +101,25 @@ public class AdminSystemController : ControllerBase
         if (string.IsNullOrWhiteSpace(details))
             return null;
 
-        var match = LogKeyRegex.Match(details);
-        return match.Success ? match.Groups["id"].Value : null;
+        var keyMatch = LogKeyRegex.Match(details);
+        if (keyMatch.Success)
+            return keyMatch.Groups["id"].Value;
+
+        var targetMatch = LogTargetRegex.Match(details);
+        if (targetMatch.Success)
+            return targetMatch.Groups["id"].Value;
+
+        var directMessageMatch = DirectMessageTargetRegex.Match(details);
+        return directMessageMatch.Success ? directMessageMatch.Groups["id"].Value : null;
+    }
+
+    private static IEnumerable<string> ExtractUserIds(string? details)
+    {
+        if (string.IsNullOrWhiteSpace(details))
+            yield break;
+
+        foreach (Match match in UserIdRegex.Matches(details))
+            yield return match.Groups["id"].Value;
     }
 
     private static string? EnrichLogDetails(string? details, IReadOnlyDictionary<string, string> userDisplayMap)
@@ -107,11 +127,11 @@ public class AdminSystemController : ControllerBase
         if (string.IsNullOrWhiteSpace(details))
             return details;
 
-        return LogKeyRegex.Replace(details, match =>
+        return UserIdRegex.Replace(details, match =>
         {
             var userId = match.Groups["id"].Value;
             return userDisplayMap.TryGetValue(userId, out var display)
-                ? $"target={display} ({userId})"
+                ? $"{display} ({userId})"
                 : match.Value;
         });
     }
@@ -149,7 +169,9 @@ public class AdminSystemController : ControllerBase
             .Select(l => l.UserId)
             .Where(id => !string.IsNullOrWhiteSpace(id));
 
-        var userDisplayMap = await BuildUserDisplayMapAsync(actorIds.Concat(targetIds));
+        var detailsIds = logs.SelectMany(l => ExtractUserIds(l.Details));
+
+        var userDisplayMap = await BuildUserDisplayMapAsync(actorIds.Concat(targetIds).Concat(detailsIds));
 
         return logs.Select(l =>
         {
@@ -278,8 +300,15 @@ public class AdminSystemController : ControllerBase
         }
 
         if (!string.IsNullOrWhiteSpace(userId))
+        {
+            var keyToken = $"key={userId}";
+            var targetToken = $"target={userId}";
             query = query.Where(l => l.UserId == userId ||
-                                     (l.Details != null && l.Details.Contains($"key={userId}")));
+                                     (l.Details != null && (
+                                         l.Details.Contains(keyToken) ||
+                                         l.Details.Contains(targetToken) ||
+                                         l.Details.Contains(userId))));
+        }
 
         if (DateTime.TryParse(from, out var fromDate))
             query = query.Where(l => l.CreatedAt >= fromDate);

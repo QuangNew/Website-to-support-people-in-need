@@ -38,6 +38,35 @@ public static class ControllerExtensions
         await db.SaveChangesAsync();
     }
 
+    public static async Task LogUserActivity(
+        this ControllerBase controller,
+        AppDbContext db,
+        string action,
+        string? details = null,
+        string? userId = null,
+        string? userName = null,
+        Guid? batchId = null,
+        int? parentLogId = null)
+    {
+        var actorId = userId ?? controller.User.FindFirstValue(ClaimTypes.NameIdentifier);
+        var actorName = userName
+            ?? controller.User.FindFirstValue("FullName")
+            ?? controller.User.FindFirstValue(ClaimTypes.Name);
+
+        db.SystemLogs.Add(new SystemLog
+        {
+            Action = action,
+            Details = details,
+            UserId = actorId,
+            UserName = actorName,
+            CreatedAt = DateTime.UtcNow,
+            BatchId = batchId,
+            ParentLogId = parentLogId
+        });
+
+        await db.SaveChangesAsync();
+    }
+
     /// <summary>
     /// Sanitize a cell value for CSV export to prevent Excel formula injection.
     /// Cells starting with =, +, -, @, tab, or carriage return are prefixed with a single quote.

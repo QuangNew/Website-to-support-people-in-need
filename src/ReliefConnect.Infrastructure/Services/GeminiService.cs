@@ -29,6 +29,57 @@ public class GeminiService : IGeminiService
         Không trả lời các nội dung nhạy cảm, chính trị, vi phạm pháp luật.
         """;
 
+    private static string NormalizeModelName(string model)
+    {
+        var trimmed = model.Trim();
+        return trimmed.StartsWith("models/", StringComparison.OrdinalIgnoreCase)
+            ? trimmed["models/".Length..]
+            : trimmed;
+    }
+
+    private static bool SupportsNativeGeminiControls(string model) =>
+        NormalizeModelName(model).StartsWith("gemini-", StringComparison.OrdinalIgnoreCase);
+
+    private static string BuildGenerateContentUrl(string model)
+    {
+        var normalizedModel = NormalizeModelName(model);
+        return $"https://generativelanguage.googleapis.com/v1beta/models/{normalizedModel}:generateContent";
+    }
+
+    private static string BuildPromptForModel(string model, string userMessage)
+    {
+        if (SupportsNativeGeminiControls(model)) return userMessage;
+
+        return $"{SYSTEM_PROMPT}\n\nCâu hỏi người dùng:\n{userMessage}";
+    }
+
+    private static string? ExtractGeneratedText(JsonElement root)
+    {
+        if (root.TryGetProperty("text", out var topLevelText) && topLevelText.ValueKind == JsonValueKind.String)
+            return topLevelText.GetString();
+
+        if (!root.TryGetProperty("candidates", out var candidates) || candidates.ValueKind != JsonValueKind.Array || candidates.GetArrayLength() == 0)
+            return null;
+
+        var builder = new StringBuilder();
+        foreach (var candidate in candidates.EnumerateArray())
+        {
+            if (!candidate.TryGetProperty("content", out var content)) continue;
+            if (!content.TryGetProperty("parts", out var parts) || parts.ValueKind != JsonValueKind.Array) continue;
+
+            foreach (var part in parts.EnumerateArray())
+            {
+                if (part.TryGetProperty("text", out var partText) && partText.ValueKind == JsonValueKind.String)
+                {
+                    builder.Append(partText.GetString());
+                }
+            }
+        }
+
+        var text = builder.ToString().Trim();
+        return text.Length > 0 ? text : null;
+    }
+
     public GeminiService(IConfiguration config, IServiceScopeFactory scopeFactory, ILogger<GeminiService> logger)
     {
         _http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
@@ -58,7 +109,8 @@ public class GeminiService : IGeminiService
 
             if (poolKey != null)
             {
-                return (poolKey.KeyValue, poolKey.Model, poolKey.Id);
+                var model = string.IsNullOrWhiteSpace(poolKey.Model) ? _fallbackModel : poolKey.Model.Trim();
+                return (poolKey.KeyValue, model, poolKey.Id);
             }
         }
         catch (Exception ex)
@@ -137,7 +189,9 @@ public class GeminiService : IGeminiService
         // Get API key from pool (with fallback to config)
         var (apiKey, model, poolKeyId) = await GetApiKeyAsync();
 
-        var url = $"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent";
+        var url = BuildGenerateContentUrl(model);
+        var effectiveUserMessage = BuildPromptForModel(model, userMessage);
+        var supportsNativeGeminiControls = SupportsNativeGeminiControls(model);
 
         var contents = new List<object>();
 
@@ -167,7 +221,7 @@ public class GeminiService : IGeminiService
                 }
             });
         }
-        currentParts.Add(new { text = userMessage });
+        currentParts.Add(new { text = effectiveUserMessage });
 
         contents.Add(new
         {
@@ -175,26 +229,30 @@ public class GeminiService : IGeminiService
             parts = currentParts.ToArray()
         });
 
-        var requestBody = new
+        var requestBody = new Dictionary<string, object?>
         {
-            systemInstruction = new
-            {
-                parts = new[] { new { text = SYSTEM_PROMPT } }
-            },
-            contents,
-            safetySettings = new[]
-            {
-                new { category = "HARM_CATEGORY_HARASSMENT", threshold = "BLOCK_MEDIUM_AND_ABOVE" },
-                new { category = "HARM_CATEGORY_HATE_SPEECH", threshold = "BLOCK_MEDIUM_AND_ABOVE" },
-                new { category = "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold = "BLOCK_MEDIUM_AND_ABOVE" },
-                new { category = "HARM_CATEGORY_DANGEROUS_CONTENT", threshold = "BLOCK_MEDIUM_AND_ABOVE" },
-            },
-            generationConfig = new
+            ["contents"] = contents,
+            ["generationConfig"] = new
             {
                 maxOutputTokens = 1024,
                 temperature = 0.7
             }
         };
+
+        if (supportsNativeGeminiControls)
+        {
+            requestBody["systemInstruction"] = new
+            {
+                parts = new[] { new { text = SYSTEM_PROMPT } }
+            };
+            requestBody["safetySettings"] = new[]
+            {
+                new { category = "HARM_CATEGORY_HARASSMENT", threshold = "BLOCK_MEDIUM_AND_ABOVE" },
+                new { category = "HARM_CATEGORY_HATE_SPEECH", threshold = "BLOCK_MEDIUM_AND_ABOVE" },
+                new { category = "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold = "BLOCK_MEDIUM_AND_ABOVE" },
+                new { category = "HARM_CATEGORY_DANGEROUS_CONTENT", threshold = "BLOCK_MEDIUM_AND_ABOVE" },
+            };
+        }
 
         try
         {
@@ -225,21 +283,19 @@ public class GeminiService : IGeminiService
             }
 
             // Extract text response
-            if (!root.TryGetProperty("candidates", out var candidates) || candidates.GetArrayLength() == 0)
+            var text = ExtractGeneratedText(root);
+            if (string.IsNullOrWhiteSpace(text))
             {
-                _logger.LogWarning("Gemini returned no candidates. Response: {Json}", json);
-                return ("Xin lỗi, tôi không nhận được phản hồi. Vui lòng thử lại.", false);
+                _logger.LogWarning("Gemini returned no text content. Response: {Json}", json);
+                return ("Mô hình AI hiện tại chưa trả về nội dung văn bản phù hợp cho chatbot. Vui lòng thử lại hoặc chọn model hỗ trợ phản hồi văn bản.", false);
             }
-
-            var text = candidates[0]
-                .GetProperty("content")
-                .GetProperty("parts")[0]
-                .GetProperty("text")
-                .GetString() ?? "Xin lỗi, tôi không thể trả lời lúc này.";
 
             // Check for safety ratings
             var hasSafetyWarning = hasEmergencyKeyword;
-            if (candidates[0].TryGetProperty("safetyRatings", out var ratings))
+            if (root.TryGetProperty("candidates", out var candidates)
+                && candidates.ValueKind == JsonValueKind.Array
+                && candidates.GetArrayLength() > 0
+                && candidates[0].TryGetProperty("safetyRatings", out var ratings))
             {
                 foreach (var rating in ratings.EnumerateArray())
                 {

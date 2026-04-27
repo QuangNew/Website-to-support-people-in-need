@@ -1,4 +1,6 @@
+using System.Globalization;
 using System.Security.Claims;
+using System.Text;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
@@ -46,6 +48,102 @@ public class MessageController : ControllerBase
         User.FindFirstValue("FullName")
         ?? User.FindFirstValue(ClaimTypes.Name)
         ?? "Unknown user";
+
+    private static string NormalizeSearchText(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return string.Empty;
+
+        var normalized = value.Normalize(NormalizationForm.FormD);
+        var builder = new StringBuilder(normalized.Length);
+        var previousWasSpace = false;
+
+        foreach (var ch in normalized)
+        {
+            if (CharUnicodeInfo.GetUnicodeCategory(ch) == UnicodeCategory.NonSpacingMark)
+                continue;
+
+            var lower = char.ToLowerInvariant(ch);
+            if (lower == 'đ') lower = 'd';
+
+            if (char.IsLetterOrDigit(lower))
+            {
+                builder.Append(lower);
+                previousWasSpace = false;
+            }
+            else if (!previousWasSpace)
+            {
+                builder.Append(' ');
+                previousWasSpace = true;
+            }
+        }
+
+        return builder.ToString().Normalize(NormalizationForm.FormC).Trim();
+    }
+
+    private static string NormalizePhoneDigits(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return string.Empty;
+
+        var builder = new StringBuilder(value.Length);
+        foreach (var ch in value)
+        {
+            if (char.IsDigit(ch)) builder.Append(ch);
+        }
+
+        return builder.ToString();
+    }
+
+    private static int CalculateUserSearchScore(
+        string fullName,
+        string? phoneNumber,
+        string normalizedQuery,
+        string[] queryTerms,
+        string phoneQuery)
+    {
+        var normalizedName = NormalizeSearchText(fullName);
+        var compactName = normalizedName.Replace(" ", string.Empty, StringComparison.Ordinal);
+        var compactQuery = normalizedQuery.Replace(" ", string.Empty, StringComparison.Ordinal);
+        var nameWords = normalizedName.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var score = 0;
+
+        if (normalizedName == normalizedQuery) score = Math.Max(score, 1000);
+        if (normalizedName.StartsWith(normalizedQuery, StringComparison.Ordinal)) score = Math.Max(score, 900);
+        if (nameWords.Any(word => word.StartsWith(normalizedQuery, StringComparison.Ordinal))) score = Math.Max(score, 820);
+        if (normalizedName.Contains(normalizedQuery, StringComparison.Ordinal)) score = Math.Max(score, 700);
+        if (compactName.Contains(compactQuery, StringComparison.Ordinal)) score = Math.Max(score, 640);
+
+        if (queryTerms.Length > 0 && queryTerms.All(term =>
+            nameWords.Any(word => word.StartsWith(term, StringComparison.Ordinal))
+            || normalizedName.Contains(term, StringComparison.Ordinal)))
+        {
+            score = Math.Max(score, 760 + Math.Min(queryTerms.Length, 4) * 10);
+        }
+
+        var initials = string.Concat(nameWords.Select(word => word[0]));
+        if (initials.StartsWith(compactQuery, StringComparison.Ordinal)) score = Math.Max(score, 620);
+
+        if (compactQuery.Length >= 3 && IsSubsequence(compactQuery, compactName)) score = Math.Max(score, 420);
+
+        var phoneDigits = NormalizePhoneDigits(phoneNumber);
+        if (phoneQuery.Length >= 2 && phoneDigits.Contains(phoneQuery, StringComparison.Ordinal))
+        {
+            score = Math.Max(score, phoneDigits.StartsWith(phoneQuery, StringComparison.Ordinal) ? 950 : 680);
+        }
+
+        return score;
+    }
+
+    private static bool IsSubsequence(string needle, string haystack)
+    {
+        var needleIndex = 0;
+        foreach (var ch in haystack)
+        {
+            if (ch == needle[needleIndex] && ++needleIndex == needle.Length)
+                return true;
+        }
+
+        return false;
+    }
 
     /// <summary>
     /// Get all conversations for the current user, sorted by LastMessageAt DESC.
@@ -368,27 +466,48 @@ public class MessageController : ControllerBase
         var userId = GetUserId();
         if (userId == null) return Unauthorized();
 
-        if (string.IsNullOrWhiteSpace(q) || q.Length < 2)
+        var normalizedQuery = NormalizeSearchText(q);
+        var phoneQuery = NormalizePhoneDigits(q);
+        if (normalizedQuery.Length < 2 && phoneQuery.Length < 2)
             return Ok(Array.Empty<SearchUserDto>());
 
-        var query = q.Trim().ToLower();
-
-        var users = await _db.Users
+        var candidates = await _db.Users
             .AsNoTracking()
             .Where(u => u.Id != userId
                 && !u.IsSuspended
                 && (u.Role == RoleEnum.Volunteer || u.Role == RoleEnum.Sponsor || u.Role == RoleEnum.Admin || u.Role == RoleEnum.PersonInNeed)
-                && u.VerificationStatus == VerificationStatus.Approved
-                && (u.FullName.ToLower().Contains(query) || (u.PhoneNumber != null && u.PhoneNumber.Contains(query))))
-            .Take(20)
-            .Select(u => new SearchUserDto
+                && u.VerificationStatus == VerificationStatus.Approved)
+            .OrderBy(u => u.FullName)
+            .Select(u => new
             {
-                Id = u.Id,
-                FullName = u.FullName,
-                AvatarUrl = u.AvatarUrl,
-                Role = u.Role.ToString()
+                u.Id,
+                u.FullName,
+                u.AvatarUrl,
+                u.Role,
+                u.PhoneNumber
             })
+            .Take(500)
             .ToListAsync();
+
+        var queryTerms = normalizedQuery.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var users = candidates
+            .Select(u => new
+            {
+                User = u,
+                Score = CalculateUserSearchScore(u.FullName, u.PhoneNumber, normalizedQuery, queryTerms, phoneQuery)
+            })
+            .Where(x => x.Score > 0)
+            .OrderByDescending(x => x.Score)
+            .ThenBy(x => x.User.FullName)
+            .Take(20)
+            .Select(x => new SearchUserDto
+            {
+                Id = x.User.Id,
+                FullName = x.User.FullName,
+                AvatarUrl = x.User.AvatarUrl,
+                Role = x.User.Role.ToString()
+            })
+            .ToList();
 
         return Ok(users);
     }
@@ -418,11 +537,17 @@ public class MessageController : ControllerBase
                 .Where(c => c.Id == conversationId)
                 .ExecuteUpdateAsync(s => s.SetProperty(c => c.LastMessageAt, now));
 
+            var receiverName = await db.Users
+                .AsNoTracking()
+                .Where(u => u.Id == receiverId)
+                .Select(u => u.FullName ?? u.UserName ?? "Unknown user")
+                .FirstOrDefaultAsync() ?? "Unknown user";
+
             // Write audit log
             db.SystemLogs.Add(new SystemLog
             {
                 Action = "DirectMessage",
-                Details = $"User {senderId} -> {receiverId} in conv {conversationId}",
+                Details = $"Direct message: {senderName} -> {receiverName} in conversation #{conversationId}; sender={senderId}; target={receiverId}",
                 UserId = senderId,
                 UserName = senderName,
                 CreatedAt = now

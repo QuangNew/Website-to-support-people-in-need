@@ -17,14 +17,14 @@ public class PostRepository : IPostRepository
 
     public async Task<Post?> GetByIdAsync(int id)
     {
-        return await _context.Posts.AsNoTracking().FirstOrDefaultAsync(p => p.Id == id && !p.IsDeleted);
+        return await _context.Posts.AsNoTracking().FirstOrDefaultAsync(p => p.Id == id && !p.IsDeleted && p.IsApproved);
     }
 
     public async Task<IEnumerable<Post>> GetAllAsync(int? limit = null)
     {
         var query = _context.Posts
             .AsNoTracking()
-            .Where(p => !p.IsDeleted)
+            .Where(p => !p.IsDeleted && p.IsApproved)
             .Include(p => p.Author)
             .OrderByDescending(p => p.CreatedAt);
 
@@ -70,7 +70,7 @@ public class PostRepository : IPostRepository
     {
         var query = _context.Posts
             .AsNoTracking()
-            .Where(p => !p.IsDeleted)
+            .Where(p => !p.IsDeleted && p.IsApproved)
             .Include(p => p.Author)
             .OrderByDescending(p => p.CreatedAt)
             .ThenByDescending(p => p.Id)
@@ -114,7 +114,7 @@ public class PostRepository : IPostRepository
             .Include(p => p.Reactions)
             .Include(p => p.Tag)
             .AsSplitQuery()
-            .FirstOrDefaultAsync(p => p.Id == postId && !p.IsDeleted);
+            .FirstOrDefaultAsync(p => p.Id == postId && !p.IsDeleted && p.IsApproved);
     }
 
     /// <summary>
@@ -128,7 +128,7 @@ public class PostRepository : IPostRepository
         // Base query - default sort by newest
         var postQuery = _context.Posts
             .AsNoTracking()
-            .Where(p => !p.IsDeleted)
+            .Where(p => !p.IsDeleted && p.IsApproved)
             .AsQueryable();
 
         // Sort by recently reacted or recently commented
