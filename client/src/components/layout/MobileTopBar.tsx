@@ -2,6 +2,7 @@ import { useState, useMemo, useRef, useEffect } from 'react';
 import { Search, X } from 'lucide-react';
 import { useMapStore, type PingType } from '../../stores/mapStore';
 import { useLanguage } from '../../contexts/LanguageContext';
+import NotificationBell from '../ui/NotificationBell';
 
 const COUNT_CHIPS: { type: PingType; color: string; activeColor: string }[] = [
   { type: 'need_help',     color: 'rgba(239,68,68,0.12)',   activeColor: '#ef4444' },
@@ -59,55 +60,61 @@ export default function MobileTopBar() {
   return (
     <div className="mobile-topbar">
       {/* Search row */}
-      <div className="mobile-topbar__search-wrap" ref={wrapRef}>
-        <div className="mobile-topbar__search">
-          <Search size={15} className="mobile-topbar__search-icon" />
-          <input
-            type="text"
-            className="mobile-topbar__search-input"
-            placeholder={t('filter.searchPlaceholder')}
-            value={search}
-            onChange={(e) => { setSearch(e.target.value); setShowResults(true); }}
-            onFocus={() => { if (search.trim()) setShowResults(true); }}
-          />
-          {search && (
-            <button
-              type="button"
-              className="mobile-topbar__clear"
-              onClick={() => { setSearch(''); setShowResults(false); }}
-            >
-              <X size={14} />
-            </button>
+      <div className="mobile-topbar__search-row">
+        <div className="mobile-topbar__search-wrap" ref={wrapRef}>
+          <div className="mobile-topbar__search">
+            <Search size={15} className="mobile-topbar__search-icon" />
+            <input
+              type="text"
+              className="mobile-topbar__search-input"
+              placeholder={t('filter.searchPlaceholder')}
+              value={search}
+              onChange={(e) => { setSearch(e.target.value); setShowResults(true); }}
+              onFocus={() => { if (search.trim()) setShowResults(true); }}
+            />
+            {search && (
+              <button
+                type="button"
+                className="mobile-topbar__clear"
+                onClick={() => { setSearch(''); setShowResults(false); }}
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+
+          {/* Search results dropdown */}
+          {showResults && search.trim() && (
+            <div className="mobile-topbar__results">
+              {searchResults.length === 0 ? (
+                <div className="mobile-topbar__results-empty">{t('filter.noResults')}</div>
+              ) : (
+                searchResults.map((ping) => (
+                  <button
+                    key={ping.id}
+                    type="button"
+                    className="mobile-topbar__result-item"
+                    onClick={() => {
+                      selectPing(ping.id);
+                      setFlyTo({ lat: ping.lat, lng: ping.lng, zoom: 15 });
+                      setSearch('');
+                      setShowResults(false);
+                    }}
+                  >
+                    <span className="mobile-topbar__result-title">
+                      {ping.title || ping.contactName || '—'}
+                    </span>
+                    <span className="mobile-topbar__result-addr">{ping.address}</span>
+                  </button>
+                ))
+              )}
+            </div>
           )}
         </div>
 
-        {/* Search results dropdown */}
-        {showResults && search.trim() && (
-          <div className="mobile-topbar__results">
-            {searchResults.length === 0 ? (
-              <div className="mobile-topbar__results-empty">{t('filter.noResults')}</div>
-            ) : (
-              searchResults.map((ping) => (
-                <button
-                  key={ping.id}
-                  type="button"
-                  className="mobile-topbar__result-item"
-                  onClick={() => {
-                    selectPing(ping.id);
-                    setFlyTo({ lat: ping.lat, lng: ping.lng, zoom: 15 });
-                    setSearch('');
-                    setShowResults(false);
-                  }}
-                >
-                  <span className="mobile-topbar__result-title">
-                    {ping.title || ping.contactName || '—'}
-                  </span>
-                  <span className="mobile-topbar__result-addr">{ping.address}</span>
-                </button>
-              ))
-            )}
-          </div>
-        )}
+        <div className="mobile-topbar__notifications">
+          <NotificationBell />
+        </div>
       </div>
 
       {/* Count chips */}

@@ -111,6 +111,7 @@ export default function AdminPage() {
   const { user, isAuthenticated, authResolved, loadUser } = useAuthStore();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<Tab>('stats');
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   useEffect(() => {
     if (!authResolved) return;
@@ -176,6 +177,12 @@ export default function AdminPage() {
     { key: 'supply', label: 'Supply', icon: Package },
     { key: 'apikeys', label: 'API Keys', icon: Key },
   ];
+  const activeTabMeta = tabs.find((tab) => tab.key === activeTab) ?? tabs[0];
+  const ActiveTabIcon = activeTabMeta.icon;
+  const selectTab = (tab: Tab) => {
+    setActiveTab(tab);
+    setMobileNavOpen(false);
+  };
 
   return (
     <div className="admin-page">
@@ -191,7 +198,7 @@ export default function AdminPage() {
             <button
               key={tab.key}
               className={`admin-nav-btn ${activeTab === tab.key ? 'admin-nav-btn--active' : ''}`}
-              onClick={() => setActiveTab(tab.key)}
+              onClick={() => selectTab(tab.key)}
             >
               <tab.icon size={18} />
               <span>{tab.label}</span>
@@ -209,7 +216,36 @@ export default function AdminPage() {
       <main className="admin-main">
         <header className="admin-header">
           <h1>{t('admin.title')}</h1>
-          <span className="admin-header__user">{user?.fullName}</span>
+          <div className="admin-header__right">
+            <div className="admin-mobile-tab-picker">
+              <button
+                type="button"
+                className="admin-mobile-tab-picker__trigger"
+                onClick={() => setMobileNavOpen((open) => !open)}
+                aria-expanded={mobileNavOpen}
+              >
+                <ActiveTabIcon size={16} />
+                <span>{activeTabMeta.label}</span>
+                <ChevronDown size={16} className={mobileNavOpen ? 'rotate-180' : ''} />
+              </button>
+              {mobileNavOpen && (
+                <div className="admin-mobile-tab-picker__menu">
+                  {tabs.map((tab) => (
+                    <button
+                      key={tab.key}
+                      type="button"
+                      className={`admin-mobile-tab-picker__item ${activeTab === tab.key ? 'active' : ''}`}
+                      onClick={() => selectTab(tab.key)}
+                    >
+                      <tab.icon size={16} />
+                      <span>{tab.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <span className="admin-header__user">{user?.fullName}</span>
+          </div>
         </header>
 
         <div className="admin-content">

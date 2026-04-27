@@ -235,6 +235,15 @@ export default function UserPreviewModal({
               <div className="admin-empty admin-empty--inline">{t('common.error')}</div>
             ) : (
               <>
+                {showContactAction && (
+                  <div className="user-preview-modal__actions admin-user-profile-actions">
+                    <button type="button" className="btn btn-primary btn-sm" onClick={() => void handleContact()} disabled={contacting}>
+                      <MessageSquare size={15} />
+                      {contacting ? t('common.loading') : t('admin.contactThisUser')}
+                    </button>
+                  </div>
+                )}
+
                 <div className="admin-user-summary-grid">
                   <div className="admin-verification-card">
                     <span className="admin-verification-card__label">{t('profile.role')}</span>
@@ -255,15 +264,6 @@ export default function UserPreviewModal({
                     </div>
                   )}
                 </div>
-
-                {showContactAction && (
-                  <div className="user-preview-modal__actions">
-                    <button type="button" className="btn btn-primary btn-sm" onClick={() => void handleContact()} disabled={contacting}>
-                      <MessageSquare size={15} />
-                      {contacting ? t('common.loading') : t('social.contactUser')}
-                    </button>
-                  </div>
-                )}
 
                 {isAdmin && adminDetail && (
                   <>

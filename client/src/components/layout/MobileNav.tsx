@@ -2,7 +2,7 @@ import { useRef, useEffect } from 'react';
 import {
   ClipboardList, Users, Mail, MessageCircle, User,
   Shield, UserCheck, BookOpen, HeartPulse, ClipboardCheck,
-  HandHeart, Sun, Moon, Globe, LogIn, LogOut, AlertCircle, Heart,
+  HandHeart, Sun, Moon, Globe, LogIn, LogOut, Heart,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useMapStore, type PanelType } from '../../stores/mapStore';
@@ -12,7 +12,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 
 export default function MobileNav() {
-  const { activePanel, setActivePanel, triggerSOS, setAuthModal } = useMapStore();
+  const { activePanel, setActivePanel, setAuthModal } = useMapStore();
   const { isAuthenticated, user, logout } = useAuthStore();
   const { totalUnread } = useMessageStore();
   const { toggleTheme, isDark } = useTheme();
@@ -71,11 +71,6 @@ export default function MobileNav() {
 
   return (
     <nav className="mobile-nav" aria-label="Mobile navigation">
-      {/* SOS FAB — always visible outside the scrollable area */}
-      <button type="button" className="mobile-sos-fab" onClick={() => triggerSOS()} aria-label="SOS">
-        <AlertCircle size={24} strokeWidth={2.5} />
-      </button>
-
       <div className="mobile-nav-items" ref={scrollRef}>
 
         {/* Danh sách */}
