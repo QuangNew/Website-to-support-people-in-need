@@ -13,21 +13,21 @@ public class SpamGuardService : ISpamGuardService
     private readonly ILogger<SpamGuardService> _logger;
 
     // ── Thresholds ──
-    // Posts: 3/hour warn, 5/hour suspend
-    private const int PostWarnLimit = 3;
-    private const int PostSuspendLimit = 5;
+    // Posts: 2/hour warn, 4/hour suspend
+    private const int PostWarnLimit = 2;
+    private const int PostSuspendLimit = 4;
 
     // Comments: 6/min warn, 10/min suspend
     private const int CommentWarnLimit = 6;
     private const int CommentSuspendLimit = 10;
 
-    // Pings: 3/hour warn, 5/hour suspend
-    private const int PingWarnLimit = 3;
-    private const int PingSuspendLimit = 5;
+    // Pings: 2/hour warn, 4/hour suspend
+    private const int PingWarnLimit = 2;
+    private const int PingSuspendLimit = 4;
 
-    // Messages: 30/min warn, 50/min suspend
-    private const int MessageWarnLimit = 30;
-    private const int MessageSuspendLimit = 50;
+    // Messages: 15/min warn, 20/min suspend
+    private const int MessageWarnLimit = 15;
+    private const int MessageSuspendLimit = 20;
 
     public SpamGuardService(AppDbContext db, INotificationService notifications, ILogger<SpamGuardService> logger)
     {

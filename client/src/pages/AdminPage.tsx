@@ -6,7 +6,7 @@ import {
   LogOut, Eye, MessageSquare,
   ArrowLeft, Search, CheckCircle2, XCircle, AlertTriangle,
   Heart, BookOpen, Stethoscope, Home, Activity, ShieldCheck, Plus, Edit2,
-  MapPin, Package, X, Key, RotateCcw,
+  MapPin, Package, X, Key, RotateCcw, Image as ImageIcon,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
@@ -1206,6 +1206,7 @@ function PostApprovalsPanel() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [categoryFilter, setCategoryFilter] = useState('');
+  const [previewTarget, setPreviewTarget] = useState<AdminPost | null>(null);
   const [rejectTarget, setRejectTarget] = useState<AdminPost | null>(null);
   const [processingId, setProcessingId] = useState<number | null>(null);
   const [rejecting, setRejecting] = useState(false);
@@ -1229,6 +1230,7 @@ function PostApprovalsPanel() {
     try {
       await adminApi.approvePost(post.id);
       toast.success(t('admin.postApproved'));
+      setPreviewTarget(null);
       load();
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
@@ -1246,6 +1248,7 @@ function PostApprovalsPanel() {
       await adminApi.rejectPost(rejectTarget.id, { reason });
       toast.success(t('admin.postRejected'));
       setRejectTarget(null);
+      setPreviewTarget(null);
       load();
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
@@ -1259,7 +1262,8 @@ function PostApprovalsPanel() {
   if (loading) return <div className="admin-loading"><span className="spinner" /></div>;
 
   return (
-    <div className="animate-fade-in-up">
+    <>
+      <div className="animate-fade-in-up">
       <div className="admin-filters">
         <select
           className="admin-select"
@@ -1293,7 +1297,31 @@ function PostApprovalsPanel() {
                 <tr key={p.id}>
                   <td>#{p.id}</td>
                   <td>{p.authorName}</td>
-                  <td className="admin-td-content admin-td-content--wrap">{p.content}</td>
+                  <td className="admin-td-content admin-td-content--wrap">
+                    <button
+                      type="button"
+                      className="admin-post-approval-trigger"
+                      onClick={() => setPreviewTarget(p)}
+                      aria-label={`${t('admin.viewFullPost')} #${p.id}`}
+                    >
+                      {p.imageUrl && (
+                        <span className="admin-post-approval-thumb" aria-hidden="true">
+                          <ImageIcon size={18} />
+                        </span>
+                      )}
+                      <span className="admin-post-approval-copy">
+                        <span className="admin-post-approval-title line-clamp-2">{p.content}</span>
+                        <span className="admin-post-approval-meta">
+                          <Eye size={13} /> {t('admin.viewFullPost')}
+                          {p.imageUrl && (
+                            <span className="admin-post-approval-image-meta">
+                              <ImageIcon size={13} /> {t('admin.hasImage')}
+                            </span>
+                          )}
+                        </span>
+                      </span>
+                    </button>
+                  </td>
                   <td><span className="admin-badge admin-badge--warning">{t(`social.category.${p.category}`)}</span></td>
                   <td className="admin-td-date">{new Date(p.createdAt).toLocaleDateString()}</td>
                   <td>
@@ -1325,6 +1353,20 @@ function PostApprovalsPanel() {
           <button className="btn btn-ghost btn-sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>Next →</button>
         </div>
       )}
+      </div>
+
+      {previewTarget && (
+        <PostPreviewModal
+          post={previewTarget}
+          processing={processingId === previewTarget.id}
+          onClose={() => setPreviewTarget(null)}
+          onApprove={handleApprove}
+          onReject={(post) => {
+            setPreviewTarget(null);
+            setRejectTarget(post);
+          }}
+        />
+      )}
 
       <PostReasonModal
         isOpen={!!rejectTarget}
@@ -1339,7 +1381,58 @@ function PostApprovalsPanel() {
         onClose={() => !rejecting && setRejectTarget(null)}
         onConfirm={handleReject}
       />
-    </div>
+    </>
+  );
+}
+
+function PostPreviewModal({
+  post,
+  processing,
+  onClose,
+  onApprove,
+  onReject,
+}: {
+  post: AdminPost;
+  processing: boolean;
+  onClose: () => void;
+  onApprove: (post: AdminPost) => Promise<void> | void;
+  onReject: (post: AdminPost) => void;
+}) {
+  const { t } = useLanguage();
+  const imageUrl = post.imageUrl ? getImageUrl(post.imageUrl) : null;
+
+  return (
+    <Modal isOpen onClose={onClose} size="lg" className="admin-post-preview-modal">
+      <div className="admin-post-preview">
+        <div className="admin-post-preview__header">
+          <span className="admin-badge admin-badge--warning">{t(`social.category.${post.category}`)}</span>
+          <h2>#{post.id} · {post.authorName}</h2>
+          <p>{new Date(post.createdAt).toLocaleString()}</p>
+        </div>
+
+        {imageUrl ? (
+          <a className="admin-post-preview__image" href={imageUrl} target="_blank" rel="noreferrer">
+            <img src={imageUrl} alt={t('admin.postImage')} />
+          </a>
+        ) : (
+          <div className="admin-post-preview__no-image admin-empty--inline">
+            <ImageIcon size={22} />
+            <span>{t('admin.noImage')}</span>
+          </div>
+        )}
+
+        <div className="admin-post-preview__content">{post.content}</div>
+
+        <div className="admin-post-preview__actions">
+          <button className="btn btn-sm btn-primary" onClick={() => onApprove(post)} disabled={processing}>
+            <CheckCircle2 size={14} /> {t('admin.approve')}
+          </button>
+          <button className="btn btn-sm btn-danger" onClick={() => onReject(post)} disabled={processing}>
+            <XCircle size={14} /> {t('admin.reject')}
+          </button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -3031,10 +3124,9 @@ function ApiKeysPanel() {
     try {
       if (editingId !== null) {
         const payload: Record<string, unknown> = { provider: form.provider, label: form.label, model: form.model };
-        if (form.keyValue.trim()) payload.keyValue = form.keyValue;
-        const res = await adminApi.updateApiKey(editingId, payload as Parameters<typeof adminApi.updateApiKey>[1]);
-        const saved = res.data as ApiKeyRow;
-        setKeys((prev) => prev.map((key) => key.id === saved.id ? saved : key));
+        if (form.keyValue.trim()) payload.keyValue = form.keyValue.trim();
+        await adminApi.updateApiKey(editingId, payload as Parameters<typeof adminApi.updateApiKey>[1]);
+        await load();
         toast.success('API key updated');
       } else {
         const res = await adminApi.createApiKey(form);

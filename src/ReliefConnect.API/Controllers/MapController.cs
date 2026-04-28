@@ -128,7 +128,7 @@ public class MapController : ControllerBase
         var spamCheck = await _spamGuard.CheckPingAsync(userId);
         if (spamCheck.Verdict == SpamVerdict.Suspend)
         {
-            await _spamGuard.SuspendForSpamAsync(userId, "Tạo SOS quá nhiều (>5 lần/giờ)");
+            await _spamGuard.SuspendForSpamAsync(userId, "Tạo SOS quá nhiều (>4 lần/giờ)");
             return StatusCode(429, new ApiErrorResponse { StatusCode = 429, Message = "Tài khoản của bạn đã bị tạm khóa do tạo SOS quá nhiều." });
         }
 

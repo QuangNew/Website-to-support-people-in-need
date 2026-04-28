@@ -50,8 +50,29 @@ public class GeminiService : IGeminiService
     {
         if (SupportsNativeGeminiControls(model)) return userMessage;
 
-        return $"{SYSTEM_PROMPT}\n\nCâu hỏi người dùng:\n{userMessage}";
+        return $"""
+               {SYSTEM_PROMPT}
+
+               Trả lời trực tiếp cho người dùng bằng câu trả lời cuối cùng. Không nhắc lại câu hỏi, không nhắc lại hướng dẫn, không viết các nhãn như "System Prompt", "User question", "Role", "Mission" hoặc "Constraint".
+
+               {userMessage}
+               """;
     }
+
+    private static readonly string[] PromptLeakageLinePrefixes =
+    {
+        "System Prompt:", "System Prompt", "SYSTEM_PROMPT:", "User's question:", "User’s question:", "User question:", "Câu hỏi người dùng:",
+        "Role:", "Mission:", "Constraint:", "Constraints:", "Identity:",
+        "<start_of_turn>user", "<start_of_turn>model", "<end_of_turn>"
+    };
+
+    private static readonly string[] SystemPromptFragments =
+    {
+        "Bạn là trợ lý AI của ReliefConnect",
+        "Nhiệm vụ: giúp người dùng",
+        "Trả lời ngắn gọn, chính xác",
+        "Không trả lời các nội dung nhạy cảm"
+    };
 
     private static string? ExtractGeneratedText(JsonElement root)
     {
@@ -78,6 +99,70 @@ public class GeminiService : IGeminiService
 
         var text = builder.ToString().Trim();
         return text.Length > 0 ? text : null;
+    }
+
+    private static bool ContainsPromptLeakage(string text) =>
+        PromptLeakageLinePrefixes.Any(marker => text.Contains(marker, StringComparison.OrdinalIgnoreCase))
+        || SystemPromptFragments.Any(fragment => text.Contains(fragment, StringComparison.OrdinalIgnoreCase));
+
+    private static string ExtractAfterAnswerMarker(string text)
+    {
+        var markers = new[] { "Final answer:", "Answer:", "Assistant:", "Trả lời:", "Câu trả lời:" };
+        var bestIndex = -1;
+        var bestMarker = "";
+
+        foreach (var marker in markers)
+        {
+            var index = text.LastIndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (index > bestIndex)
+            {
+                bestIndex = index;
+                bestMarker = marker;
+            }
+        }
+
+        return bestIndex >= 0 ? text[(bestIndex + bestMarker.Length)..].Trim() : text;
+    }
+
+    private static bool IsPromptLeakageLine(string line, string userMessage)
+    {
+        var trimmed = line.Trim();
+        if (string.IsNullOrWhiteSpace(trimmed)) return false;
+
+        var normalized = trimmed.TrimStart('-', '*', ' ', '\t');
+        if (PromptLeakageLinePrefixes.Any(prefix => normalized.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+            return true;
+
+        if (SystemPromptFragments.Any(fragment => normalized.Contains(fragment, StringComparison.OrdinalIgnoreCase)))
+            return true;
+
+        var quoted = normalized.Trim('"', '\'', '“', '”');
+        return string.Equals(quoted, userMessage.Trim(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string CleanGeneratedText(string text, string userMessage, string model)
+    {
+        if (SupportsNativeGeminiControls(model)) return text.Trim();
+
+        var cleaned = text
+            .Replace("<start_of_turn>model", "", StringComparison.OrdinalIgnoreCase)
+            .Replace("<start_of_turn>user", "", StringComparison.OrdinalIgnoreCase)
+            .Replace("<end_of_turn>", "", StringComparison.OrdinalIgnoreCase)
+            .Trim();
+
+        if (ContainsPromptLeakage(cleaned))
+            cleaned = ExtractAfterAnswerMarker(cleaned);
+
+        var lines = cleaned.Replace("\r\n", "\n").Split('\n');
+        var keptLines = lines.Where(line => !IsPromptLeakageLine(line, userMessage));
+        cleaned = string.Join("\n", keptLines).Trim();
+
+        while (cleaned.Contains("\n\n\n", StringComparison.Ordinal))
+            cleaned = cleaned.Replace("\n\n\n", "\n\n", StringComparison.Ordinal);
+
+        return string.IsNullOrWhiteSpace(cleaned)
+            ? "Mô hình hiện tại chưa trả về câu trả lời rõ ràng. Vui lòng thử lại."
+            : cleaned;
     }
 
     public GeminiService(IConfiguration config, IServiceScopeFactory scopeFactory, ILogger<GeminiService> logger)
@@ -168,7 +253,7 @@ public class GeminiService : IGeminiService
         };
     }
 
-    public async Task<(string Response, bool HasSafetyWarning)> SendMessageAsync(
+    public async Task<AiChatResponse> SendMessageAsync(
         string userMessage,
         IEnumerable<(string Role, string Content)>? conversationHistory = null,
         string? imageBase64 = null,
@@ -179,7 +264,7 @@ public class GeminiService : IGeminiService
         var allowedImageTypes = new[] { "image/jpeg", "image/png", "image/webp" };
         if (hasImage && !allowedImageTypes.Contains(imageMimeType))
         {
-            return ("Ảnh chưa đúng định dạng hỗ trợ. Vui lòng dùng JPEG, PNG hoặc WebP.", false);
+            return new AiChatResponse("Ảnh chưa đúng định dạng hỗ trợ. Vui lòng dùng JPEG, PNG hoặc WebP.", false, false);
         }
 
         // Check for emergency keywords
@@ -268,7 +353,7 @@ public class GeminiService : IGeminiService
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogWarning("Gemini API error {StatusCode}: {Body}", response.StatusCode, json);
-                return (MapProviderFailureMessage(response.StatusCode), false);
+                return new AiChatResponse(MapProviderFailureMessage(response.StatusCode), false, false);
             }
 
             using var doc = JsonDocument.Parse(json);
@@ -279,7 +364,7 @@ public class GeminiService : IGeminiService
                 feedback.TryGetProperty("blockReason", out _))
             {
                 _logger.LogWarning("Gemini safety block triggered");
-                return ("Xin lỗi, tôi không thể trả lời câu hỏi này vì lý do an toàn.", true);
+                return new AiChatResponse("Xin lỗi, tôi không thể trả lời câu hỏi này vì lý do an toàn.", true, false);
             }
 
             // Extract text response
@@ -287,8 +372,10 @@ public class GeminiService : IGeminiService
             if (string.IsNullOrWhiteSpace(text))
             {
                 _logger.LogWarning("Gemini returned no text content. Response: {Json}", json);
-                return ("Mô hình AI hiện tại chưa trả về nội dung văn bản phù hợp cho chatbot. Vui lòng thử lại hoặc chọn model hỗ trợ phản hồi văn bản.", false);
+                return new AiChatResponse("Mô hình AI hiện tại chưa trả về nội dung văn bản phù hợp cho chatbot. Vui lòng thử lại hoặc chọn model hỗ trợ phản hồi văn bản.", false, false);
             }
+
+            text = CleanGeneratedText(text, userMessage, model);
 
             // Check for safety ratings
             var hasSafetyWarning = hasEmergencyKeyword;
@@ -314,27 +401,27 @@ public class GeminiService : IGeminiService
             if (poolKeyId.HasValue)
                 _ = TrackUsageAsync(poolKeyId.Value);
 
-            return (text, hasSafetyWarning);
+            return new AiChatResponse(text, hasSafetyWarning, true);
         }
         catch (InvalidOperationException ex)
         {
             _logger.LogError(ex, "Gemini API is not configured correctly");
-            return ("Trợ lý AI đang tạm thời bảo trì cấu hình dịch vụ. Vui lòng thử lại sau.", false);
+            return new AiChatResponse("Trợ lý AI đang tạm thời bảo trì cấu hình dịch vụ. Vui lòng thử lại sau.", false, false);
         }
         catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException || !ex.CancellationToken.IsCancellationRequested)
         {
             _logger.LogWarning("Gemini API timeout after 30s");
-            return ("Xin lỗi, phản hồi quá lâu. Vui lòng thử lại với câu hỏi ngắn hơn.", false);
+            return new AiChatResponse("Xin lỗi, phản hồi quá lâu. Vui lòng thử lại với câu hỏi ngắn hơn.", false, false);
         }
         catch (HttpRequestException ex)
         {
             _logger.LogWarning(ex, "Gemini API network failure");
-            return ("Không thể kết nối tới dịch vụ AI bên thứ ba. Vui lòng kiểm tra mạng và thử lại sau.", false);
+            return new AiChatResponse("Không thể kết nối tới dịch vụ AI bên thứ ba. Vui lòng kiểm tra mạng và thử lại sau.", false, false);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to call Gemini API");
-            return ("Xin lỗi, tôi đang gặp sự cố kết nối. Vui lòng thử lại sau.", false);
+            return new AiChatResponse("Xin lỗi, tôi đang gặp sự cố kết nối. Vui lòng thử lại sau.", false, false);
         }
     }
 }

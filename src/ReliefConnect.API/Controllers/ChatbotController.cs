@@ -1,3 +1,5 @@
+using System.Data;
+using System.Data.Common;
 using System.Security.Claims;
 using Ganss.Xss;
 using Microsoft.AspNetCore.Authorization;
@@ -15,6 +17,8 @@ namespace ReliefConnect.API.Controllers;
 [Authorize]
 public class ChatbotController : ControllerBase
 {
+    private const int ChatbotDailySuccessLimit = 5;
+
     private readonly AppDbContext _db;
     private readonly IGeminiService _gemini;
     private readonly ILogger<ChatbotController> _logger;
@@ -26,6 +30,121 @@ public class ChatbotController : ControllerBase
         _gemini = gemini;
         _logger = logger;
         _sanitizer = sanitizer;
+    }
+
+    private async Task<int> CountSuccessfulChatbotRepliesTodayAsync(string userId)
+    {
+        var todayUtc = DateTime.UtcNow.Date;
+        return await _db.Set<Message>()
+            .AsNoTracking()
+            .CountAsync(m => m.IsBotMessage && m.SentAt >= todayUtc && m.Conversation.UserId == userId);
+    }
+
+    private static ActionResult DailyChatbotLimitExceeded() =>
+        new ObjectResult(new { message = "Bạn đã đạt giới hạn 5 phản hồi chatbot thành công trong ngày. Vui lòng quay lại vào ngày mai." })
+        {
+            StatusCode = 429
+        };
+
+    private async Task<MessageResponseDto?> TrySaveSuccessfulChatbotReplyAsync(
+        int conversationId,
+        string userId,
+        string userContent,
+        AiChatResponse aiResponse,
+        CancellationToken cancellationToken)
+    {
+        var now = DateTime.UtcNow;
+        var todayUtc = now.Date;
+        var tomorrowUtc = todayUtc.AddDays(1);
+        var quotaKey = $"chatbot-success:{userId}:{todayUtc:yyyyMMdd}";
+
+        var connection = _db.Database.GetDbConnection();
+        if (connection.State != ConnectionState.Open)
+            await connection.OpenAsync(cancellationToken);
+
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            WITH existing_success AS (
+                SELECT COUNT(*)::integer AS success_count
+                FROM "Messages" AS m
+                INNER JOIN "Conversations" AS c ON c."Id" = m."ConversationId"
+                WHERE m."IsBotMessage" = TRUE
+                  AND m."SentAt" >= @todayUtc
+                  AND c."UserId" = @userId
+            ), quota AS (
+                INSERT INTO "RateLimitCounters" ("Key", "Count", "WindowStartedAt", "ExpiresAt", "UpdatedAt")
+                SELECT @quotaKey, existing_success.success_count + 1, @todayUtc, @tomorrowUtc, @now
+                FROM existing_success
+                WHERE existing_success.success_count < @limit
+                ON CONFLICT ("Key") DO UPDATE
+                SET
+                    "Count" = CASE
+                        WHEN "RateLimitCounters"."ExpiresAt" <= @now THEN (SELECT success_count FROM existing_success) + 1
+                        ELSE GREATEST("RateLimitCounters"."Count", (SELECT success_count FROM existing_success)) + 1
+                    END,
+                    "WindowStartedAt" = CASE
+                        WHEN "RateLimitCounters"."ExpiresAt" <= @now THEN @todayUtc
+                        ELSE "RateLimitCounters"."WindowStartedAt"
+                    END,
+                    "ExpiresAt" = CASE
+                        WHEN "RateLimitCounters"."ExpiresAt" <= @now THEN @tomorrowUtc
+                        ELSE GREATEST("RateLimitCounters"."ExpiresAt", @tomorrowUtc)
+                    END,
+                    "UpdatedAt" = @now
+                WHERE
+                    ("RateLimitCounters"."ExpiresAt" <= @now AND (SELECT success_count FROM existing_success) < @limit)
+                    OR (
+                        "RateLimitCounters"."ExpiresAt" > @now
+                        AND GREATEST("RateLimitCounters"."Count", (SELECT success_count FROM existing_success)) < @limit
+                    )
+                RETURNING "Count"
+            ), insert_user AS (
+                INSERT INTO "Messages" ("Content", "IsBotMessage", "HasSafetyWarning", "SentAt", "ConversationId", "SenderId")
+                SELECT @userContent, FALSE, FALSE, @now, @conversationId, @userId
+                FROM quota
+                RETURNING "Id"
+            ), insert_bot AS (
+                INSERT INTO "Messages" ("Content", "IsBotMessage", "HasSafetyWarning", "SentAt", "ConversationId", "SenderId")
+                SELECT @botContent, TRUE, @hasSafetyWarning, @now, @conversationId, NULL
+                FROM insert_user
+                RETURNING "Id", "Content", "IsBotMessage", "HasSafetyWarning", "SentAt"
+            )
+            SELECT "Id", "Content", "IsBotMessage", "HasSafetyWarning", "SentAt"
+            FROM insert_bot;
+            """;
+
+        AddParameter(command, "quotaKey", quotaKey);
+        AddParameter(command, "todayUtc", todayUtc);
+        AddParameter(command, "tomorrowUtc", tomorrowUtc);
+        AddParameter(command, "now", now);
+        AddParameter(command, "limit", ChatbotDailySuccessLimit);
+        AddParameter(command, "conversationId", conversationId);
+        AddParameter(command, "userId", userId);
+        AddParameter(command, "userContent", userContent);
+        AddParameter(command, "botContent", aiResponse.Response);
+        AddParameter(command, "hasSafetyWarning", aiResponse.HasSafetyWarning);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+            return null;
+
+        return new MessageResponseDto
+        {
+            Id = reader.GetInt32(0),
+            Content = reader.GetString(1),
+            IsBotMessage = reader.GetBoolean(2),
+            HasSafetyWarning = reader.GetBoolean(3),
+            SentAt = reader.GetDateTime(4)
+        };
+    }
+
+    private static void AddParameter(DbCommand command, string name, object value)
+    {
+        var parameter = command.CreateParameter();
+        parameter.ParameterName = name;
+        parameter.Value = value;
+        command.Parameters.Add(parameter);
     }
 
     /// <summary>
@@ -59,6 +178,9 @@ public class ChatbotController : ControllerBase
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (userId == null) return Unauthorized();
 
+        if (await CountSuccessfulChatbotRepliesTodayAsync(userId) >= ChatbotDailySuccessLimit)
+            return DailyChatbotLimitExceeded();
+
         // Validate image fields: both must be present or both absent
         var hasBase64 = !string.IsNullOrEmpty(dto.ImageBase64);
         var hasMime = !string.IsNullOrEmpty(dto.ImageMimeType);
@@ -88,20 +210,6 @@ public class ChatbotController : ControllerBase
         if (!conversationExists)
             return NotFound(new { message = "Conversation not found." });
 
-        // Save user message IMMEDIATELY (before the long Gemini call)
-        // This prevents ObjectDisposedException when Npgsql connection idles during the API call
-        var userMessage = new Message
-        {
-            ConversationId = conversationId,
-            SenderId = userId,
-            Content = _sanitizer.Sanitize(dto.Content),
-            IsBotMessage = false,
-            SentAt = DateTime.UtcNow
-        };
-        _db.Set<Message>().Add(userMessage);
-        await _db.SaveChangesAsync();
-
-        // Fetch last 20 messages for Gemini context
         var history = await _db.Set<Message>()
             .AsNoTracking()
             .Where(m => m.ConversationId == conversationId)
@@ -114,32 +222,34 @@ public class ChatbotController : ControllerBase
             .Select(m => (m.IsBotMessage ? "model" : "user", m.Content))
             .ToList();
 
-        // Call Gemini (can take 5-30 seconds)
-        var (response, hasSafetyWarning) = await _gemini.SendMessageAsync(
+        var aiResponse = await _gemini.SendMessageAsync(
             dto.Content, historyTuples, dto.ImageBase64, dto.ImageMimeType);
 
-        // Save bot response in a separate DB round-trip (fresh connection from pool)
-        var botMessage = new Message
+        if (!aiResponse.CountsTowardQuota)
         {
-            ConversationId = conversationId,
-            Content = response,
-            IsBotMessage = true,
-            HasSafetyWarning = hasSafetyWarning,
-            SentAt = DateTime.UtcNow
-        };
-        _db.Set<Message>().Add(botMessage);
-        await _db.SaveChangesAsync();
+            return Ok(new MessageResponseDto
+            {
+                Id = 0,
+                Content = aiResponse.Response,
+                IsBotMessage = true,
+                HasSafetyWarning = aiResponse.HasSafetyWarning,
+                SentAt = DateTime.UtcNow
+            });
+        }
+
+        var savedBotMessage = await TrySaveSuccessfulChatbotReplyAsync(
+            conversationId,
+            userId,
+            _sanitizer.Sanitize(dto.Content),
+            aiResponse,
+            HttpContext.RequestAborted);
+
+        if (savedBotMessage == null)
+            return DailyChatbotLimitExceeded();
 
         _logger.LogInformation("Chatbot response for conversation {ConversationId}", conversationId);
 
-        return Ok(new MessageResponseDto
-        {
-            Id = botMessage.Id,
-            Content = botMessage.Content,
-            IsBotMessage = true,
-            HasSafetyWarning = hasSafetyWarning,
-            SentAt = botMessage.SentAt
-        });
+        return Ok(savedBotMessage);
     }
 
     /// <summary>

@@ -64,66 +64,83 @@ public class ApiKeyController : ControllerBase
     [HttpPut("{id}")]
     public async Task<ActionResult<ApiKeyResponseDto>> Update(int id, [FromBody] UpdateApiKeyDto dto)
     {
-        var key = await _db.ApiKeys.FindAsync(id);
+        var key = await _db.ApiKeys
+            .AsNoTracking()
+            .FirstOrDefaultAsync(k => k.Id == id);
         if (key == null) return NotFound();
 
+        var hasUpdateField = dto.Provider != null || dto.Label != null || dto.KeyValue != null || dto.Model != null || dto.IsActive.HasValue;
+        if (!hasUpdateField)
+            return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "No API key update fields were provided." });
+
+        var nextProvider = key.Provider;
+        var nextLabel = key.Label;
+        var nextKeyValue = key.KeyValue;
+        var nextModel = key.Model;
+        var nextIsActive = key.IsActive;
         var changed = false;
         var activeChanged = false;
+        var keyValueChanged = false;
 
-        if (!string.IsNullOrWhiteSpace(dto.Provider))
+        if (dto.Provider != null)
         {
-            if (!Enum.TryParse<AiProvider>(dto.Provider, true, out var provider))
+            var trimmedProvider = dto.Provider.Trim();
+            if (trimmedProvider.Length == 0)
+                return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Provider is required." });
+
+            if (!Enum.TryParse<AiProvider>(trimmedProvider, true, out var provider))
                 return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Invalid provider. Use: Gemini, Claude, or GPT." });
 
             if (key.Provider != provider)
             {
-                key.Provider = provider;
+                nextProvider = provider;
                 changed = true;
             }
         }
 
         if (dto.Label != null)
         {
-            var nextLabel = dto.Label.Trim();
-            if (nextLabel.Length == 0)
+            var trimmedLabel = dto.Label.Trim();
+            if (trimmedLabel.Length == 0)
                 return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Label is required." });
 
-            if (key.Label != nextLabel)
+            if (key.Label != trimmedLabel)
             {
-                key.Label = nextLabel;
+                nextLabel = trimmedLabel;
                 changed = true;
             }
         }
 
         if (dto.KeyValue != null)
         {
-            var nextKeyValue = dto.KeyValue.Trim();
-            if (nextKeyValue.Length == 0)
+            var trimmedKeyValue = dto.KeyValue.Trim();
+            if (trimmedKeyValue.Length == 0)
                 return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "API key value cannot be empty." });
 
-            if (key.KeyValue != nextKeyValue)
+            if (key.KeyValue != trimmedKeyValue)
             {
-                key.KeyValue = nextKeyValue;
+                nextKeyValue = trimmedKeyValue;
                 changed = true;
+                keyValueChanged = true;
             }
         }
 
         if (dto.Model != null)
         {
-            var nextModel = dto.Model.Trim();
-            if (nextModel.Length == 0)
+            var trimmedModel = dto.Model.Trim();
+            if (trimmedModel.Length == 0)
                 return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Model is required." });
 
-            if (key.Model != nextModel)
+            if (key.Model != trimmedModel)
             {
-                key.Model = nextModel;
+                nextModel = trimmedModel;
                 changed = true;
             }
         }
 
         if (dto.IsActive.HasValue && key.IsActive != dto.IsActive.Value)
         {
-            key.IsActive = dto.IsActive.Value;
+            nextIsActive = dto.IsActive.Value;
             changed = true;
             activeChanged = true;
         }
@@ -131,14 +148,30 @@ public class ApiKeyController : ControllerBase
         if (!changed)
             return Ok(MapToDto(key));
 
-        await _db.SaveChangesAsync();
+        var updatedRows = await _db.ApiKeys
+            .Where(k => k.Id == id)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(k => k.Provider, nextProvider)
+                .SetProperty(k => k.Label, nextLabel)
+                .SetProperty(k => k.KeyValue, nextKeyValue)
+                .SetProperty(k => k.Model, nextModel)
+                .SetProperty(k => k.IsActive, nextIsActive)
+                .SetProperty(k => k.UsageCount, k => keyValueChanged ? 0 : k.UsageCount)
+                .SetProperty(k => k.LastUsedAt, k => keyValueChanged ? null : k.LastUsedAt));
+
+        if (updatedRows == 0) return NotFound();
+
+        var updatedKey = await _db.ApiKeys
+            .AsNoTracking()
+            .FirstAsync(k => k.Id == id);
+
         var action = activeChanged && dto.IsActive.HasValue
             ? dto.IsActive.Value ? "ApiKeyActivated" : "ApiKeyDeactivated"
             : "ApiKeyUpdated";
-        await this.LogUserActivity(_db, action, $"{action} API key #{key.Id}; apiKey={key.Id}; provider={key.Provider}; label={key.Label}; model={key.Model}; active={key.IsActive}");
-        _logger.LogInformation("API key updated: {Id}", id);
+        await this.LogUserActivity(_db, action, $"{action} API key #{updatedKey.Id}; apiKey={updatedKey.Id}; provider={updatedKey.Provider}; label={updatedKey.Label}; model={updatedKey.Model}; active={updatedKey.IsActive}");
+        _logger.LogInformation("API key updated: {Id}; rows={Rows}", id, updatedRows);
 
-        return Ok(MapToDto(key));
+        return Ok(MapToDto(updatedKey));
     }
 
     /// <summary>Delete an API key.</summary>

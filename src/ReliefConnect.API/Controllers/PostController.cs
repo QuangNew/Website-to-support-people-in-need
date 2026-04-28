@@ -130,7 +130,7 @@ public class PostController : ControllerBase
         var spamCheck = await _spamGuard.CheckPostAsync(userId);
         if (spamCheck.Verdict == SpamVerdict.Suspend)
         {
-            await _spamGuard.SuspendForSpamAsync(userId, "Đăng bài quá nhiều (>5 bài/giờ)");
+            await _spamGuard.SuspendForSpamAsync(userId, "Đăng bài quá nhiều (>4 bài/giờ)");
             return StatusCode(429, new { message = "Tài khoản của bạn đã bị tạm khóa do đăng bài quá nhiều.", suspended = true });
         }
 

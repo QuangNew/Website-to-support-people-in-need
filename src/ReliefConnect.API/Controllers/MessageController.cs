@@ -350,7 +350,7 @@ public class MessageController : ControllerBase
         var spamCheck = await _spamGuard.CheckMessageAsync(userId);
         if (spamCheck.Verdict == SpamVerdict.Suspend)
         {
-            await _spamGuard.SuspendForSpamAsync(userId, "Gửi tin nhắn quá nhiều (>50 tin/phút)");
+            await _spamGuard.SuspendForSpamAsync(userId, "Gửi tin nhắn quá nhiều (>20 tin/phút)");
             return StatusCode(429, new { message = "Tài khoản của bạn đã bị tạm khóa do gửi tin nhắn quá nhiều.", suspended = true });
         }
 
