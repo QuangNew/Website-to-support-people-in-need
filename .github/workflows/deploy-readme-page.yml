@@ -1,0 +1,84 @@
+name: Deploy README Page → GitHub Pages
+run-name: README page deploy • ${{ github.ref_name }} • ${{ github.event_name }}
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'docs/readme-page/index.html'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: deploy-readme-page-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy_readme_page:
+    name: Deploy README Index
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Prepare GitHub Pages artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f docs/readme-page/index.html
+          test -f Icon/ReliefConnect.svg
+          test -f Icon/ReliefConnect.png
+          test -f Icon/ReliefConnect.ico
+
+          rm -rf pages-artifact
+          mkdir -p pages-artifact
+          cp docs/readme-page/index.html pages-artifact/index.html
+          cp Icon/ReliefConnect.svg pages-artifact/ReliefConnect.svg
+          cp Icon/ReliefConnect.png pages-artifact/ReliefConnect.png
+          cp Icon/ReliefConnect.ico pages-artifact/favicon.ico
+          printf 'hotrocuutro.site\n' > pages-artifact/CNAME
+          touch pages-artifact/.nojekyll
+
+      - name: Checkout gh-pages branch
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: gh-pages
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish README index to gh-pages
+        shell: bash
+        run: |
+          set -euo pipefail
+          find gh-pages -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          cp -R pages-artifact/. gh-pages/
+          cd gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add --all
+          if git diff --cached --quiet; then
+            echo "README index is already current."
+          else
+            git commit -m "Deploy README index: ${GITHUB_SHA::8}"
+            git push origin HEAD:gh-pages
+          fi
+
+      - name: Write deployment summary
+        shell: bash
+        run: |
+          {
+            echo "## README index deployed"
+            echo ""
+            echo "| Key | Value |"
+            echo "|-----|-------|"
+            echo "| Source | \`docs/readme-page/index.html\` |"
+            echo "| Target | \`gh-pages:/index.html\` |"
+            echo "| Domain | \`hotrocuutro.site\` |"
+            echo "| Preview image | \`/ReliefConnect.png\` |"
+          } >> "$GITHUB_STEP_SUMMARY"

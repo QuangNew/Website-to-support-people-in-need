@@ -486,7 +486,9 @@ TestResult.xml
 nunit-*.xml
 
 src/ReliefConnect.API/appsettings.Development.json
-.github/
+.github/*
+!.github/workflows/
+!.github/workflows/*.yml
 opencode.jsonc
 
 # ═══════════════════════════════════════════
