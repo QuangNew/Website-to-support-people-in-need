@@ -42,7 +42,7 @@ jobs:
           cp Icon/ReliefConnect.svg pages-artifact/ReliefConnect.svg
           cp Icon/ReliefConnect.png pages-artifact/ReliefConnect.png
           cp Icon/ReliefConnect.ico pages-artifact/favicon.ico
-          printf 'hotrocuutro.site\n' > pages-artifact/CNAME
+          printf 'https://quangnew.github.io/Website-to-support-people-in-need\n' > pages-artifact/CNAME
           touch pages-artifact/.nojekyll
 
       - name: Checkout gh-pages branch
@@ -79,6 +79,6 @@ jobs:
             echo "|-----|-------|"
             echo "| Source | \`docs/readme-page/index.html\` |"
             echo "| Target | \`gh-pages:/index.html\` |"
-            echo "| Domain | \`hotrocuutro.site\` |"
+            echo "| Domain | \`quangnew.github.io/Website-to-support-people-in-need\` |"
             echo "| Preview image | \`/ReliefConnect.png\` |"
           } >> "$GITHUB_STEP_SUMMARY"
