@@ -148,15 +148,52 @@ builder.Services.AddAuthentication(options =>
 
             return Task.CompletedTask;
         },
-        OnTokenValidated = context =>
+        OnTokenValidated = async context =>
         {
             var blacklist = context.HttpContext.RequestServices.GetRequiredService<ITokenBlacklistService>();
             var jti = context.Principal?.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Jti)?.Value;
             if (jti != null && blacklist.IsBlacklisted(jti))
             {
                 context.Fail("Token revoked");
+                return;
             }
-            return Task.CompletedTask;
+
+            // Reload user from DB to catch suspension, role changes, and stamp rotation
+            var userId = context.Principal?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            if (userId == null)
+            {
+                context.Fail("Invalid token: missing subject");
+                return;
+            }
+
+            var userManager = context.HttpContext.RequestServices.GetRequiredService<UserManager<ApplicationUser>>();
+            var user = await userManager.FindByIdAsync(userId);
+            if (user == null)
+            {
+                context.Fail("Token revoked: user not found");
+                return;
+            }
+
+            if (user.IsSuspended && (user.SuspendedUntil == null || user.SuspendedUntil > DateTime.UtcNow))
+            {
+                context.Fail("Token revoked: account suspended");
+                return;
+            }
+
+            var roleClaim = context.Principal?.FindFirst("Role")?.Value;
+            if (roleClaim != null && roleClaim != user.Role.ToString())
+            {
+                context.Fail("Token revoked: role changed");
+                return;
+            }
+
+            var stampClaim = context.Principal?.FindFirst("stamp")?.Value;
+                var currentStamp = user.SecurityStamp ?? string.Empty;
+                if (stampClaim != currentStamp)
+            {
+                context.Fail("Token revoked: session invalidated");
+                    return;
+            }
         }
     };
 });

@@ -10,8 +10,8 @@ ReliefConnect has several known gaps that should be documented for users, mainta
 
 - Volunteer task completion, ownership tracking, and history are incomplete.
 - Sponsor help offers are notification-based today and do not yet expose full persisted offer history.
-- JWT storage in localStorage remains a security concern.
-- Refresh-token rotation is not implemented.
+- Refresh-token rotation is not implemented; long-lived JWTs remain valid until their `exp` unless the user's security stamp is rotated by an admin action.
+- No automatic token refresh — users must log in again after token expiry.
 - Public OSRM routing can reveal location metadata.
 - Supabase pooled connections can complicate EF migrations and Hangfire distributed locks.
 - Some repository documents describe advanced chatbot architectures that are not active in runtime.

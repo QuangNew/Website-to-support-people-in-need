@@ -241,12 +241,15 @@ public class MapController : ControllerBase
     /// Update ping status (e.g., Volunteer marks as InProgress or Resolved).
     /// </summary>
     [HttpPut("pings/{id:int}/status")]
-    [Authorize(Policy = "RequireVolunteer")]
+    [Authorize(Policy = "RequireAdmin")]
     public async Task<ActionResult<PingResponseDto>> UpdatePingStatus(int id, [FromBody] UpdatePingStatusDto dto)
     {
         var ping = await _pingRepo.GetPingWithFlagForUpdateAsync(id);
         if (ping == null)
             return NotFound(new ApiErrorResponse { StatusCode = 404, Message = "Không tìm thấy điểm cứu trợ." });
+
+        if (ping.Type != MapItemType.SOS)
+            return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Chỉ có thể cập nhật trạng thái của điểm SOS." });
 
         if (!Enum.TryParse<SOSStatus>(dto.Status, true, out var newStatus))
             return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Trạng thái không hợp lệ. Chấp nhận: Pending, InProgress, Resolved, VerifiedSafe." });
