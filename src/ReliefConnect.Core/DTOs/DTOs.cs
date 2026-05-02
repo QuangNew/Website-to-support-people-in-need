@@ -367,6 +367,7 @@ public class AdminUserDto
     public string? PhoneNumber { get; set; }
     public string? Address { get; set; }
     public List<string> VerificationImageUrls { get; set; } = [];
+    public DateTime? LatestVerificationSubmittedAt { get; set; }
     public DateTime CreatedAt { get; set; }
     public bool IsSuspended { get; set; }
     public DateTime? SuspendedUntil { get; set; }

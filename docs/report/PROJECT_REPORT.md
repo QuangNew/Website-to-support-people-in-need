@@ -384,7 +384,7 @@ The middleware executes in this exact order:
 
 - **Base URL**: `http://localhost:5164/api` (configurable via `VITE_API_URL`)
 - **Timeout**: 10 seconds (60s for chatbot messages)
-- **Request Interceptor**: Attaches JWT from localStorage as Bearer token
+- **Request Interceptor**: Attaches JWT from `sessionStorage`/in-memory as Bearer token
 - **Response Interceptor**: Clears user data on 401 when no token present
 
 **API Endpoint Groups:**
@@ -556,7 +556,7 @@ The middleware executes in this exact order:
 │           │                                    │
 │ Stores    │                                    │
 │ token in  │    All subsequent requests         │
-│ localStorage  Authorization: Bearer <token>    │
+│ sessionStorage│  Authorization: Bearer <token>   │
 │           │ ──────────────────────────► ┌──────┴───────┐
 │           │                             │ JWT Middleware│
 │           │                             │ Validates +  │
@@ -773,9 +773,9 @@ The middleware executes in this exact order:
 ### Security Score: 8.5/10
 
 ### Known Limitations
-- JWT stored in localStorage (vulnerable to XSS) — consider httpOnly cookies
+- JWT tokens are stored in `sessionStorage` and in-memory (not `localStorage`), reducing XSS persistence risk; an HttpOnly cookie is set as a same-origin fallback
 - No token rotation mechanism
-- Token blacklist is in-memory (lost on restart)
+- Token blacklist is persisted in PostgreSQL (`BlacklistedTokens` table)
 
 ---
 

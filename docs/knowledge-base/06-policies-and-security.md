@@ -54,7 +54,7 @@ ReliefConnect uses ASP.NET Core Identity with JWT Bearer authentication. The bac
 
 ## 9. Token Safety Controls
 
-The system supports logout invalidation through a token blacklist service keyed by JWT `jti`. Token cleanup is handled by a hosted service. The backend can also read an `auth_token` cookie if present, though the current frontend primarily stores tokens in localStorage and sends them through the API client.
+The system supports logout invalidation through a token blacklist service keyed by JWT `jti`. Token cleanup is handled by a hosted service. The backend can also read an `auth_token` cookie if present. The frontend uses a 3-layer token storage strategy: (1) primary token in `sessionStorage['rc_auth_token']` plus an in-memory reference used for requests (both cleared on tab close and not shared with other tabs); (2) an HttpOnly cookie `auth_token` set by the server on login as a same-origin fallback; (3) an in-memory `accessTokenFactory` for SignalR WebSocket connections.
 
 ## 10. Request and Browser Security Controls
 
@@ -81,7 +81,7 @@ Entity Framework Core parameterized queries reduce SQL injection risk. CSV expor
 
 The current repository and project docs identify several important limitations:
 
-- The frontend stores JWT tokens in localStorage, which leaves them exposed if an XSS bug appears.
+- JWT tokens are stored in `sessionStorage` (not `localStorage`), reducing persistence risk; the HttpOnly cookie fallback is not readable by JavaScript.
 - The platform does not yet implement refresh-token rotation.
 - OSRM routing can expose coordinates to a public routing service.
 - Client-side chatbot image cache is not encrypted.

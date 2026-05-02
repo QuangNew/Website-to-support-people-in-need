@@ -14,6 +14,7 @@ export interface AdminUser {
   phoneNumber?: string;
   address?: string;
   verificationImageUrls: string[];
+  latestVerificationSubmittedAt?: string;
   createdAt: string;
   isSuspended: boolean;
   suspendedUntil?: string;

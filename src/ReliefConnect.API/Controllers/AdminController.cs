@@ -261,6 +261,8 @@ public class AdminController : ControllerBase
             pendingHistory.ReviewedByAdminName = User.FindFirstValue(ClaimTypes.Name);
         }
 
+        // Rotate security stamp to immediately invalidate all active tokens for this user
+        await _userManager.UpdateSecurityStampAsync(user);
         await _userManager.UpdateAsync(user);
         if (pendingHistory != null)
         {
@@ -297,7 +299,26 @@ public class AdminController : ControllerBase
             .OrderBy(u => u.CreatedAt)
             .ToListAsync();
 
-        var pendingDtos = pending.Select(MapAdminUserDto).ToList();
+        var pendingUserIds = pending.Select(u => u.Id).ToList();
+        var latestPendingSubmissionMap = pendingUserIds.Count == 0
+            ? new Dictionary<string, DateTime?>()
+            : await _db.VerificationHistories
+                .AsNoTracking()
+                .Where(v => pendingUserIds.Contains(v.UserId) && v.Status == VerificationStatus.Pending)
+                .GroupBy(v => v.UserId)
+                .Select(group => new
+                {
+                    UserId = group.Key,
+                    SubmittedAt = group.Max(v => v.SubmittedAt)
+                })
+                .ToDictionaryAsync(item => item.UserId, item => (DateTime?)item.SubmittedAt);
+
+        var pendingDtos = pending.Select(user =>
+        {
+            var dto = MapAdminUserDto(user);
+            dto.LatestVerificationSubmittedAt = latestPendingSubmissionMap.GetValueOrDefault(user.Id);
+            return dto;
+        }).ToList();
 
         cache.Set(cacheKey, pendingDtos, TimeSpan.FromSeconds(20));
         return Ok(pendingDtos);
@@ -355,6 +376,8 @@ public class AdminController : ControllerBase
         user.IsSuspended = true;
         user.SuspendedUntil = dto.Until;
         user.BanReason = dto.Reason;
+        // Rotate security stamp to immediately invalidate all active tokens for this user
+        await _userManager.UpdateSecurityStampAsync(user);
         await _userManager.UpdateAsync(user);
 
         var until = dto.Until.HasValue ? dto.Until.Value.ToString("o") : "permanent";
@@ -396,9 +419,11 @@ public class AdminController : ControllerBase
         user.IsSuspended = true;
         user.SuspendedUntil = null; // null = permanent
         user.BanReason = dto.Reason;
+        // Rotate security stamp to immediately invalidate all active tokens for this user
+        await _userManager.UpdateSecurityStampAsync(user);
         await _userManager.UpdateAsync(user);
 
-        // Immediately invalidate the user's current session token
+        // Also blacklist the tracked JTI as a belt-and-suspenders measure
         if (!string.IsNullOrEmpty(user.LastTokenJti))
         {
             _tokenBlacklist.BlacklistToken(user.LastTokenJti, DateTime.UtcNow.AddDays(30));
@@ -419,6 +444,11 @@ public class AdminController : ControllerBase
         var user = await _userManager.FindByIdAsync(userId);
         if (user == null) return NotFound(new ApiErrorResponse { StatusCode = 404, Message = "Người dùng không tồn tại." });
 
+        // Rotate security stamp to immediately invalidate all active tokens for this user
+        await _userManager.UpdateSecurityStampAsync(user);
+        await _userManager.UpdateAsync(user);
+
+        // Also blacklist the tracked JTI as a belt-and-suspenders measure
         if (!string.IsNullOrEmpty(user.LastTokenJti))
         {
             _tokenBlacklist.BlacklistToken(user.LastTokenJti, DateTime.UtcNow.AddDays(30));

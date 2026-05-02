@@ -47,4 +47,4 @@ ReliefConnect uses four main verification states for role review:
 
 Account access is protected by ASP.NET Core Identity and JWT Bearer authentication. The platform enforces password complexity, lockout after repeated failed logins, issuer and audience validation, and a minimum 256-bit JWT signing key.
 
-Logout invalidation is supported through a token blacklist keyed by JWT `jti`, although the current frontend still primarily stores tokens in localStorage.
+Logout invalidation is supported through a token blacklist keyed by JWT `jti`. The frontend stores tokens in `sessionStorage` and an in-memory reference (not `localStorage`), so they are cleared when the tab is closed and are not accessible to scripts in other tabs. An HttpOnly cookie is also set as a same-origin fallback.

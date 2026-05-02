@@ -252,6 +252,7 @@ export default function SocialPanel() {
   const [deletingPost, setDeletingPost] = useState(false);
   const [replyTargets, setReplyTargets] = useState<Record<number, ReplyTarget | undefined>>({});
   const [previewUserTarget, setPreviewUserTarget] = useState<PreviewUserTarget | null>(null);
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const observerRef = useRef<HTMLDivElement>(null);
   const inflightRef = useRef(false); // Track inflight requests to prevent race conditions
 
@@ -603,7 +604,16 @@ export default function SocialPanel() {
 
             {/* Content */}
             <p className="social-post-content">{post.content}</p>
-            {post.imageUrl && <img src={getImageUrl(post.imageUrl)} alt="" className="social-post-image" style={{ maxWidth: '100%', borderRadius: '8px', marginTop: '0.5rem' }} />}
+            {post.imageUrl && (
+              <button
+                type="button"
+                className="social-post-image-button"
+                onClick={() => setPreviewImageUrl(getImageUrl(post.imageUrl))}
+                aria-label={t('admin.postImage')}
+              >
+                <img src={getImageUrl(post.imageUrl)} alt={t('admin.postImage')} className="social-post-image" />
+              </button>
+            )}
 
             {/* Reactions */}
             <div className="social-post-actions">
@@ -764,6 +774,17 @@ export default function SocialPanel() {
           <p style={{ textAlign: 'center', opacity: 0.4, padding: '1rem', fontSize: '0.8rem' }}>{t('social.noMore')}</p>
         )}
       </div>
+
+      <Modal
+        isOpen={!!previewImageUrl}
+        onClose={() => setPreviewImageUrl(null)}
+        size="lg"
+        className="social-image-modal"
+      >
+        {previewImageUrl && (
+          <img src={previewImageUrl} alt={t('admin.postImage')} className="social-image-preview" />
+        )}
+      </Modal>
 
       <HideCommentModal
         isOpen={!!hideCommentTarget}

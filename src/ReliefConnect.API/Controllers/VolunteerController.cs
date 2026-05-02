@@ -23,9 +23,43 @@ public class VolunteerController : ControllerBase
         _notifications = notifications;
     }
 
+    private async Task<ActionResult?> EnsureApprovedVolunteerAsync(string userId)
+    {
+        var user = await _db.Users
+            .AsNoTracking()
+            .Where(u => u.Id == userId)
+            .Select(u => new { u.Role, u.VerificationStatus })
+            .FirstOrDefaultAsync();
+
+        if (user == null)
+            return Unauthorized();
+
+        if (user.Role == RoleEnum.Admin)
+            return null;
+
+        if (user.Role != RoleEnum.Volunteer || user.VerificationStatus != VerificationStatus.Approved)
+        {
+            return StatusCode(403, new ApiErrorResponse
+            {
+                StatusCode = 403,
+                Message = "Tình nguyện viên phải được admin duyệt trước khi nhận nhiệm vụ SOS."
+            });
+        }
+
+        return null;
+    }
+
     [HttpGet("tasks")]
     public async Task<ActionResult<IEnumerable<VolunteerTaskDto>>> GetAvailableTasks([FromQuery] double? lat, [FromQuery] double? lng)
     {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId))
+            return Unauthorized();
+
+        var approvalError = await EnsureApprovedVolunteerAsync(userId);
+        if (approvalError != null)
+            return approvalError;
+
         var query = _db.Pings
             .Where(p => p.Type == MapItemType.SOS && p.Status == SOSStatus.Pending)
             .AsNoTracking();
@@ -65,6 +99,10 @@ public class VolunteerController : ControllerBase
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId))
             return Unauthorized();
+
+        var approvalError = await EnsureApprovedVolunteerAsync(userId);
+        if (approvalError != null)
+            return approvalError;
 
         var ping = await _db.Pings
             .AsTracking()

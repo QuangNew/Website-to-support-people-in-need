@@ -92,6 +92,12 @@ async function getNotifications(request: APIRequestContext, token: string): Prom
   return (payload.items as Array<Record<string, unknown>> | undefined) ?? [];
 }
 
+async function getMe(request: APIRequestContext, token: string) {
+  return request.get(apiUrl('/api/auth/me'), {
+    headers: authHeaders(token),
+  });
+}
+
 test.describe('Role workflows API', () => {
   test('volunteer flow enforces task ownership and completion transitions', async ({ request }) => {
     const adminToken = await login(request, adminEmail, adminPassword);
@@ -271,5 +277,60 @@ test.describe('Role workflows API', () => {
     const sponsorMessages = sponsorNotifications.map((notification) => String(notification.messageText));
     expect(sponsorMessages.some((message) => message.includes('chấp nhận'))).toBeTruthy();
     expect(sponsorMessages.some((message) => message.includes('từ chối'))).toBeTruthy();
+  });
+
+  test('force logout invalidates an existing token', async ({ request }) => {
+    const adminToken = await login(request, adminEmail, adminPassword);
+    const user = await registerUser(request, 'forcedlogout', 'Force Logout User');
+    const userToken = await login(request, user.email, user.password);
+
+    const beforeLogout = await getMe(request, userToken);
+    expect(beforeLogout.ok()).toBeTruthy();
+
+    const forceLogoutResponse = await request.post(apiUrl(`/api/admin/users/${user.userId}/force-logout`), {
+      headers: authHeaders(adminToken),
+    });
+    expect(forceLogoutResponse.ok()).toBeTruthy();
+
+    const staleTokenResponse = await getMe(request, userToken);
+    expect(staleTokenResponse.status()).toBe(401);
+  });
+
+  test('role change invalidates an old token until the user logs in again', async ({ request }) => {
+    const adminToken = await login(request, adminEmail, adminPassword);
+    const user = await registerUser(request, 'roledrift', 'Role Drift User');
+    const guestToken = await login(request, user.email, user.password);
+
+    const beforeRoleChange = await getMe(request, guestToken);
+    expect(beforeRoleChange.ok()).toBeTruthy();
+
+    await approveRole(request, adminToken, user.userId, 'Volunteer');
+
+    const staleTokenResponse = await getMe(request, guestToken);
+    expect(staleTokenResponse.status()).toBe(401);
+
+    const freshVolunteerToken = await login(request, user.email, user.password);
+    const volunteerTasks = await request.get(apiUrl('/api/volunteer/tasks'), {
+      headers: authHeaders(freshVolunteerToken),
+    });
+    expect(volunteerTasks.ok()).toBeTruthy();
+  });
+
+  test('ban invalidates an existing token immediately', async ({ request }) => {
+    const adminToken = await login(request, adminEmail, adminPassword);
+    const user = await registerUser(request, 'banneduser', 'Banned User');
+    const userToken = await login(request, user.email, user.password);
+
+    const beforeBan = await getMe(request, userToken);
+    expect(beforeBan.ok()).toBeTruthy();
+
+    const banResponse = await request.post(apiUrl(`/api/admin/users/${user.userId}/ban`), {
+      headers: authHeaders(adminToken),
+      data: { reason: 'Security regression test' },
+    });
+    expect(banResponse.ok()).toBeTruthy();
+
+    const staleTokenResponse = await getMe(request, userToken);
+    expect(staleTokenResponse.status()).toBe(401);
   });
 });

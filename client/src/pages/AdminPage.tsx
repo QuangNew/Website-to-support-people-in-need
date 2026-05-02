@@ -426,7 +426,7 @@ function VerificationsPanel() {
       await adminApi.approveRole(user.id, { role });
       toast.success(t('admin.approved'));
       await load();
-      window.dispatchEvent(new CustomEvent('admin-users-refresh'));
+      window.dispatchEvent(new CustomEvent('admin-users-refresh', { detail: { userId: user.id } }));
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
       toast.error(msg || t('common.error'));
@@ -441,7 +441,7 @@ function VerificationsPanel() {
       await adminApi.rejectVerification(user.id);
       toast.success(t('admin.rejected'));
       await load();
-      window.dispatchEvent(new CustomEvent('admin-users-refresh'));
+      window.dispatchEvent(new CustomEvent('admin-users-refresh', { detail: { userId: user.id } }));
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
       toast.error(msg || t('common.error'));
@@ -547,6 +547,22 @@ function VerificationsPanel() {
                         <div className="admin-verification-detail">
                           <div className="admin-verification-detail__grid">
                             <div className="admin-verification-card">
+                              <span className="admin-verification-card__label">{t('profile.role')}</span>
+                              <strong>{v.role}</strong>
+                            </div>
+                            <div className="admin-verification-card">
+                              <span className="admin-verification-card__label">{t('profile.status')}</span>
+                              <strong>
+                                <span className={`admin-badge admin-badge--${v.verificationStatus.toLowerCase()}`}>
+                                  {v.verificationStatus}
+                                </span>
+                              </strong>
+                            </div>
+                            <div className="admin-verification-card">
+                              <span className="admin-verification-card__label">{t('admin.submittedAt')}</span>
+                              <strong>{v.latestVerificationSubmittedAt ? new Date(v.latestVerificationSubmittedAt).toLocaleString() : '-'}</strong>
+                            </div>
+                            <div className="admin-verification-card">
                               <span className="admin-verification-card__label">{t('admin.requestedRole')}</span>
                               <strong>{v.requestedRole || '-'}</strong>
                             </div>
@@ -628,25 +644,35 @@ function UsersPanel() {
       .finally(() => setLoading(false));
   }, [debouncedSearch, roleFilter, page, t]);
 
-  useEffect(() => { load(); }, [load]);
-  useEffect(() => {
-    const refresh = () => load();
-    window.addEventListener('admin-users-refresh', refresh);
-    return () => window.removeEventListener('admin-users-refresh', refresh);
-  }, [load]);
-
-  const openUserDetail = async (user: AdminUser) => {
-    setSelectedUser(user);
-    setDetailUser(null);
+  const loadUserDetail = useCallback(async (userId: string) => {
     setDetailLoading(true);
     try {
-      const res = await adminApi.getUserDetail(user.id);
+      const res = await adminApi.getUserDetail(userId);
       setDetailUser(res.data);
     } catch {
       toast.error(t('common.error'));
     } finally {
       setDetailLoading(false);
     }
+  }, [t]);
+
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const refresh = (event: Event) => {
+      const refreshedUserId = (event as CustomEvent<{ userId?: string }>).detail?.userId;
+      load();
+      if (selectedUser?.id && (!refreshedUserId || selectedUser.id === refreshedUserId)) {
+        void loadUserDetail(selectedUser.id);
+      }
+    };
+    window.addEventListener('admin-users-refresh', refresh as EventListener);
+    return () => window.removeEventListener('admin-users-refresh', refresh as EventListener);
+  }, [load, loadUserDetail, selectedUser?.id]);
+
+  const openUserDetail = async (user: AdminUser) => {
+    setSelectedUser(user);
+    setDetailUser(null);
+    await loadUserDetail(user.id);
   };
 
   const closeUserDetail = () => {
@@ -661,7 +687,7 @@ function UsersPanel() {
     try {
       await adminApi.suspendUser(userId, { reason });
       toast.success(`Suspended ${fullName}`);
-      load();
+      window.dispatchEvent(new CustomEvent('admin-users-refresh', { detail: { userId } }));
     } catch {
       toast.error(t('common.error'));
     }
@@ -671,7 +697,7 @@ function UsersPanel() {
     try {
       await adminApi.unsuspendUser(userId);
       toast.success(`Unsuspended ${fullName}`);
-      load();
+      window.dispatchEvent(new CustomEvent('admin-users-refresh', { detail: { userId } }));
     } catch {
       toast.error(t('common.error'));
     }
@@ -683,7 +709,7 @@ function UsersPanel() {
     try {
       await adminApi.banUser(userId, { reason });
       toast.success(`Banned ${fullName}`);
-      load();
+      window.dispatchEvent(new CustomEvent('admin-users-refresh', { detail: { userId } }));
     } catch {
       toast.error(t('common.error'));
     }
@@ -693,6 +719,7 @@ function UsersPanel() {
     try {
       await adminApi.forceLogout(userId);
       toast.success(`Force-logged out ${fullName}`);
+      window.dispatchEvent(new CustomEvent('admin-users-refresh', { detail: { userId } }));
     } catch {
       toast.error(t('common.error'));
     }
@@ -702,7 +729,7 @@ function UsersPanel() {
     try {
       await adminApi.approveRole(userId, { role });
       toast.success(t('admin.approved'));
-      load();
+      window.dispatchEvent(new CustomEvent('admin-users-refresh', { detail: { userId } }));
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
       toast.error(msg || t('common.error'));

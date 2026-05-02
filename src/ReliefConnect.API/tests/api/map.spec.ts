@@ -142,4 +142,13 @@ test.describe('Map API', () => {
     expect(data.contactPhone).toBe('0901234567');
     expect(String(data.contactEmail)).toContain('@example.com');
   });
+
+  test('volunteer cannot update ping status through admin-only endpoint', async ({ request }) => {
+    const response = await request.put(apiUrl(`/api/map/pings/${createdPingId}/status`), {
+      headers: authHeaders(volunteerToken),
+      data: { status: 'Resolved' },
+    });
+
+    expect(response.status()).toBe(403);
+  });
 });
