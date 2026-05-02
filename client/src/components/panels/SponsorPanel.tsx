@@ -183,7 +183,7 @@ export default function SponsorPanel() {
     setActivePanel(null);
   };
 
-  const categories = ['Livelihood', 'Medical', 'Education'];
+  const categories = ['Livelihood', 'Medical', 'Education', 'Volunteer', 'Appeal'];
   const statuses = ['Pending', 'InProgress', 'Resolved'];
 
   // ── Supply CRUD ──
@@ -272,7 +272,7 @@ export default function SponsorPanel() {
   ];
 
   return (
-    <div className="panel-content">
+    <div className="panel-content sponsor-panel">
       <div className="panel-header">
         <h2 className="panel-title">{t('sponsorPanel.title')}</h2>
       </div>
@@ -307,53 +307,51 @@ export default function SponsorPanel() {
       </div>
 
       {/* Filters */}
-      <div style={{ display: 'flex', gap: '0.5rem', padding: '0 1rem', marginBottom: '0.5rem', flexWrap: 'wrap' }}>
+      <div className="sponsor-panel-filters">
         <select
-          className="select-sm"
+          className="select-sm sponsor-panel-select"
           value={category}
           onChange={(e) => setCategory(e.target.value)}
-          style={{ flex: 1, minWidth: '120px', padding: '0.35rem 0.5rem', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)', fontSize: '0.8rem' }}
         >
           <option value="">{t('sponsorPanel.allCategories')}</option>
           {categories.map((c) => (
-            <option key={c} value={c}>{c}</option>
+            <option key={c} value={c}>{t(`social.category.${c}`)}</option>
           ))}
         </select>
         <select
-          className="select-sm"
+          className="select-sm sponsor-panel-select"
           value={status}
           onChange={(e) => setStatus(e.target.value)}
-          style={{ flex: 1, minWidth: '120px', padding: '0.35rem 0.5rem', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)', fontSize: '0.8rem' }}
         >
           <option value="">{t('sponsorPanel.allStatuses')}</option>
           {statuses.map((s) => (
-            <option key={s} value={s}>{s}</option>
+            <option key={s} value={s}>{getCaseStatusLabel(s, t)}</option>
           ))}
         </select>
       </div>
 
       {/* Tabs */}
-      <div className="panel-tab-row">
+      <div className="panel-tab-row sponsor-panel-tab-row">
         <button
-          className={`btn btn-sm ${tab === 'sos' ? 'btn-primary' : 'btn-ghost'}`}
+          className={`btn btn-sm sponsor-panel-tab-btn ${tab === 'sos' ? 'btn-primary' : 'btn-ghost'}`}
           onClick={() => setTab('sos')}
         >
           <AlertTriangle size={14} /> {t('sponsorPanel.tabSOS')} ({sosCases.length})
         </button>
         <button
-          className={`btn btn-sm ${tab === 'posts' ? 'btn-primary' : 'btn-ghost'}`}
+          className={`btn btn-sm sponsor-panel-tab-btn ${tab === 'posts' ? 'btn-primary' : 'btn-ghost'}`}
           onClick={() => setTab('posts')}
         >
           <MessageSquare size={14} /> {t('sponsorPanel.tabPosts')} ({socialCases.length})
         </button>
         <button
-          className={`btn btn-sm ${tab === 'offers' ? 'btn-primary' : 'btn-ghost'}`}
+          className={`btn btn-sm sponsor-panel-tab-btn ${tab === 'offers' ? 'btn-primary' : 'btn-ghost'}`}
           onClick={() => setTab('offers')}
         >
           <Heart size={14} /> {t('sponsorPanel.tabOffers')} ({offers.length})
         </button>
         <button
-          className={`btn btn-sm ${tab === 'supply' ? 'btn-primary' : 'btn-ghost'}`}
+          className={`btn btn-sm sponsor-panel-tab-btn ${tab === 'supply' ? 'btn-primary' : 'btn-ghost'}`}
           onClick={() => setTab('supply')}
         >
           <Package size={14} /> {t('sponsorPanel.tabSupply')}

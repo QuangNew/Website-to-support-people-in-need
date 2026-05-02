@@ -94,6 +94,8 @@ public class AuthController : ControllerBase
         _logger.LogInformation("User registered: {Username} ({Email}) — verification code sent", dto.Username, dto.Email);
 
         var token = GenerateJwtToken(user);
+        user.LastTokenJti = token.Jti;
+        await _userManager.UpdateAsync(user);
         AppendAuthCookie(token.Token, token.ExpiresAt);
         return Ok(new AuthResponseDto
         {
@@ -295,6 +297,8 @@ public class AuthController : ControllerBase
         _logger.LogInformation("User logged in: {Username}", user.UserName);
 
         var token = GenerateJwtToken(user);
+        user.LastTokenJti = token.Jti;
+        await _userManager.UpdateAsync(user);
         AppendAuthCookie(token.Token, token.ExpiresAt);
         return Ok(new AuthResponseDto
         {
@@ -407,6 +411,8 @@ public class AuthController : ControllerBase
         _logger.LogInformation("Google login: {Username}", user.UserName);
 
         var token = GenerateJwtToken(user);
+        user.LastTokenJti = token.Jti;
+        await _userManager.UpdateAsync(user);
         AppendAuthCookie(token.Token, token.ExpiresAt);
         return Ok(new AuthResponseDto
         {
@@ -649,13 +655,14 @@ public class AuthController : ControllerBase
     //  PRIVATE HELPERS
     // ═══════════════════════════════════════════
 
-    private (string Token, DateTime ExpiresAt) GenerateJwtToken(ApplicationUser user)
+    private (string Token, DateTime ExpiresAt, string Jti) GenerateJwtToken(ApplicationUser user)
     {
         var key = _config["Jwt:Key"] ?? "DefaultDevSecretKey_ChangeInProduction_AtLeast32Characters!!";
         var issuer = _config["Jwt:Issuer"] ?? "ReliefConnect";
         var audience = _config["Jwt:Audience"] ?? "ReliefConnectClient";
         var expiryMinutes = int.Parse(_config["Jwt:ExpiryMinutes"] ?? "60");
 
+        var jti = Guid.NewGuid().ToString();
         var claims = new List<Claim>
         {
             new(ClaimTypes.NameIdentifier, user.Id),
@@ -665,7 +672,8 @@ public class AuthController : ControllerBase
             new("Role", user.Role.ToString()),
             new("VerificationStatus", user.VerificationStatus.ToString()),
             new("EmailVerified", user.EmailConfirmed.ToString()),
-            new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
+            new("stamp", user.SecurityStamp ?? ""),
+            new(JwtRegisteredClaimNames.Jti, jti)
         };
 
         var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key));
@@ -680,7 +688,7 @@ public class AuthController : ControllerBase
             signingCredentials: credentials
         );
 
-        return (new JwtSecurityTokenHandler().WriteToken(token), expiresAt);
+        return (new JwtSecurityTokenHandler().WriteToken(token), expiresAt, jti);
     }
 
     private void AppendAuthCookie(string token, DateTime expiresAt)

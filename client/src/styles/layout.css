@@ -720,6 +720,48 @@
 }
 .panel-tab-row::-webkit-scrollbar { display: none; }
 
+.sponsor-panel-tab-row {
+  gap: 0.75rem;
+  padding-bottom: 0.25rem;
+  scrollbar-width: thin;
+}
+
+.sponsor-panel-tab-row::-webkit-scrollbar {
+  display: block;
+  height: 8px;
+}
+
+.sponsor-panel-tab-row::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--primary-500) 40%, transparent);
+  border-radius: 999px;
+}
+
+.sponsor-panel-tab-btn {
+  flex: 0 0 auto;
+  min-width: max-content;
+  white-space: nowrap;
+  padding-inline: 0.95rem;
+}
+
+.sponsor-panel-filters {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0 1rem;
+  margin-bottom: 0.5rem;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.sponsor-panel-select {
+  flex: 0 0 min(200px, calc(50% - 0.375rem));
+  min-width: 160px;
+  padding: 0.45rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 0.8rem;
+}
+
 .list-item-actions {
   display: flex;
   gap: 0.5rem;
@@ -738,6 +780,22 @@
   display: flex;
   flex-direction: column;
   gap: var(--sp-2);
+}
+
+.person-in-need-panel {
+  overflow-y: auto;
+}
+
+.person-in-need-section {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding-bottom: 0.75rem;
+}
+
+.person-in-need-panel .panel-list {
+  max-height: clamp(220px, 34vh, 320px);
+  scrollbar-width: thin;
 }
 
 .list-item {
@@ -1448,6 +1506,36 @@
   color: var(--text-secondary);
   line-height: var(--leading-relaxed);
   margin-bottom: var(--sp-3);
+}
+
+.social-post-image-button {
+  display: inline-flex;
+  margin-top: 0.5rem;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: zoom-in;
+}
+
+.social-post-image {
+  display: block;
+  max-width: min(100%, 250px);
+  max-height: 250px;
+  border-radius: 8px;
+  object-fit: cover;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
+}
+
+.social-image-modal {
+  width: min(92vw, 840px);
+}
+
+.social-image-preview {
+  display: block;
+  width: 100%;
+  max-height: min(78vh, 720px);
+  object-fit: contain;
+  border-radius: 18px;
 }
 
 .social-post-actions {

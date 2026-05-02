@@ -149,18 +149,13 @@ export default function PersonInNeedPanel() {
   }
 
   return (
-    <div className="panel-content">
+    <div className="panel-content person-in-need-panel">
       <div className="panel-header">
         <h2 className="panel-title">{t('mySos.title')}</h2>
         <span className="badge badge-primary">{pings.length}</span>
       </div>
 
-      <section style={{ paddingBottom: '0.75rem' }}>
-        <div className="panel-header" style={{ paddingTop: 0 }}>
-          <h3 className="panel-title" style={{ fontSize: '1rem' }}>{t('mySos.title')}</h3>
-          <span className="badge badge-primary">{pings.length}</span>
-        </div>
-
+      <section className="person-in-need-section">
         {pings.length === 0 ? (
           <div className="empty-state">
             <Inbox size={48} strokeWidth={1.5} />
@@ -246,7 +241,7 @@ export default function PersonInNeedPanel() {
         )}
       </section>
 
-      <section>
+      <section className="person-in-need-section">
         <div className="panel-header" style={{ paddingTop: 0 }}>
           <h3 className="panel-title" style={{ fontSize: '1rem' }}>{t('mySos.helpOffers')}</h3>
           <span className="badge badge-primary">{offers.length}</span>
