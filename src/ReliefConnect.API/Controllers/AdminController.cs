@@ -299,7 +299,26 @@ public class AdminController : ControllerBase
             .OrderBy(u => u.CreatedAt)
             .ToListAsync();
 
-        var pendingDtos = pending.Select(MapAdminUserDto).ToList();
+        var pendingUserIds = pending.Select(u => u.Id).ToList();
+        var latestPendingSubmissionMap = pendingUserIds.Count == 0
+            ? new Dictionary<string, DateTime?>()
+            : await _db.VerificationHistories
+                .AsNoTracking()
+                .Where(v => pendingUserIds.Contains(v.UserId) && v.Status == VerificationStatus.Pending)
+                .GroupBy(v => v.UserId)
+                .Select(group => new
+                {
+                    UserId = group.Key,
+                    SubmittedAt = group.Max(v => v.SubmittedAt)
+                })
+                .ToDictionaryAsync(item => item.UserId, item => (DateTime?)item.SubmittedAt);
+
+        var pendingDtos = pending.Select(user =>
+        {
+            var dto = MapAdminUserDto(user);
+            dto.LatestVerificationSubmittedAt = latestPendingSubmissionMap.GetValueOrDefault(user.Id);
+            return dto;
+        }).ToList();
 
         cache.Set(cacheKey, pendingDtos, TimeSpan.FromSeconds(20));
         return Ok(pendingDtos);
