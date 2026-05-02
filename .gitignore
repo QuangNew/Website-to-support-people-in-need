@@ -538,3 +538,4 @@ docs/AZURE_DEPLOYMENT_GUIDE.md
 docs/RELEASE_CHECKLIST.md
 src/ReliefConnect.API/publish.zip
 client/.env.production
+issue/
