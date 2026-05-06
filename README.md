@@ -282,7 +282,7 @@ Configure backend in `appsettings.Development.json` or user-secrets.
 
 ## Deployment
 
-Deployment is triggered when creating a **new tag** on the `main` branch:
+Deployment is triggered when creating a **new tag** from the approved release commit:
 
 ```bash
 git tag v1.0.0
@@ -303,10 +303,11 @@ See `docs/Configure_deploy.md` for detailed configuration.
 ## Contributing
 
 1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/feature-name`
+2. Create a feature branch from `temp`: `git checkout -b feature/feature-name temp`
 3. Commit: `git commit -m "feat: description"`
 4. Push: `git push origin feature/feature-name`
-5. Create a Pull Request
+5. Create a Pull Request into `temp`
+6. Review the maintainer guides in [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), and [docs/GITHUB_BOTS_SETUP.md](docs/GITHUB_BOTS_SETUP.md) when your change affects collaboration, security, or dependencies
 
 ---
 
