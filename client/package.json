@@ -45,5 +45,10 @@
   },
   "overrides": {
     "vite": "^8.0.10"
+  },
+  "pnpm": {
+    "overrides": {
+      "picomatch": "4.0.4"
+    }
   }
 }
