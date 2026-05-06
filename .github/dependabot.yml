@@ -2,16 +2,21 @@ version: 2
 updates:
   - package-ecosystem: "npm"
     directory: "/"
-    target-branch: "temp"
     schedule:
       interval: "weekly"
       day: "monday"
       time: "09:00"
       timezone: "UTC"
     open-pull-requests-limit: 3
+    cooldown:
+      default-days: 5
+      semver-major-days: 21
+      semver-minor-days: 7
+      semver-patch-days: 3
+    rebase-strategy: "disabled"
     labels:
       - "dependencies"
-      - "frontend"
+      - "tooling"
       - "javascript"
     commit-message:
       prefix: "chore(deps)"
@@ -28,13 +33,18 @@ updates:
 
   - package-ecosystem: "npm"
     directory: "/client"
-    target-branch: "temp"
     schedule:
       interval: "weekly"
       day: "monday"
       time: "09:00"
       timezone: "UTC"
     open-pull-requests-limit: 5
+    cooldown:
+      default-days: 5
+      semver-major-days: 21
+      semver-minor-days: 7
+      semver-patch-days: 3
+    rebase-strategy: "disabled"
     labels:
       - "dependencies"
       - "frontend"
@@ -53,14 +63,23 @@ updates:
           - "patch"
 
   - package-ecosystem: "nuget"
-    directory: "/src/ReliefConnect.API"
-    target-branch: "temp"
+    directories:
+      - "/src/ReliefConnect.API"
+      - "/src/ReliefConnect.Core"
+      - "/src/ReliefConnect.Infrastructure"
+      - "/src/ReliefConnect.Tests"
     schedule:
       interval: "weekly"
       day: "monday"
       time: "09:00"
       timezone: "UTC"
-    open-pull-requests-limit: 2
+    open-pull-requests-limit: 4
+    cooldown:
+      default-days: 3
+      semver-major-days: 14
+      semver-minor-days: 5
+      semver-patch-days: 2
+    rebase-strategy: "disabled"
     labels:
       - "dependencies"
       - "backend"
@@ -69,83 +88,7 @@ updates:
       prefix: "chore(deps)"
       include: "scope"
     groups:
-      api-nuget-routine:
-        applies-to: "version-updates"
-        patterns:
-          - "*"
-        update-types:
-          - "minor"
-          - "patch"
-
-  - package-ecosystem: "nuget"
-    directory: "/src/ReliefConnect.Core"
-    target-branch: "temp"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-      time: "09:00"
-      timezone: "UTC"
-    open-pull-requests-limit: 2
-    labels:
-      - "dependencies"
-      - "backend"
-      - "dotnet"
-    commit-message:
-      prefix: "chore(deps)"
-      include: "scope"
-    groups:
-      core-nuget-routine:
-        applies-to: "version-updates"
-        patterns:
-          - "*"
-        update-types:
-          - "minor"
-          - "patch"
-
-  - package-ecosystem: "nuget"
-    directory: "/src/ReliefConnect.Infrastructure"
-    target-branch: "temp"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-      time: "09:00"
-      timezone: "UTC"
-    open-pull-requests-limit: 2
-    labels:
-      - "dependencies"
-      - "backend"
-      - "dotnet"
-    commit-message:
-      prefix: "chore(deps)"
-      include: "scope"
-    groups:
-      infrastructure-nuget-routine:
-        applies-to: "version-updates"
-        patterns:
-          - "*"
-        update-types:
-          - "minor"
-          - "patch"
-
-  - package-ecosystem: "nuget"
-    directory: "/src/ReliefConnect.Tests"
-    target-branch: "temp"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-      time: "09:00"
-      timezone: "UTC"
-    open-pull-requests-limit: 2
-    labels:
-      - "dependencies"
-      - "backend"
-      - "dotnet"
-      - "tests"
-    commit-message:
-      prefix: "chore(deps)"
-      include: "scope"
-    groups:
-      tests-nuget-routine:
+      dotnet-routine:
         applies-to: "version-updates"
         patterns:
           - "*"
@@ -155,13 +98,18 @@ updates:
 
   - package-ecosystem: "github-actions"
     directory: "/"
-    target-branch: "temp"
     schedule:
       interval: "weekly"
       day: "monday"
       time: "09:00"
       timezone: "UTC"
     open-pull-requests-limit: 2
+    cooldown:
+      default-days: 2
+      semver-major-days: 14
+      semver-minor-days: 5
+      semver-patch-days: 2
+    rebase-strategy: "disabled"
     labels:
       - "dependencies"
       - "ci"
