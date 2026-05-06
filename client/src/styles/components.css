@@ -523,6 +523,8 @@
 .google-signin-btn {
   display: flex;
   justify-content: center;
+  align-items: center;
+  min-height: 40px;
   margin-bottom: var(--sp-2);
 }
 
