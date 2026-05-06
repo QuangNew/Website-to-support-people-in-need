@@ -8,6 +8,32 @@ import { useLanguage } from '../../contexts/LanguageContext';
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 
+type GoogleCredentialResponse = { credential: string };
+
+type GoogleAccountsId = {
+  initialize: (config: {
+    client_id: string;
+    callback: (response: GoogleCredentialResponse) => void;
+  }) => void;
+  renderButton: (parent: HTMLElement, options: {
+    theme: 'outline';
+    size: 'large';
+    width: number;
+    text: 'signin_with' | 'signup_with';
+    shape: 'pill';
+  }) => void;
+};
+
+declare global {
+  interface Window {
+    google?: {
+      accounts?: {
+        id?: GoogleAccountsId;
+      };
+    };
+  }
+}
+
 export default function LoginModal() {
   const { showAuthModal, setAuthModal } = useMapStore();
   const { login, googleLogin, isLoading } = useAuthStore();
@@ -23,52 +49,91 @@ export default function LoginModal() {
   useEffect(() => {
     if (showAuthModal !== 'login' || !GOOGLE_CLIENT_ID) return;
 
-    const initGoogle = () => {
-      if (!(window as any).google?.accounts?.id) return;
-      (window as any).google.accounts.id.initialize({
+    let frameOne = 0;
+    let frameTwo = 0;
+    let lastWidth = 0;
+    let resizeObserver: ResizeObserver | null = null;
+    let loadHandler: (() => void) | null = null;
+
+    const renderGoogleButton = () => {
+      const google = window.google?.accounts?.id;
+      const container = googleBtnRef.current;
+      if (!google || !container) return;
+
+      const containerWidth = Math.round(container.getBoundingClientRect().width);
+      if (!containerWidth) return;
+      if (containerWidth === lastWidth && container.childElementCount > 0) return;
+
+      lastWidth = containerWidth;
+      container.innerHTML = '';
+
+      google.initialize({
         client_id: GOOGLE_CLIENT_ID,
         callback: handleGoogleResponse,
       });
-      if (googleBtnRef.current) {
-        // Google Identity Services expects `width` as an integer (pixels), NOT a string like '100%'.
-        // Passing a string causes the SDK to fallback to a small default (~200px).
-        // Compute the container's actual pixel width for a full-width button.
-        const containerWidth = googleBtnRef.current.offsetWidth || 340;
-        (window as any).google.accounts.id.renderButton(googleBtnRef.current, {
-          theme: 'outline',
-          size: 'large',
-          width: Math.min(containerWidth, 400),
-          text: 'signin_with',
-          shape: 'pill',
-        });
-      }
+      google.renderButton(container, {
+        theme: 'outline',
+        size: 'large',
+        width: Math.min(containerWidth, 400),
+        text: 'signin_with',
+        shape: 'pill',
+      });
     };
 
-    // Google script may already be loaded
-    if ((window as any).google?.accounts?.id) {
-      // Slight delay to ensure modal is rendered and container has its final width
-      setTimeout(initGoogle, 50);
+    const scheduleRender = () => {
+      cancelAnimationFrame(frameOne);
+      cancelAnimationFrame(frameTwo);
+      frameOne = requestAnimationFrame(() => {
+        frameTwo = requestAnimationFrame(renderGoogleButton);
+      });
+    };
+
+    resizeObserver = new ResizeObserver(([entry]) => {
+      const containerWidth = Math.round(entry.contentRect.width);
+      if (!containerWidth || (containerWidth === lastWidth && googleBtnRef.current?.childElementCount)) return;
+      scheduleRender();
+    });
+
+    if (googleBtnRef.current) {
+      resizeObserver.observe(googleBtnRef.current);
+    }
+
+    if (window.google?.accounts?.id) {
+      scheduleRender();
     } else {
-      // Load the Google Identity Services script
       const existing = document.getElementById('google-gsi');
+      loadHandler = () => {
+        lastWidth = 0;
+        scheduleRender();
+      };
+
       if (!existing) {
         const script = document.createElement('script');
         script.id = 'google-gsi';
         script.src = 'https://accounts.google.com/gsi/client';
         script.async = true;
         script.defer = true;
-        script.onload = initGoogle;
+        script.addEventListener('load', loadHandler, { once: true });
         document.head.appendChild(script);
       } else {
-        existing.addEventListener('load', initGoogle);
+        existing.addEventListener('load', loadHandler, { once: true });
       }
     }
+
+    return () => {
+      cancelAnimationFrame(frameOne);
+      cancelAnimationFrame(frameTwo);
+      resizeObserver?.disconnect();
+      if (loadHandler) {
+        document.getElementById('google-gsi')?.removeEventListener('load', loadHandler);
+      }
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showAuthModal]);
 
   if (showAuthModal !== 'login') return null;
 
-  const handleGoogleResponse = async (response: { credential: string }) => {
+  const handleGoogleResponse = async (response: GoogleCredentialResponse) => {
     setError('');
     try {
       await googleLogin(response.credential);
