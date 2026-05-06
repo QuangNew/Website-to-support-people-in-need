@@ -88,8 +88,9 @@ export default function LoginModal() {
       });
     };
 
-    resizeObserver = new ResizeObserver(() => {
-      lastWidth = 0;
+    resizeObserver = new ResizeObserver(([entry]) => {
+      const containerWidth = Math.round(entry.contentRect.width);
+      if (!containerWidth || (containerWidth === lastWidth && googleBtnRef.current?.childElementCount)) return;
       scheduleRender();
     });
 

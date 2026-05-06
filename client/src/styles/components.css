@@ -528,8 +528,12 @@
   margin-bottom: var(--sp-2);
 }
 
-.google-signin-btn > div {
+.google-signin-btn > div,
+.google-signin-btn [role="button"] {
+  box-sizing: border-box;
   width: 100% !important;
+  max-width: 400px !important;
+  min-width: 0 !important;
 }
 
 .auth-divider {
