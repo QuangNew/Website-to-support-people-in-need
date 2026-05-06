@@ -489,6 +489,9 @@ src/ReliefConnect.API/appsettings.Development.json
 .github/*
 !.github/workflows/
 !.github/workflows/*.yml
+!.github/ISSUE_TEMPLATE/
+!.github/ISSUE_TEMPLATE/*.md
+!.github/dependabot.yml
 opencode.jsonc
 
 # ═══════════════════════════════════════════
