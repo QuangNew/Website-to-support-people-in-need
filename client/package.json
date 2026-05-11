@@ -19,7 +19,7 @@
     "framer-motion": "^12.34.3",
     "leaflet": "^1.9.4",
     "leaflet.markercluster": "^1.5.3",
-    "lucide-react": "^0.575.0",
+    "lucide-react": "^1.8.0",
     "qrcode.react": "^4.2.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
