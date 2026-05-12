@@ -10,7 +10,7 @@ import {
   Camera,
   Loader2,
   Phone,
-  Facebook,
+  Link,
   Send,
 } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
@@ -207,7 +207,7 @@ export default function ProfilePanel() {
           </div>
 
           <div className="profile-info-item">
-            <Facebook size={16} />
+            <Link size={16} />
             <div>
               <span className="profile-info-label">{t('profile.facebookUrl')}</span>
               {isEditing ? (

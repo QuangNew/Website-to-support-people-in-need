@@ -23,15 +23,12 @@ foreach ($cmd in $requiredCommands) {
     }
 }
 
-Write-Host '[1/3] Cai dependencies frontend (pnpm install)...' -ForegroundColor Cyan
+Write-Host '[1/2] Cai dependencies frontend (pnpm install)...' -ForegroundColor Cyan
 Push-Location $clientPath
 try {
     pnpm install
 
-    Write-Host '[2/3] Dam bao react-markdown da duoc cai dat...' -ForegroundColor Cyan
-    pnpm install react-markdown
-
-    Write-Host '[3/3] Build frontend (pnpm run build)...' -ForegroundColor Cyan
+    Write-Host '[2/2] Build frontend (pnpm run build)...' -ForegroundColor Cyan
     pnpm run build
 }
 finally {
