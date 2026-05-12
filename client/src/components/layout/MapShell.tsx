@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { lazy, Suspense, useEffect, type ComponentType, type LazyExoticComponent } from 'react';
 import { X } from 'lucide-react';
 import Sidebar from './Sidebar';
 import FilterBar from './FilterBar';
@@ -7,27 +7,29 @@ import MobileNav from './MobileNav';
 import MapView from '../map/MapView';
 import PingDetailPanel from '../map/PingDetailPanel';
 import SOSCreationFlow from '../map/SOSCreationFlow';
-import ListPanel from '../panels/ListPanel';
-import SocialPanel from '../panels/SocialPanel';
-import ChatPanel from '../panels/ChatPanel';
-import ProfilePanel from '../panels/ProfilePanel';
-import VerificationPanel from '../panels/VerificationPanel';
-import GuidePanel from '../panels/GuidePanel';
-import PersonInNeedPanel from '../panels/PersonInNeedPanel';
-import VolunteerPanel from '../panels/VolunteerPanel';
-import SponsorPanel from '../panels/SponsorPanel';
-import MessagingPanel from '../panels/MessagingPanel';
-import LoginModal from '../auth/LoginModal';
-import RegisterModal from '../auth/RegisterModal';
-import ForgotPasswordModal from '../auth/ForgotPasswordModal';
-import ResetPasswordModal from '../auth/ResetPasswordModal';
-import WelcomeModal from '../auth/WelcomeModal';
 import { useMapStore, type PanelType } from '../../stores/mapStore';
 import { useAuthStore } from '../../stores/authStore';
 import { useMessageStore } from '../../stores/messageStore';
 import { startDirectMessageConnection, stopDirectMessageConnection } from '../../services/directMessageSignalR';
 
-const PANEL_COMPONENTS: Record<NonNullable<PanelType>, React.FC> = {
+const ListPanel = lazy(() => import('../panels/ListPanel'));
+const SocialPanel = lazy(() => import('../panels/SocialPanel'));
+const ChatPanel = lazy(() => import('../panels/ChatPanel'));
+const ProfilePanel = lazy(() => import('../panels/ProfilePanel'));
+const VerificationPanel = lazy(() => import('../panels/VerificationPanel'));
+const GuidePanel = lazy(() => import('../panels/GuidePanel'));
+const PersonInNeedPanel = lazy(() => import('../panels/PersonInNeedPanel'));
+const VolunteerPanel = lazy(() => import('../panels/VolunteerPanel'));
+const SponsorPanel = lazy(() => import('../panels/SponsorPanel'));
+const MessagingPanel = lazy(() => import('../panels/MessagingPanel'));
+
+const LoginModal = lazy(() => import('../auth/LoginModal'));
+const RegisterModal = lazy(() => import('../auth/RegisterModal'));
+const ForgotPasswordModal = lazy(() => import('../auth/ForgotPasswordModal'));
+const ResetPasswordModal = lazy(() => import('../auth/ResetPasswordModal'));
+const WelcomeModal = lazy(() => import('../auth/WelcomeModal'));
+
+const PANEL_COMPONENTS: Record<NonNullable<PanelType>, LazyExoticComponent<ComponentType>> = {
   list: ListPanel,
   social: SocialPanel,
   chat: ChatPanel,
@@ -41,7 +43,15 @@ const PANEL_COMPONENTS: Record<NonNullable<PanelType>, React.FC> = {
 };
 
 export default function MapShell() {
-  const { activePanel, setActivePanel, sidebarExpanded, fetchPings, fetchZones } = useMapStore();
+  const {
+    activePanel,
+    setActivePanel,
+    sidebarExpanded,
+    showAuthModal,
+    showWelcome,
+    fetchPings,
+    fetchZones,
+  } = useMapStore();
   const { isAuthenticated } = useAuthStore();
   const fetchUnreadCount = useMessageStore((s) => s.fetchUnreadCount);
 
@@ -97,7 +107,9 @@ export default function MapShell() {
             >
               <X size={16} />
             </button>
-            <PanelComponent />
+            <Suspense fallback={<div className="panel-lazy-fallback"><div className="spinner" /></div>}>
+              <PanelComponent />
+            </Suspense>
           </div>
         </div>
       )}
@@ -109,11 +121,13 @@ export default function MapShell() {
       <SOSCreationFlow />
 
       {/* Auth modals */}
-      <LoginModal />
-      <RegisterModal />
-      <ForgotPasswordModal />
-      <ResetPasswordModal />
-      <WelcomeModal />
+      <Suspense fallback={null}>
+        {showAuthModal === 'login' && <LoginModal />}
+        {showAuthModal === 'register' && <RegisterModal />}
+        {showAuthModal === 'forgot-password' && <ForgotPasswordModal />}
+        {showAuthModal === 'reset-password' && <ResetPasswordModal />}
+        {showWelcome && <WelcomeModal />}
+      </Suspense>
     </div>
   );
 }

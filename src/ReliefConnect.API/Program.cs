@@ -280,7 +280,15 @@ builder.Services.AddScoped<IRateLimitStore, PostgresRateLimitStore>();
 builder.Services.AddScoped<INotificationRealtimeDispatcher, NotificationRealtimeDispatcher>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<ISpamGuardService, SpamGuardService>();
-builder.Services.AddSingleton<IGeminiService, GeminiService>();
+builder.Services.AddHttpClient("AiProviders", client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
+builder.Services.AddSingleton<IAiProviderClient, GeminiProviderClient>();
+builder.Services.AddSingleton<IAiProviderClient, OpenAiProviderClient>();
+builder.Services.AddSingleton<IAiProviderClient, AnthropicProviderClient>();
+builder.Services.AddSingleton<IAiProviderClient, NvidiaNimProviderClient>();
+builder.Services.AddSingleton<IAiChatService, AiChatService>();
 builder.Services.AddScoped<ITokenBlacklistService, TokenBlacklistService>();
 builder.Services.AddSingleton<Ganss.Xss.HtmlSanitizer>();
 builder.Services.AddSingleton<IContentModerationService, ContentModerationService>();

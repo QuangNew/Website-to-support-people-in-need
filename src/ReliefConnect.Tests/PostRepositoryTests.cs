@@ -83,7 +83,9 @@ public class PostRepositoryTests
             AuthorId = authorId,
             Content = $"Post {id}",
             Category = PostCategory.Livelihood,
-            CreatedAt = createdAt
+            CreatedAt = createdAt,
+            IsApproved = true,
+            ApprovedAt = createdAt
         };
 
     private static Comment CreateComment(int id, int postId, string userId, DateTime createdAt, bool isHidden)

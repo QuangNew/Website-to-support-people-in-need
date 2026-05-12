@@ -378,6 +378,15 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             entity.Property(k => k.Provider).HasConversion<string>().HasMaxLength(20);
             entity.Property(k => k.Label).HasMaxLength(100);
             entity.Property(k => k.Model).HasMaxLength(100);
+            entity.Property(k => k.FailureCount).HasDefaultValue(0);
+            entity.Property(k => k.LastErrorCode).HasMaxLength(80);
+            entity.Property(k => k.LastErrorMessage).HasMaxLength(240);
+            entity.HasIndex(k => new { k.CooldownUntil, k.LastUsedAt, k.UsageCount, k.Id })
+                .HasDatabaseName("IX_ApiKeys_ActiveRotation")
+                .HasFilter("\"IsActive\" = TRUE");
+            entity.HasIndex(k => new { k.Provider, k.Model })
+                .HasDatabaseName("IX_ApiKeys_ActiveProviderModel")
+                .HasFilter("\"IsActive\" = TRUE");
         });
 
         // ═══════ APPLICATION USER (Suspension index) ═══════
