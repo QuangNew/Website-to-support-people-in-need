@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using ReliefConnect.Core;
 
 namespace ReliefConnect.Core.DTOs;
 
@@ -328,7 +329,7 @@ public class SendMessageDto
     public string? ImageBase64 { get; set; }
 
     /// <summary>MIME type of the image — must be image/jpeg, image/png, or image/webp.</summary>
-    [RegularExpression(@"^(image/jpeg|image/png|image/webp)$",
+    [RegularExpression(AiImagePolicy.AllowedMimeTypesPattern,
         ErrorMessage = "Allowed MIME types: image/jpeg, image/png, image/webp.")]
     public string? ImageMimeType { get; set; }
 }
@@ -760,7 +761,42 @@ public class ApiKeyResponseDto
     public bool IsActive { get; set; }
     public int UsageCount { get; set; }
     public DateTime? LastUsedAt { get; set; }
+    public int FailureCount { get; set; }
+    public DateTime? LastFailedAt { get; set; }
+    public DateTime? CooldownUntil { get; set; }
+    public string? LastErrorCode { get; set; }
+    public string? LastErrorMessage { get; set; }
+    public string HealthStatus { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; }
+}
+
+public class ApiKeyTestResponseDto
+{
+    public bool Success { get; set; }
+    public string Message { get; set; } = string.Empty;
+    public string? ErrorCode { get; set; }
+    public DateTime? CooldownUntil { get; set; }
+    public ApiKeyResponseDto? ApiKey { get; set; }
+}
+
+public class ApiKeyCatalogDto
+{
+    public List<ApiKeyProviderCatalogDto> Providers { get; set; } = [];
+}
+
+public class ApiKeyProviderCatalogDto
+{
+    public string Value { get; set; } = string.Empty;
+    public string Label { get; set; } = string.Empty;
+    public string DefaultModel { get; set; } = string.Empty;
+    public List<ApiKeyModelCatalogDto> Models { get; set; } = [];
+}
+
+public class ApiKeyModelCatalogDto
+{
+    public string Value { get; set; } = string.Empty;
+    public string Label { get; set; } = string.Empty;
+    public bool SupportsImages { get; set; }
 }
 
 // ═══════════════════════════════════════════

@@ -1,18 +1,17 @@
 namespace ReliefConnect.Core.Interfaces;
 
-/// <summary>
-/// Service contract for Google Gemini AI chatbot integration (REQ-BOT-01/02/03).
-/// </summary>
 public record AiChatResponse(string Response, bool HasSafetyWarning, bool CountsTowardQuota);
 
-public interface IGeminiService
+public record ApiKeyTestResult(bool Success, string Message, string? ErrorCode, DateTime? CooldownUntil);
+
+public interface IAiChatService
 {
-    /// <summary>
-    /// Send a message to Gemini and get a response.
-    /// </summary>
     Task<AiChatResponse> SendMessageAsync(
         string userMessage,
         IEnumerable<(string Role, string Content)>? conversationHistory = null,
         string? imageBase64 = null,
-        string? imageMimeType = null);
+        string? imageMimeType = null,
+        CancellationToken cancellationToken = default);
+
+    Task<ApiKeyTestResult> TestApiKeyAsync(int apiKeyId, CancellationToken cancellationToken = default);
 }

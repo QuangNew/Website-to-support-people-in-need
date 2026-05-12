@@ -29,7 +29,7 @@ jobs:
           node-version: '22'
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6.0.6
         with:
           version: '10'
 
@@ -65,7 +65,7 @@ jobs:
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.ref_name }}
           name: Release ${{ github.ref_name }}

@@ -17,7 +17,7 @@ namespace ReliefConnect.Infrastructure.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.4")
+                .HasAnnotation("ProductVersion", "10.0.7")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "postgis");
@@ -196,7 +196,7 @@ namespace ReliefConnect.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("ApiKeys");
+                    b.ToTable("ApiKeys", (string)null);
                 });
 
             modelBuilder.Entity("ReliefConnect.Core.Entities.ApplicationUser", b =>
@@ -364,7 +364,7 @@ namespace ReliefConnect.Infrastructure.Migrations
                     b.HasIndex("Jti")
                         .IsUnique();
 
-                    b.ToTable("BlacklistedTokens");
+                    b.ToTable("BlacklistedTokens", (string)null);
                 });
 
             modelBuilder.Entity("ReliefConnect.Core.Entities.Comment", b =>
@@ -424,7 +424,7 @@ namespace ReliefConnect.Infrastructure.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("Comments");
+                    b.ToTable("Comments", (string)null);
                 });
 
             modelBuilder.Entity("ReliefConnect.Core.Entities.ContentViolation", b =>
@@ -470,7 +470,7 @@ namespace ReliefConnect.Infrastructure.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("ContentViolations");
+                    b.ToTable("ContentViolations", (string)null);
                 });
 
             modelBuilder.Entity("ReliefConnect.Core.Entities.Conversation", b =>
@@ -492,7 +492,7 @@ namespace ReliefConnect.Infrastructure.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("Conversations");
+                    b.ToTable("Conversations", (string)null);
                 });
 
             modelBuilder.Entity("ReliefConnect.Core.Entities.DirectConversation", b =>
@@ -529,7 +529,7 @@ namespace ReliefConnect.Infrastructure.Migrations
                     b.HasIndex("User1Id", "User2Id")
                         .IsUnique();
 
-                    b.ToTable("DirectConversations", t =>
+                    b.ToTable("DirectConversations", null, t =>
                         {
                             t.HasCheckConstraint("CK_DirectConversation_NoSelf", "\"User1Id\" <> \"User2Id\"");
 
@@ -579,7 +579,7 @@ namespace ReliefConnect.Infrastructure.Migrations
                     b.HasIndex("ConversationId", "SentAt")
                         .IsDescending();
 
-                    b.ToTable("DirectMessages", t =>
+                    b.ToTable("DirectMessages", null, t =>
                         {
                             t.HasCheckConstraint("CK_DirectMessage_Content_MaxLen", "char_length(\"Content\") <= 2000");
 
@@ -641,7 +641,7 @@ namespace ReliefConnect.Infrastructure.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("DonationRecords");
+                    b.ToTable("DonationRecords", (string)null);
                 });
 
             modelBuilder.Entity("ReliefConnect.Core.Entities.HelpOffer", b =>
@@ -689,7 +689,7 @@ namespace ReliefConnect.Infrastructure.Migrations
 
                     b.HasIndex("TargetUserId");
 
-                    b.ToTable("HelpOffers");
+                    b.ToTable("HelpOffers", (string)null);
                 });
 
             modelBuilder.Entity("ReliefConnect.Core.Entities.Message", b =>
@@ -726,7 +726,7 @@ namespace ReliefConnect.Infrastructure.Migrations
 
                     b.HasIndex("ConversationId", "SentAt");
 
-                    b.ToTable("Messages");
+                    b.ToTable("Messages", (string)null);
                 });
 
             modelBuilder.Entity("ReliefConnect.Core.Entities.Notification", b =>
@@ -759,7 +759,7 @@ namespace ReliefConnect.Infrastructure.Migrations
 
                     b.HasIndex("UserId", "IsRead");
 
-                    b.ToTable("Notifications");
+                    b.ToTable("Notifications", (string)null);
                 });
 
             modelBuilder.Entity("ReliefConnect.Core.Entities.Ping", b =>
@@ -837,7 +837,7 @@ namespace ReliefConnect.Infrastructure.Migrations
                     b.HasIndex("Type", "Status", "CreatedAt")
                         .IsDescending();
 
-                    b.ToTable("Pings");
+                    b.ToTable("Pings", (string)null);
                 });
 
             modelBuilder.Entity("ReliefConnect.Core.Entities.PingFlag", b =>
@@ -865,7 +865,7 @@ namespace ReliefConnect.Infrastructure.Migrations
                     b.HasIndex("PingId")
                         .IsUnique();
 
-                    b.ToTable("PingFlags");
+                    b.ToTable("PingFlags", (string)null);
                 });
 
             modelBuilder.Entity("ReliefConnect.Core.Entities.Post", b =>
@@ -928,7 +928,7 @@ namespace ReliefConnect.Infrastructure.Migrations
                     b.HasIndex("CreatedAt", "Id")
                         .IsDescending();
 
-                    b.ToTable("Posts");
+                    b.ToTable("Posts", (string)null);
                 });
 
             modelBuilder.Entity("ReliefConnect.Core.Entities.Reaction", b =>
@@ -959,7 +959,7 @@ namespace ReliefConnect.Infrastructure.Migrations
                     b.HasIndex("PostId", "UserId")
                         .IsUnique();
 
-                    b.ToTable("Reactions");
+                    b.ToTable("Reactions", (string)null);
                 });
 
             modelBuilder.Entity("ReliefConnect.Core.Entities.Report", b =>
@@ -996,7 +996,7 @@ namespace ReliefConnect.Infrastructure.Migrations
 
                     b.HasIndex("Status");
 
-                    b.ToTable("Reports");
+                    b.ToTable("Reports", (string)null);
                 });
 
             modelBuilder.Entity("ReliefConnect.Core.Entities.SupplyItem", b =>
@@ -1028,7 +1028,7 @@ namespace ReliefConnect.Infrastructure.Migrations
 
                     b.HasIndex("CoordinatesLat", "CoordinatesLong");
 
-                    b.ToTable("SupplyItems");
+                    b.ToTable("SupplyItems", (string)null);
                 });
 
             modelBuilder.Entity("ReliefConnect.Core.Entities.SystemAnnouncement", b =>
@@ -1065,7 +1065,7 @@ namespace ReliefConnect.Infrastructure.Migrations
 
                     b.HasIndex("ExpiresAt");
 
-                    b.ToTable("SystemAnnouncements");
+                    b.ToTable("SystemAnnouncements", (string)null);
                 });
 
             modelBuilder.Entity("ReliefConnect.Core.Entities.SystemLog", b =>
@@ -1112,7 +1112,7 @@ namespace ReliefConnect.Infrastructure.Migrations
 
                     b.HasIndex("ParentLogId");
 
-                    b.ToTable("SystemLogs");
+                    b.ToTable("SystemLogs", (string)null);
                 });
 
             modelBuilder.Entity("ReliefConnect.Core.Entities.Tag", b =>
@@ -1134,7 +1134,7 @@ namespace ReliefConnect.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Tags");
+                    b.ToTable("Tags", (string)null);
 
                     b.HasData(
                         new
@@ -1213,7 +1213,7 @@ namespace ReliefConnect.Infrastructure.Migrations
                     b.HasIndex("UserId", "SubmittedAt")
                         .IsDescending();
 
-                    b.ToTable("VerificationHistories");
+                    b.ToTable("VerificationHistories", (string)null);
                 });
 
             modelBuilder.Entity("ReliefConnect.Core.Entities.Zone", b =>
@@ -1241,7 +1241,7 @@ namespace ReliefConnect.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Zones");
+                    b.ToTable("Zones", (string)null);
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
