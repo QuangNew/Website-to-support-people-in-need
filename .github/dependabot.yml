@@ -9,6 +9,11 @@ multi-ecosystem-groups:
       timezone: "UTC"
     labels:
       - "dependencies"
+    open-pull-requests-limit: 1
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+      include: "scope"
 
 updates:
   - package-ecosystem: "npm"
@@ -16,7 +21,6 @@ updates:
     patterns:
       - "*"
     multi-ecosystem-group: "all-dependencies"
-    open-pull-requests-limit: 1
     cooldown:
       default-days: 5
       semver-major-days: 21
@@ -27,17 +31,12 @@ updates:
       - "dependencies"
       - "tooling"
       - "javascript"
-    commit-message:
-      prefix: "chore(deps)"
-      prefix-development: "chore(deps-dev)"
-      include: "scope"
 
   - package-ecosystem: "npm"
     directory: "/client"
     patterns:
       - "*"
     multi-ecosystem-group: "all-dependencies"
-    open-pull-requests-limit: 1
     cooldown:
       default-days: 5
       semver-major-days: 21
@@ -48,10 +47,6 @@ updates:
       - "dependencies"
       - "frontend"
       - "javascript"
-    commit-message:
-      prefix: "chore(deps)"
-      prefix-development: "chore(deps-dev)"
-      include: "scope"
 
   - package-ecosystem: "nuget"
     directories:
@@ -62,7 +57,6 @@ updates:
     patterns:
       - "*"
     multi-ecosystem-group: "all-dependencies"
-    open-pull-requests-limit: 1
     cooldown:
       default-days: 3
       semver-major-days: 14
@@ -73,16 +67,12 @@ updates:
       - "dependencies"
       - "backend"
       - "dotnet"
-    commit-message:
-      prefix: "chore(deps)"
-      include: "scope"
 
   - package-ecosystem: "github-actions"
     directory: "/"
     patterns:
       - "*"
     multi-ecosystem-group: "all-dependencies"
-    open-pull-requests-limit: 1
     cooldown:
       default-days: 2
     rebase-strategy: "disabled"
@@ -90,6 +80,3 @@ updates:
       - "dependencies"
       - "ci"
       - "github-actions"
-    commit-message:
-      prefix: "chore(deps)"
-      include: "scope"
