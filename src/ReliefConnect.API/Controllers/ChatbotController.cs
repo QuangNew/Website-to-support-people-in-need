@@ -20,14 +20,14 @@ public class ChatbotController : ControllerBase
     private const int ChatbotDailySuccessLimit = 5;
 
     private readonly AppDbContext _db;
-    private readonly IGeminiService _gemini;
+    private readonly IAiChatService _aiChatService;
     private readonly ILogger<ChatbotController> _logger;
     private readonly HtmlSanitizer _sanitizer;
 
-    public ChatbotController(AppDbContext db, IGeminiService gemini, ILogger<ChatbotController> logger, HtmlSanitizer sanitizer)
+    public ChatbotController(AppDbContext db, IAiChatService aiChatService, ILogger<ChatbotController> logger, HtmlSanitizer sanitizer)
     {
         _db = db;
-        _gemini = gemini;
+        _aiChatService = aiChatService;
         _logger = logger;
         _sanitizer = sanitizer;
     }
@@ -222,8 +222,8 @@ public class ChatbotController : ControllerBase
             .Select(m => (m.IsBotMessage ? "model" : "user", m.Content))
             .ToList();
 
-        var aiResponse = await _gemini.SendMessageAsync(
-            dto.Content, historyTuples, dto.ImageBase64, dto.ImageMimeType);
+        var aiResponse = await _aiChatService.SendMessageAsync(
+            dto.Content, historyTuples, dto.ImageBase64, dto.ImageMimeType, HttpContext.RequestAborted);
 
         if (!aiResponse.CountsTowardQuota)
         {

@@ -1,8 +1,8 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// const BACKEND = 'http://localhost:5164';
-const BACKEND = 'https://reliefconnect-api.azurewebsites.net';
+const BACKEND = 'http://localhost:5164';
+// const BACKEND = 'https://reliefconnect-api.azurewebsites.net';
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -17,12 +17,15 @@ export default defineConfig({
     {
       name: 'fix-leaflet-markercluster-umd',
       transform(code: string, id: string) {
-        if (id.includes('/node_modules/leaflet.markercluster/') && id.endsWith('.js')) {
-          return {
-            code: `import _L from 'leaflet';\nif (typeof globalThis !== 'undefined') globalThis.L = _L;\n` + code,
-            map: null,
-          };
+        const normalizedId = id.replace(/\\/g, '/');
+        if (!normalizedId.endsWith('/node_modules/leaflet.markercluster/dist/leaflet.markercluster.js')) {
+          return null;
         }
+
+        return {
+          code: `import _L from 'leaflet';\nif (typeof globalThis !== 'undefined') globalThis.L = _L;\n` + code,
+          map: null,
+        };
       },
     },
   ],
