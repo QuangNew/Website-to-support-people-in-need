@@ -417,11 +417,17 @@ export const adminApi = {
   getApiKeys: () =>
     api.get('/admin/api-keys'),
 
+  getApiKeyCatalog: () =>
+    api.get('/admin/api-keys/catalog'),
+
   createApiKey: (data: { provider: string; label: string; keyValue: string; model: string }) =>
     api.post('/admin/api-keys', data),
 
   updateApiKey: (id: number, data: { provider?: string; label?: string; keyValue?: string; model?: string; isActive?: boolean }) =>
     api.put(`/admin/api-keys/${id}`, data),
+
+  testApiKey: (id: number) =>
+    api.post(`/admin/api-keys/${id}/test`),
 
   deleteApiKey: (id: number) =>
     api.delete(`/admin/api-keys/${id}`),

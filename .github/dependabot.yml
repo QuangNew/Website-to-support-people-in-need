@@ -1,13 +1,22 @@
 version: 2
-updates:
-  - package-ecosystem: "npm"
-    directory: "/"
+
+multi-ecosystem-groups:
+  all-dependencies:
     schedule:
       interval: "weekly"
       day: "monday"
       time: "09:00"
       timezone: "UTC"
-    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    patterns:
+      - "*"
+    multi-ecosystem-group: "all-dependencies"
+    open-pull-requests-limit: 1
     cooldown:
       default-days: 5
       semver-major-days: 21
@@ -22,23 +31,13 @@ updates:
       prefix: "chore(deps)"
       prefix-development: "chore(deps-dev)"
       include: "scope"
-    groups:
-      root-npm-routine:
-        applies-to: "version-updates"
-        patterns:
-          - "*"
-        update-types:
-          - "minor"
-          - "patch"
 
   - package-ecosystem: "npm"
     directory: "/client"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-      time: "09:00"
-      timezone: "UTC"
-    open-pull-requests-limit: 5
+    patterns:
+      - "*"
+    multi-ecosystem-group: "all-dependencies"
+    open-pull-requests-limit: 1
     cooldown:
       default-days: 5
       semver-major-days: 21
@@ -53,14 +52,6 @@ updates:
       prefix: "chore(deps)"
       prefix-development: "chore(deps-dev)"
       include: "scope"
-    groups:
-      client-npm-routine:
-        applies-to: "version-updates"
-        patterns:
-          - "*"
-        update-types:
-          - "minor"
-          - "patch"
 
   - package-ecosystem: "nuget"
     directories:
@@ -68,12 +59,10 @@ updates:
       - "/src/ReliefConnect.Core"
       - "/src/ReliefConnect.Infrastructure"
       - "/src/ReliefConnect.Tests"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-      time: "09:00"
-      timezone: "UTC"
-    open-pull-requests-limit: 4
+    patterns:
+      - "*"
+    multi-ecosystem-group: "all-dependencies"
+    open-pull-requests-limit: 1
     cooldown:
       default-days: 3
       semver-major-days: 14
@@ -87,23 +76,13 @@ updates:
     commit-message:
       prefix: "chore(deps)"
       include: "scope"
-    groups:
-      dotnet-routine:
-        applies-to: "version-updates"
-        patterns:
-          - "*"
-        update-types:
-          - "minor"
-          - "patch"
 
   - package-ecosystem: "github-actions"
     directory: "/"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-      time: "09:00"
-      timezone: "UTC"
-    open-pull-requests-limit: 2
+    patterns:
+      - "*"
+    multi-ecosystem-group: "all-dependencies"
+    open-pull-requests-limit: 1
     cooldown:
       default-days: 2
     rebase-strategy: "disabled"
@@ -114,11 +93,3 @@ updates:
     commit-message:
       prefix: "chore(deps)"
       include: "scope"
-    groups:
-      github-actions-routine:
-        applies-to: "version-updates"
-        patterns:
-          - "*"
-        update-types:
-          - "minor"
-          - "patch"

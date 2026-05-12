@@ -3096,27 +3096,96 @@ interface ApiKeyRow {
   isActive: boolean;
   usageCount: number;
   lastUsedAt: string | null;
+  failureCount: number;
+  lastFailedAt: string | null;
+  cooldownUntil: string | null;
+  lastErrorCode: string | null;
+  lastErrorMessage: string | null;
+  healthStatus: 'Healthy' | 'CoolingDown' | 'Failed' | 'Disabled' | string;
   createdAt: string;
 }
 
-const PROVIDERS = ['Gemini', 'Claude', 'GPT'] as const;
+interface ApiKeyTestResponse {
+  success: boolean;
+  message: string;
+  errorCode: string | null;
+  cooldownUntil: string | null;
+  apiKey: ApiKeyRow | null;
+}
 
-const emptyKeyForm = { provider: 'Gemini' as string, label: '', keyValue: '', model: '' };
+interface ApiKeyTestNotice {
+  success: boolean;
+  label: string;
+  message: string;
+  errorCode: string | null;
+  cooldownUntil: string | null;
+}
+
+interface ApiKeyModelOption {
+  value: string;
+  label: string;
+  supportsImages: boolean;
+}
+
+interface ApiKeyProviderOption {
+  value: string;
+  label: string;
+  defaultModel: string;
+  models: ApiKeyModelOption[];
+}
+
+interface ApiKeyCatalog {
+  providers: ApiKeyProviderOption[];
+}
+
+interface ApiKeyFormState {
+  provider: string;
+  label: string;
+  keyValue: string;
+  model: string;
+}
+
+const FALLBACK_API_KEY_CATALOG: ApiKeyCatalog = {
+  providers: [
+    { value: 'Gemini', label: 'Gemini', defaultModel: 'gemini-2.5-flash', models: [{ value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', supportsImages: true }] },
+  ],
+};
+
+const getCatalogProvider = (catalog: ApiKeyCatalog, provider: string) =>
+  catalog.providers.find((p) => p.value === provider) ?? catalog.providers[0];
+
+const createEmptyKeyForm = (catalog: ApiKeyCatalog): ApiKeyFormState => {
+  const provider = catalog.providers[0];
+  return {
+    provider: provider?.value ?? 'Gemini',
+    label: '',
+    keyValue: '',
+    model: provider?.defaultModel ?? provider?.models[0]?.value ?? '',
+  };
+};
 
 function ApiKeysPanel() {
   const { t } = useLanguage();
   const [keys, setKeys] = useState<ApiKeyRow[]>([]);
+  const [catalog, setCatalog] = useState<ApiKeyCatalog>(FALLBACK_API_KEY_CATALOG);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [form, setForm] = useState(emptyKeyForm);
+  const [form, setForm] = useState<ApiKeyFormState>(() => createEmptyKeyForm(FALLBACK_API_KEY_CATALOG));
   const [saving, setSaving] = useState(false);
+  const [testingId, setTestingId] = useState<number | null>(null);
+  const [testNotice, setTestNotice] = useState<ApiKeyTestNotice | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await adminApi.getApiKeys();
-      setKeys(res.data as ApiKeyRow[]);
+      const [keysRes, catalogRes] = await Promise.all([
+        adminApi.getApiKeys(),
+        adminApi.getApiKeyCatalog(),
+      ]);
+      setKeys(keysRes.data as ApiKeyRow[]);
+      const nextCatalog = catalogRes.data as ApiKeyCatalog;
+      setCatalog(nextCatalog.providers?.length ? nextCatalog : FALLBACK_API_KEY_CATALOG);
     } catch {
       toast.error(t('common.error'));
     } finally {
@@ -3126,16 +3195,31 @@ function ApiKeysPanel() {
 
   useEffect(() => { load(); }, [load]);
 
+  const selectedProvider = getCatalogProvider(catalog, form.provider);
+  const selectedProviderModels = selectedProvider?.models ?? [];
+  const selectedModel = selectedProviderModels.find((model) => model.value === form.model);
+  const modelInputId = `api-model-suggestions-${editingId ?? 'new'}`;
+
   const openCreate = () => {
     setEditingId(null);
-    setForm(emptyKeyForm);
+    setForm(createEmptyKeyForm(catalog));
     setShowForm(true);
   };
 
   const openEdit = (k: ApiKeyRow) => {
+    const provider = getCatalogProvider(catalog, k.provider);
     setEditingId(k.id);
-    setForm({ provider: k.provider, label: k.label, keyValue: '', model: k.model });
+    setForm({ provider: provider?.value ?? k.provider, label: k.label, keyValue: '', model: k.model });
     setShowForm(true);
+  };
+
+  const handleProviderChange = (providerValue: string) => {
+    const provider = getCatalogProvider(catalog, providerValue);
+    setForm((current) => ({
+      ...current,
+      provider: provider?.value ?? providerValue,
+      model: provider?.defaultModel ?? provider?.models[0]?.value ?? '',
+    }));
   };
 
   const handleSave = async () => {
@@ -3150,22 +3234,28 @@ function ApiKeysPanel() {
     setSaving(true);
     try {
       if (editingId !== null) {
-        const payload: Record<string, unknown> = { provider: form.provider, label: form.label, model: form.model };
+        const payload: Record<string, unknown> = { provider: form.provider, label: form.label.trim(), model: form.model.trim() };
         if (form.keyValue.trim()) payload.keyValue = form.keyValue.trim();
         await adminApi.updateApiKey(editingId, payload as Parameters<typeof adminApi.updateApiKey>[1]);
         await load();
         toast.success('API key updated');
       } else {
-        const res = await adminApi.createApiKey(form);
+        const res = await adminApi.createApiKey({
+          provider: form.provider,
+          label: form.label.trim(),
+          keyValue: form.keyValue.trim(),
+          model: form.model.trim(),
+        });
         const saved = res.data as ApiKeyRow;
         setKeys((prev) => [saved, ...prev]);
         toast.success('API key created');
       }
       setShowForm(false);
-      setForm(emptyKeyForm);
+      setForm(createEmptyKeyForm(catalog));
       setEditingId(null);
-    } catch {
-      toast.error(t('common.error'));
+    } catch (err) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error(msg || t('common.error'));
     } finally {
       setSaving(false);
     }
@@ -3179,6 +3269,34 @@ function ApiKeysPanel() {
       toast.success(k.isActive ? 'Key deactivated' : 'Key activated');
     } catch {
       toast.error(t('common.error'));
+    }
+  };
+
+  const handleTest = async (k: ApiKeyRow) => {
+    setTestingId(k.id);
+    try {
+      const res = await adminApi.testApiKey(k.id);
+      const result = res.data as ApiKeyTestResponse;
+      if (result.apiKey) {
+        setKeys((prev) => prev.map((key) => key.id === result.apiKey?.id ? result.apiKey : key));
+      }
+      setTestNotice({
+        success: result.success,
+        label: k.label,
+        message: result.message || (result.success ? 'Connection test succeeded' : 'Connection test failed'),
+        errorCode: result.errorCode,
+        cooldownUntil: result.cooldownUntil,
+      });
+      if (result.success) {
+        toast.success(result.message || 'Connection test succeeded');
+      } else {
+        toast.error(result.message || result.errorCode || 'Connection test failed');
+      }
+    } catch (err) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error(msg || t('common.error'));
+    } finally {
+      setTestingId(null);
     }
   };
 
@@ -3196,11 +3314,50 @@ function ApiKeysPanel() {
   const providerColor = (p: string) => {
     switch (p) {
       case 'Gemini': return '#4285F4';
+      case 'Anthropic':
       case 'Claude': return '#D97706';
+      case 'OpenAI':
       case 'GPT': return '#10A37F';
+      case 'NvidiaNim': return '#76B900';
       default: return 'var(--text-secondary)';
     }
   };
+
+  const providerLabel = (p: string) => getCatalogProvider(catalog, p)?.label ?? p;
+  const providerActiveCount = (p: string) => keys.filter((key) => key.isActive && getCatalogProvider(catalog, key.provider)?.value === p).length;
+  const healthColor = (status: string) => {
+    switch (status) {
+      case 'Healthy': return 'var(--success-500)';
+      case 'CoolingDown': return 'var(--warning-500)';
+      case 'Failed': return 'var(--danger-500)';
+      case 'Disabled': return 'var(--text-muted)';
+      default: return 'var(--text-secondary)';
+    }
+  };
+  const healthTone = (status: string) => {
+    switch (status) {
+      case 'Healthy': return 'success';
+      case 'CoolingDown': return 'warning';
+      case 'Failed': return 'danger';
+      case 'Disabled': return 'neutral';
+      default: return 'neutral';
+    }
+  };
+  const healthLabel = (k: ApiKeyRow) => {
+    if (k.healthStatus === 'CoolingDown' && k.cooldownUntil) return `Cooling until ${new Date(k.cooldownUntil).toLocaleTimeString()}`;
+    if (k.healthStatus === 'Failed' && k.lastErrorCode) return `Failed: ${k.lastErrorCode}`;
+    return k.healthStatus || (k.isActive ? 'Healthy' : 'Disabled');
+  };
+  const formatDateTime = (value: string | null) => value ? new Date(value).toLocaleString() : '—';
+  const summary = {
+    active: keys.filter((key) => key.isActive).length,
+    healthy: keys.filter((key) => key.healthStatus === 'Healthy').length,
+    cooling: keys.filter((key) => key.healthStatus === 'CoolingDown').length,
+    failed: keys.filter((key) => key.healthStatus === 'Failed').length,
+  };
+  const latestProblem = keys
+    .filter((key) => key.lastErrorMessage)
+    .sort((a, b) => new Date(b.lastFailedAt ?? 0).getTime() - new Date(a.lastFailedAt ?? 0).getTime())[0];
 
   if (loading) return <div className="admin-loading"><span className="spinner" /> Loading…</div>;
 
@@ -3219,32 +3376,110 @@ function ApiKeysPanel() {
         </div>
       </div>
 
+      <div className="admin-api-key-summary" aria-label="API key health summary">
+        <div className="admin-api-key-summary__item">
+          <span>Active keys</span>
+          <strong>{summary.active}</strong>
+        </div>
+        <div className="admin-api-key-summary__item admin-api-key-summary__item--success">
+          <span>Healthy</span>
+          <strong>{summary.healthy}</strong>
+        </div>
+        <div className="admin-api-key-summary__item admin-api-key-summary__item--warning">
+          <span>Cooling down</span>
+          <strong>{summary.cooling}</strong>
+        </div>
+        <div className="admin-api-key-summary__item admin-api-key-summary__item--danger">
+          <span>Failed</span>
+          <strong>{summary.failed}</strong>
+        </div>
+      </div>
+
+      {testNotice && (
+        <div className={`admin-api-key-notice admin-api-key-notice--${testNotice.success ? 'success' : 'danger'}`}>
+          <div>
+            <strong>{testNotice.success ? 'Connection test passed' : `Connection test failed for ${testNotice.label}`}</strong>
+            <p>{testNotice.message}</p>
+            {testNotice.errorCode && <span>Error code: {testNotice.errorCode}</span>}
+            {testNotice.cooldownUntil && <span>Cooldown until: {formatDateTime(testNotice.cooldownUntil)}</span>}
+          </div>
+          <button className="btn btn-ghost btn-sm" onClick={() => setTestNotice(null)} title="Dismiss">
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+      {latestProblem && !testNotice && (
+        <div className="admin-api-key-notice admin-api-key-notice--warning">
+          <AlertTriangle size={18} />
+          <div>
+            <strong>Latest provider issue: {latestProblem.label}</strong>
+            <p>{latestProblem.lastErrorMessage}</p>
+            {latestProblem.lastErrorCode && <span>Error code: {latestProblem.lastErrorCode}</span>}
+          </div>
+        </div>
+      )}
+
       {showForm && (
-        <div className="glass-card" style={{ marginBottom: 'var(--sp-4)', padding: 'var(--sp-4)' }}>
-          <h3 style={{ margin: '0 0 var(--sp-3) 0' }}>{editingId !== null ? 'Edit API Key' : 'Add API Key'}</h3>
-          <div style={{ display: 'flex', gap: 'var(--sp-3)', flexWrap: 'wrap' }}>
-            <div style={{ flex: 1, minWidth: 120 }}>
-              <label style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>Provider</label>
-              <select
-                className="admin-select"
-                value={form.provider}
-                onChange={(e) => setForm((f) => ({ ...f, provider: e.target.value }))}
-                style={{ width: '100%' }}
-              >
-                {PROVIDERS.map((p) => <option key={p} value={p}>{p}</option>)}
-              </select>
+        <div className="glass-card" style={{ marginBottom: 'var(--sp-4)', padding: 'var(--sp-5)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 'var(--sp-3)', alignItems: 'flex-start', marginBottom: 'var(--sp-4)' }}>
+            <div>
+              <h3 style={{ margin: 0 }}>{editingId !== null ? 'Edit API Key' : 'Add API Key'}</h3>
+              <p style={{ margin: '4px 0 0 0', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+                Choose a provider card, then type a model ID or pick one of the common working suggestions.
+              </p>
             </div>
-            <div style={{ flex: 1, minWidth: 150 }}>
+            <button className="btn btn-ghost btn-sm" onClick={() => { setShowForm(false); setForm(createEmptyKeyForm(catalog)); setEditingId(null); }} disabled={saving}>
+              <X size={14} /> Close
+            </button>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 'var(--sp-3)', marginBottom: 'var(--sp-4)' }}>
+            {catalog.providers.map((p) => {
+              const active = p.value === selectedProvider?.value;
+              const color = providerColor(p.value);
+              const imageCapable = p.models.some((model) => model.supportsImages);
+              return (
+                <button
+                  key={p.value}
+                  type="button"
+                  onClick={() => handleProviderChange(p.value)}
+                  style={{
+                    textAlign: 'left',
+                    border: `1px solid ${active ? color : 'var(--border-default)'}`,
+                    borderRadius: 'var(--radius-md)',
+                    padding: 'var(--sp-4)',
+                    background: active ? `${color}18` : 'rgba(255,255,255,0.03)',
+                    boxShadow: active ? `0 0 0 1px ${color}55` : 'none',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--sp-2)' }}>
+                    <span style={{ fontWeight: 700, color }}>{p.label}</span>
+                    {active ? <CheckCircle2 size={16} color={color} /> : <Key size={16} color={color} />}
+                  </div>
+                  <div style={{ marginTop: 8, fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>{p.defaultModel}</div>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
+                    <span style={{ fontSize: 'var(--text-xs)', padding: '2px 8px', borderRadius: 999, background: 'rgba(255,255,255,0.08)' }}>{providerActiveCount(p.value)} active</span>
+                    <span style={{ fontSize: 'var(--text-xs)', padding: '2px 8px', borderRadius: 999, background: 'rgba(255,255,255,0.08)' }}>{imageCapable ? 'Image ready' : 'Text only'}</span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 1fr) minmax(220px, 2fr)', gap: 'var(--sp-3)', marginBottom: 'var(--sp-3)' }}>
+            <div>
               <label style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>Label</label>
               <input
                 className="admin-select"
                 value={form.label}
                 onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))}
-                placeholder="e.g. Main Gemini Key"
+                placeholder={`e.g. ${selectedProvider?.label ?? 'AI'} primary key`}
                 style={{ width: '100%' }}
               />
             </div>
-            <div style={{ flex: 2, minWidth: 200 }}>
+            <div>
               <label style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
                 API Key {editingId !== null && '(leave blank to keep current)'}
               </label>
@@ -3257,19 +3492,46 @@ function ApiKeysPanel() {
                 style={{ width: '100%' }}
               />
             </div>
-            <div style={{ flex: 1, minWidth: 150 }}>
-              <label style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>Model</label>
-              <input
-                className="admin-select"
-                value={form.model}
-                onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))}
-                placeholder="e.g. gemini-2.5-flash"
-                style={{ width: '100%' }}
-              />
-            </div>
           </div>
-          <div style={{ display: 'flex', gap: 'var(--sp-2)', justifyContent: 'flex-end', marginTop: 'var(--sp-3)' }}>
-            <button className="btn btn-ghost btn-sm" onClick={() => { setShowForm(false); setForm(emptyKeyForm); setEditingId(null); }} disabled={saving}>
+
+          <div>
+            <label style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>Model ID</label>
+            <input
+              className="admin-select"
+              list={modelInputId}
+              value={form.model}
+              onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))}
+              placeholder="Type a model ID or choose a suggestion"
+              style={{ width: '100%' }}
+            />
+            <datalist id={modelInputId}>
+              {selectedProviderModels.map((model) => <option key={model.value} value={model.value}>{model.label}</option>)}
+            </datalist>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 'var(--sp-2)' }}>
+              {selectedProviderModels.map((model) => (
+                <button
+                  key={model.value}
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => setForm((f) => ({ ...f, model: model.value }))}
+                  style={{ borderColor: form.model === model.value ? providerColor(form.provider) : undefined }}
+                  title={model.value}
+                >
+                  {model.label}
+                </button>
+              ))}
+            </div>
+            {form.model && (
+              <div style={{ marginTop: 8, fontSize: 'var(--text-xs)', color: selectedModel ? 'var(--text-muted)' : 'var(--warning-500)' }}>
+                {selectedModel
+                  ? `${selectedModel.supportsImages ? 'Supports image input' : 'Text only'} · exact ID: ${selectedModel.value}`
+                  : 'Custom model ID will be sent as typed. Use Test connection after saving to verify provider access.'}
+              </div>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', gap: 'var(--sp-2)', justifyContent: 'flex-end', marginTop: 'var(--sp-4)' }}>
+            <button className="btn btn-ghost btn-sm" onClick={() => { setShowForm(false); setForm(createEmptyKeyForm(catalog)); setEditingId(null); }} disabled={saving}>
               Cancel
             </button>
             <button className="btn btn-primary btn-sm" onClick={handleSave} disabled={saving}>
@@ -3289,6 +3551,7 @@ function ApiKeysPanel() {
               <th>Masked Key</th>
               <th>Model</th>
               <th>Status</th>
+              <th>Health</th>
               <th>Usage</th>
               <th>Last Used</th>
               <th>{t('admin.action')}</th>
@@ -3298,25 +3561,17 @@ function ApiKeysPanel() {
             {keys.map((k) => (
               <tr key={k.id} style={{ opacity: k.isActive ? 1 : 0.55 }}>
                 <td>
-                  <span style={{
-                    display: 'inline-block',
-                    padding: '2px 8px',
-                    borderRadius: 12,
-                    fontSize: 'var(--text-xs)',
-                    fontWeight: 600,
-                    color: '#fff',
-                    background: providerColor(k.provider),
-                  }}>
-                    {k.provider}
+                  <span className="admin-api-provider-badge" style={{ background: providerColor(k.provider) }}>
+                    {providerLabel(k.provider)}
                   </span>
                 </td>
                 <td style={{ fontWeight: 600 }}>{k.label}</td>
                 <td style={{ fontFamily: 'monospace', fontSize: 'var(--text-sm)' }}>{k.maskedKey}</td>
-                <td style={{ fontSize: 'var(--text-sm)' }}>{k.model}</td>
+                <td className="admin-api-model-cell">{k.model}</td>
                 <td>
                   <button
                     className={`btn btn-sm ${k.isActive ? 'btn-ghost' : 'btn-ghost'}`}
-                    style={{ color: k.isActive ? 'var(--success)' : 'var(--text-muted)' }}
+                    style={{ color: k.isActive ? 'var(--success-500)' : 'var(--text-muted)' }}
                     onClick={() => handleToggle(k)}
                     title={k.isActive ? 'Click to deactivate' : 'Click to activate'}
                   >
@@ -3324,12 +3579,31 @@ function ApiKeysPanel() {
                     {k.isActive ? ' Active' : ' Inactive'}
                   </button>
                 </td>
+                <td>
+                  <span
+                    className={`admin-api-health admin-api-health--${healthTone(k.healthStatus)}`}
+                    title={k.lastErrorMessage || healthLabel(k)}
+                    style={{
+                      color: healthColor(k.healthStatus),
+                    }}
+                  >
+                    <Activity size={13} /> {healthLabel(k)}
+                  </span>
+                  {k.lastErrorMessage && (
+                    <div className="admin-api-error-detail">
+                      {k.lastErrorMessage}
+                    </div>
+                  )}
+                </td>
                 <td style={{ textAlign: 'center' }}>{k.usageCount.toLocaleString()}</td>
                 <td className="admin-td-date">
-                  {k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleString() : '—'}
+                  {formatDateTime(k.lastUsedAt)}
                 </td>
                 <td>
                   <div className="admin-action-btns">
+                    <button className="btn btn-ghost btn-sm" title="Test connection" onClick={() => handleTest(k)} disabled={testingId === k.id}>
+                      {testingId === k.id ? <span className="spinner" style={{ width: 14, height: 14 }} /> : <Activity size={14} />}
+                    </button>
                     <button className="btn btn-ghost btn-sm" title="Edit" onClick={() => openEdit(k)}><Edit2 size={14} /></button>
                     <button className="btn btn-ghost btn-sm btn-danger-text" title="Delete" onClick={() => handleDelete(k.id)}><Trash2 size={14} /></button>
                   </div>
@@ -3337,7 +3611,7 @@ function ApiKeysPanel() {
               </tr>
             ))}
             {keys.length === 0 && (
-              <tr><td colSpan={8} style={{ textAlign: 'center', padding: 'var(--sp-8)', color: 'var(--text-muted)' }}>No API keys configured. Add one to get started.</td></tr>
+              <tr><td colSpan={9} style={{ textAlign: 'center', padding: 'var(--sp-8)', color: 'var(--text-muted)' }}>No API keys configured. Add one to get started.</td></tr>
             )}
           </tbody>
         </table>

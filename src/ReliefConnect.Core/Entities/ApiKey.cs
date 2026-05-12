@@ -30,5 +30,15 @@ public class ApiKey
     /// <summary>When the key was last used.</summary>
     public DateTime? LastUsedAt { get; set; }
 
+    public int FailureCount { get; set; }
+
+    public DateTime? LastFailedAt { get; set; }
+
+    public DateTime? CooldownUntil { get; set; }
+
+    public string? LastErrorCode { get; set; }
+
+    public string? LastErrorMessage { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
