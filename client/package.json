@@ -26,11 +26,11 @@
     "react-hot-toast": "^2.6.0",
     "react-markdown": "^10.1.0",
     "react-router-dom": "^7.14.2",
-    "zustand": "^5.0.11"
+    "zustand": "^5.0.13"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
-    "@types/node": "^25.6.0",
+    "@types/node": "^25.6.2",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
@@ -41,10 +41,10 @@
     "globals": "^17.6.0",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.59.1",
-    "vite": "^8.0.10"
+    "vite": "^8.0.11"
   },
   "overrides": {
-    "vite": "^8.0.10"
+    "vite": "^8.0.11"
   },
   "pnpm": {
     "overrides": {
