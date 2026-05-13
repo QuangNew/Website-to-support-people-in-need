@@ -293,7 +293,7 @@ ReverseProxy__KnownNetworks__0=<trusted-proxy-cidr>
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **Website-to-support-people-in-need** (2406 symbols, 6944 relationships, 106 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **Website-to-support-people-in-need** (2420 symbols, 6973 relationships, 105 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 

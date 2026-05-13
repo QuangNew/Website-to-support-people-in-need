@@ -5,55 +5,11 @@ import toast from 'react-hot-toast';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useAuthStore } from '../../stores/authStore';
 import { useMapStore } from '../../stores/mapStore';
-import { chatbotApi, getImageUrl } from '../../services/api';
+import { useChatStore, isImageExpired, type ChatMessage, type PendingChatImage } from '../../stores/chatStore';
+import { getImageUrl } from '../../services/api';
 
-const CHAT_STORAGE_KEY = 'chatpanel_messages';
-const CHAT_CONV_KEY = 'chatpanel_conversation_id';
-const MAX_CACHED_MESSAGES = 100;
-const IMAGE_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const MAX_IMAGE_SIZE = 4 * 1024 * 1024; // 4MB
-
-interface ChatMessage {
-  id: number;
-  role: 'user' | 'assistant';
-  content: string;
-  timestamp: string;
-  hasSafetyWarning?: boolean;
-  /** Base64 data URL for images (only user messages) */
-  imageDataUrl?: string;
-}
-
-/** Check if image cache has expired (>24h) */
-function isImageExpired(timestamp: string): boolean {
-  return Date.now() - new Date(timestamp).getTime() > IMAGE_EXPIRY_MS;
-}
-
-/** Strip expired image data from cached messages to free storage */
-function cleanExpiredImages(msgs: ChatMessage[]): ChatMessage[] {
-  return msgs.map(m => {
-    if (m.imageDataUrl && isImageExpired(m.timestamp)) {
-      return { ...m, imageDataUrl: undefined };
-    }
-    return m;
-  });
-}
-
-function getBotContent(data: unknown, locale: string): string {
-  if (!data || typeof data !== 'object') {
-    return locale === 'vi'
-      ? 'Mô hình AI chưa trả về nội dung văn bản phù hợp.'
-      : 'The AI model did not return suitable text content.';
-  }
-
-  const payload = data as Record<string, unknown>;
-  const value = payload.content ?? payload.Content ?? payload.response ?? payload.Response ?? payload.text ?? payload.Text;
-  return typeof value === 'string' && value.trim()
-    ? value
-    : locale === 'vi'
-      ? 'Mô hình AI chưa trả về nội dung văn bản phù hợp.'
-      : 'The AI model did not return suitable text content.';
-}
 
 export default function ChatPanel() {
   const { t, locale } = useLanguage();
@@ -67,173 +23,52 @@ export default function ChatPanel() {
     timestamp: new Date().toISOString(),
   }), [t]);
 
-  // Load cached messages from localStorage (clean expired images)
-  const [messages, setMessages] = useState<ChatMessage[]>(() => {
-    try {
-      const stored = localStorage.getItem(CHAT_STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed) && parsed.length > 0) return cleanExpiredImages(parsed);
-      }
-    } catch { /* ignore */ }
-    return [getWelcomeMessage()];
-  });
-
-  // Load cached conversationId
-  const [conversationId, setConversationId] = useState<number | null>(() => {
-    try {
-      const stored = localStorage.getItem(CHAT_CONV_KEY);
-      return stored ? parseInt(stored, 10) : null;
-    } catch { return null; }
-  });
+  const {
+    messages,
+    conversationId,
+    isTyping,
+    isLoadingHistory,
+    ensureWelcome,
+    resetChat,
+    hydrateConversation,
+    sendMessage: sendChatMessage,
+  } = useChatStore();
 
   const [input, setInput] = useState('');
-  const [isTyping, setIsTyping] = useState(false);
-  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
-  const [pendingImage, setPendingImage] = useState<{ dataUrl: string; base64: string; mimeType: string } | null>(null);
+  const [pendingImage, setPendingImage] = useState<PendingChatImage | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevUserIdRef = useRef<string | null>(user?.id ?? null);
-  const hydratedConversationIdRef = useRef<number | null>(null);
-  const hydratingConversationIdRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    ensureWelcome(getWelcomeMessage());
+  }, [ensureWelcome, getWelcomeMessage]);
 
   // Clear chat when user changes (logout or switch account)
   useEffect(() => {
     const currentUserId = user?.id ?? null;
     if (prevUserIdRef.current !== currentUserId) {
-      // User changed — clear everything
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-      localStorage.removeItem(CHAT_STORAGE_KEY);
-      localStorage.removeItem(CHAT_CONV_KEY);
-      setMessages([getWelcomeMessage()]);
-      setConversationId(null);
+      resetChat(getWelcomeMessage());
       setInput('');
       setPendingImage(null);
       prevUserIdRef.current = currentUserId;
     }
-  }, [user?.id, getWelcomeMessage]);
+  }, [user?.id, getWelcomeMessage, resetChat]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isTyping]);
 
-  // Debounced save to localStorage
-  const saveMessages = useCallback((msgs: ChatMessage[]) => {
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(() => {
-      try {
-        const toSave = msgs.slice(-MAX_CACHED_MESSAGES);
-        localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(toSave));
-      } catch { /* ignore */ }
-    }, 500);
-  }, []);
-
-  // Persist messages whenever they change
   useEffect(() => {
-    saveMessages(messages);
-    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
-  }, [messages, saveMessages]);
-
-  // Persist conversationId
-  useEffect(() => {
-    if (conversationId !== null) {
-      localStorage.setItem(CHAT_CONV_KEY, String(conversationId));
-    }
-  }, [conversationId]);
-
-  useEffect(() => {
-    if (!isAuthenticated || conversationId === null) {
-      if (conversationId === null) {
-        hydratedConversationIdRef.current = null;
-        hydratingConversationIdRef.current = null;
-      }
-      return;
-    }
-
-    if (
-      hydratedConversationIdRef.current === conversationId
-      || hydratingConversationIdRef.current === conversationId
-      || messages.length > 1
-    ) {
-      return;
-    }
-
-    let cancelled = false;
-    hydratingConversationIdRef.current = conversationId;
-    setIsLoadingHistory(true);
-
-    chatbotApi.getMessages(conversationId)
-      .then((response) => {
-        if (cancelled) {
-          return;
-        }
-
-        const historyMessages = ((response.data as Array<Record<string, unknown>> | undefined) ?? []).map((message) => ({
-          id: Number(message.id ?? message.Id ?? Date.now()),
-          role: Boolean(message.isBotMessage ?? message.IsBotMessage) ? 'assistant' as const : 'user' as const,
-          content: String(message.content ?? message.Content ?? ''),
-          timestamp: String(message.sentAt ?? message.SentAt ?? new Date().toISOString()),
-          hasSafetyWarning: Boolean(message.hasSafetyWarning ?? message.HasSafetyWarning),
-        }));
-
-        hydratedConversationIdRef.current = conversationId;
-        setMessages(historyMessages.length > 0 ? historyMessages : [getWelcomeMessage()]);
-      })
-      .catch((err: unknown) => {
-        if (cancelled) {
-          return;
-        }
-
-        const axiosErr = err as { response?: { status?: number } };
-        if (axiosErr?.response?.status === 404) {
-          localStorage.removeItem(CHAT_CONV_KEY);
-          setConversationId(null);
-          setMessages([getWelcomeMessage()]);
-        }
-      })
-      .finally(() => {
-        if (hydratingConversationIdRef.current === conversationId) {
-          hydratingConversationIdRef.current = null;
-        }
-
-        if (!cancelled) {
-          setIsLoadingHistory(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-      if (hydratingConversationIdRef.current === conversationId) {
-        hydratingConversationIdRef.current = null;
-      }
-    };
-  }, [conversationId, getWelcomeMessage, isAuthenticated, messages.length]);
+    void hydrateConversation({ isAuthenticated, welcomeMessage: getWelcomeMessage() });
+  }, [conversationId, getWelcomeMessage, hydrateConversation, isAuthenticated, messages.length]);
 
   // New chat handler
   const handleNewChat = () => {
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    localStorage.removeItem(CHAT_STORAGE_KEY);
-    localStorage.removeItem(CHAT_CONV_KEY);
-    setMessages([getWelcomeMessage()]);
-    setConversationId(null);
+    resetChat(getWelcomeMessage());
     setInput('');
     setPendingImage(null);
-  };
-
-  // Create conversation on first authenticated message
-  const ensureConversation = async (forceNew = false): Promise<number | null> => {
-    if (!forceNew && conversationId) return conversationId;
-    if (!isAuthenticated) return null;
-    try {
-      const res = await chatbotApi.createConversation();
-      const id = res.data.id || res.data.Id;
-      setConversationId(id);
-      return id;
-    } catch {
-      return null;
-    }
   };
 
   // Handle image file selection
@@ -263,7 +98,7 @@ export default function ChatPanel() {
     e.target.value = '';
   };
 
-  const handleSend = async () => {
+  const handleSend = () => {
     const text = input.trim();
     const hasImage = !!pendingImage;
     if (!text && !hasImage) return;
@@ -279,72 +114,20 @@ export default function ChatPanel() {
         : 'Please analyze this image and describe what you see. If it relates to a disaster or emergency, provide appropriate guidance.')
       : text;
 
-    const userMsg: ChatMessage = {
-      id: Date.now(),
-      role: 'user',
-      content: imagePrompt,
-      timestamp: new Date().toISOString(),
-      imageDataUrl: pendingImage?.dataUrl,
-    };
-
-    setMessages((prev) => [...prev, userMsg]);
     setInput('');
     const currentImage = pendingImage;
     setPendingImage(null);
-    setIsTyping(true);
 
-    try {
-      let convId = await ensureConversation();
-      if (!convId) {
-        throw new Error(t('chat.errorCreateConversation'));
-      }
-
-      let res;
-      const sendData: { content: string; imageBase64?: string; imageMimeType?: string } = { content: imagePrompt };
-      if (currentImage) {
-        sendData.imageBase64 = currentImage.base64;
-        sendData.imageMimeType = currentImage.mimeType;
-      }
-      try {
-        res = await chatbotApi.sendMessage(convId, sendData);
-      } catch (sendErr: any) {
-        // If conversation not found (stale cache), create a new one and retry
-        if (sendErr?.response?.status === 404) {
-          setConversationId(null);
-          localStorage.removeItem(CHAT_CONV_KEY);
-          convId = await ensureConversation(true);
-          if (!convId) throw new Error(t('chat.errorCreateConversation'));
-          res = await chatbotApi.sendMessage(convId, sendData);
-        } else {
-          throw sendErr;
-        }
-      }
-
-      const botContent = getBotContent(res.data, locale);
-      const hasSafetyWarning = res.data.hasSafetyWarning || res.data.HasSafetyWarning || false;
-
-      const aiMsg: ChatMessage = {
-        id: Date.now() + 1,
-        role: 'assistant',
-        content: botContent,
-        timestamp: new Date().toISOString(),
-        hasSafetyWarning,
-      };
-      setMessages((prev) => [...prev, aiMsg]);
-    } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { message?: string } } };
-      const errMsg = axiosErr?.response?.data?.message
-        || (err instanceof Error ? err.message : t('chat.errorGeneral'));
-      const errorReply: ChatMessage = {
-        id: Date.now() + 1,
-        role: 'assistant',
-        content: `⚠️ ${errMsg}`,
-        timestamp: new Date().toISOString(),
-      };
-      setMessages((prev) => [...prev, errorReply]);
-    } finally {
-      setIsTyping(false);
-    }
+    void sendChatMessage({
+      content: imagePrompt,
+      image: currentImage,
+      welcomeMessage: getWelcomeMessage(),
+      createConversationError: t('chat.errorCreateConversation'),
+      generalError: t('chat.errorGeneral'),
+      emptyResponseMessage: locale === 'vi'
+        ? 'Mô hình AI chưa trả về nội dung văn bản phù hợp.'
+        : 'The AI model did not return suitable text content.',
+    });
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
