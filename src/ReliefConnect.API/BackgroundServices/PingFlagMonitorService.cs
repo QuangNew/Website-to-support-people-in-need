@@ -13,6 +13,7 @@ public class PingFlagMonitorService : BackgroundService
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<PingFlagMonitorService> _logger;
+    private static readonly TimeSpan StartupDelay = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan CheckInterval = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan BlinkThreshold = TimeSpan.FromMinutes(15);
 
@@ -24,8 +25,7 @@ public class PingFlagMonitorService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // Rule 2.2: Wait for EF Core + Hangfire to finish startup initialization
-        await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+        await Task.Delay(StartupDelay, stoppingToken);
         _logger.LogInformation("PingFlagMonitorService started — checking every {Interval} min", CheckInterval.TotalMinutes);
 
         while (!stoppingToken.IsCancellationRequested)
@@ -69,7 +69,7 @@ public class PingFlagMonitorService : BackgroundService
             SET "IsBlinking" = EXCLUDED."IsBlinking",
                 "UnconfirmedTimeMinutes" = EXCLUDED."UnconfirmedTimeMinutes",
                 "LastCheckedAt" = EXCLUDED."LastCheckedAt";
-            """, CancellationToken.None);
+            """, ct);
 
         if (affected > 0)
         {

@@ -88,6 +88,7 @@ Migrations/
  20260418063104_AddVerificationHistory.Designer.cs
  20260423134929_AddDonationRecords.cs
  20260423134929_AddDonationRecords.Designer.cs
+ 20260516020000_AddPerformanceIndexesAndRateLimitCounters.cs
  AppDbContextModelSnapshot.cs
 obj/Debug/net10.0/
  .NETCoreApp,Version=v10.0.AssemblyAttributes.cs

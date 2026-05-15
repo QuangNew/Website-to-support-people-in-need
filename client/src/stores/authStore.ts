@@ -97,6 +97,26 @@ function applyAuthResponse(
     });
 }
 
+function hydrateAuthenticatedUserInBackground(set: (partial: Partial<AuthState>) => void) {
+    const token = getApiAuthToken();
+    if (!token) return;
+
+    window.setTimeout(async () => {
+        if (getApiAuthToken() !== token) return;
+
+        try {
+            const res = await authApi.getMe();
+            if (getApiAuthToken() === token) {
+                set({ user: res.data, isAuthenticated: true, authResolved: true });
+            }
+        } catch {
+            // Login already succeeded and the auth response contains the minimum
+            // user state needed by the UI. A transient /auth/me failure must not
+            // turn a successful login into a visible login failure.
+        }
+    }, 300);
+}
+
 export const useAuthStore = create<AuthState>((set, get) => ({
     user: null,
     isAuthenticated: false,
@@ -108,10 +128,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         try {
             const res = await authApi.login({ email, password });
             applyAuthResponse(set, res.data);
-            // Brief delay to ensure the browser persists the Set-Cookie header
-            // before loadUser() fires /api/auth/me (cross-origin cookie race).
-            await new Promise(r => setTimeout(r, 150));
-            await get().loadUser();
+            hydrateAuthenticatedUserInBackground(set);
         } catch (err: unknown) {
             const axiosErr = err as { response?: { data?: { message?: string } } };
             const message = axiosErr?.response?.data?.message;
@@ -126,7 +143,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         try {
             const res = await authApi.register(data);
             applyAuthResponse(set, res.data, 'None');
-            await get().loadUser();
+            hydrateAuthenticatedUserInBackground(set);
         } catch (err: unknown) {
             const axiosErr = err as { response?: { data?: { message?: string; errors?: string[] } } };
             const message = axiosErr?.response?.data?.message;
@@ -142,10 +159,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         try {
             const res = await authApi.googleLogin({ credential });
             applyAuthResponse(set, res.data);
-            // Brief delay to ensure the browser persists the Set-Cookie header
-            // before loadUser() fires /api/auth/me (cross-origin cookie race).
-            await new Promise(r => setTimeout(r, 150));
-            await get().loadUser();
+            hydrateAuthenticatedUserInBackground(set);
         } catch (err: unknown) {
             const axiosErr = err as { response?: { data?: { message?: string } } };
             const message = axiosErr?.response?.data?.message;

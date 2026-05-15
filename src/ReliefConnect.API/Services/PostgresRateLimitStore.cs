@@ -10,9 +10,7 @@ namespace ReliefConnect.API.Services;
 /// </summary>
 public class PostgresRateLimitStore : IRateLimitStore
 {
-    private static readonly SemaphoreSlim InitializationLock = new(1, 1);
     private static readonly SemaphoreSlim CleanupLock = new(1, 1);
-    private static volatile bool _isInitialized;
     private static long _lastCleanupTicksUtc;
 
     private readonly AppDbContext _db;
@@ -29,44 +27,22 @@ public class PostgresRateLimitStore : IRateLimitStore
         if (maxAttempts <= 0)
             return false;
 
-        await EnsureInfrastructureAsync(cancellationToken);
-
-        var now = DateTime.UtcNow;
-        await TryCleanupExpiredAsync(now, cancellationToken);
-
-        var currentCount = await UpsertAndGetCountAsync(key, now, window, cancellationToken);
-        return currentCount <= maxAttempts;
-    }
-
-    private async Task EnsureInfrastructureAsync(CancellationToken cancellationToken)
-    {
-        if (_isInitialized)
-            return;
-
-        await InitializationLock.WaitAsync(cancellationToken);
         try
         {
-            if (_isInitialized)
-                return;
+            var now = DateTime.UtcNow;
+            await TryCleanupExpiredAsync(now, cancellationToken);
 
-            await _db.Database.ExecuteSqlRawAsync(
-                """
-                CREATE TABLE IF NOT EXISTS "RateLimitCounters" (
-                    "Key" text PRIMARY KEY,
-                    "Count" integer NOT NULL,
-                    "WindowStartedAt" timestamp with time zone NOT NULL,
-                    "ExpiresAt" timestamp with time zone NOT NULL,
-                    "UpdatedAt" timestamp with time zone NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS "IX_RateLimitCounters_ExpiresAt" ON "RateLimitCounters" ("ExpiresAt");
-                """,
-                cancellationToken);
-
-            _isInitialized = true;
+            var currentCount = await UpsertAndGetCountAsync(key, now, window, cancellationToken);
+            return currentCount <= maxAttempts;
         }
-        finally
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            InitializationLock.Release();
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Rate-limit store failed; allowing request to avoid blocking the critical path");
+            return true;
         }
     }
 

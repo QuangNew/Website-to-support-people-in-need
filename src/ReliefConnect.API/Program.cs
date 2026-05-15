@@ -254,7 +254,9 @@ builder.Services.Configure<Microsoft.AspNetCore.ResponseCompression.GzipCompress
 
 builder.Services.AddOutputCache(options =>
 {
-    options.AddPolicy("MapData30s", p => p.Expire(TimeSpan.FromSeconds(30)));
+    options.AddPolicy("MapData30s", p => p
+        .Expire(TimeSpan.FromSeconds(30))
+        .SetVaryByHeader("Authorization", "Cookie"));
     options.AddPolicy("Posts2min", p => p.Expire(TimeSpan.FromMinutes(2)));
     options.AddPolicy("Static5min", p => p.Expire(TimeSpan.FromMinutes(5)));
 });
