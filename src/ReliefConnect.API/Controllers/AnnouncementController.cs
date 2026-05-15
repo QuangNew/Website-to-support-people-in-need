@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using ReliefConnect.Core.DTOs;
+using ReliefConnect.API.Services;
 using ReliefConnect.Infrastructure.Data;
 
 namespace ReliefConnect.API.Controllers;
@@ -15,10 +17,12 @@ namespace ReliefConnect.API.Controllers;
 public class AnnouncementController : ControllerBase
 {
     private readonly AppDbContext _db;
+    private readonly IMemoryCache _cache;
 
-    public AnnouncementController(AppDbContext db)
+    public AnnouncementController(AppDbContext db, IMemoryCache cache)
     {
         _db = db;
+        _cache = cache;
     }
 
     /// <summary>
@@ -30,28 +34,34 @@ public class AnnouncementController : ControllerBase
         if (limit < 1) limit = 1;
         if (limit > 50) limit = 50;
 
+        var cacheKey = AnnouncementCacheKeys.Active(limit);
+        if (_cache.TryGetValue(cacheKey, out List<AnnouncementDto>? cached) && cached != null)
+            return Ok(cached);
+
         var now = DateTime.UtcNow;
 
-        var announcements = await _db.SystemAnnouncements
-            .AsNoTracking()
-            .Where(a => a.ExpiresAt == null || a.ExpiresAt > now)
-            .OrderByDescending(a => a.CreatedAt)
-            .Take(limit)
-            .Select(a => new AnnouncementDto
+        var announcements = await (
+            from announcement in _db.SystemAnnouncements.AsNoTracking()
+            where announcement.ExpiresAt == null || announcement.ExpiresAt > now
+            join admin in _db.Users.AsNoTracking()
+                on announcement.AdminId equals admin.Id into adminUsers
+            from admin in adminUsers.DefaultIfEmpty()
+            orderby announcement.CreatedAt descending
+            select new AnnouncementDto
             {
-                Id        = a.Id,
-                Title     = a.Title,
-                Content   = a.Content,
-                AdminId   = a.AdminId,
-                AdminName = a.AdminId != null
-                    ? _db.Users.Where(u => u.Id == a.AdminId).Select(u => u.FullName ?? u.UserName ?? "Admin").FirstOrDefault() ?? "Admin"
-                    : "Admin",
-                CreatedAt = a.CreatedAt,
-                ExpiresAt = a.ExpiresAt,
+                Id        = announcement.Id,
+                Title     = announcement.Title,
+                Content   = announcement.Content,
+                AdminId   = announcement.AdminId,
+                AdminName = admin != null ? admin.FullName ?? admin.UserName ?? "Admin" : "Admin",
+                CreatedAt = announcement.CreatedAt,
+                ExpiresAt = announcement.ExpiresAt,
                 IsExpired = false,
             })
+            .Take(limit)
             .ToListAsync();
 
+        _cache.Set(cacheKey, announcements, TimeSpan.FromSeconds(30));
         return Ok(announcements);
     }
 }

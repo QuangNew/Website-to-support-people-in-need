@@ -12,6 +12,7 @@ using ReliefConnect.Core.Enums;
 using ReliefConnect.Core.Interfaces;
 using ReliefConnect.Infrastructure.Data;
 using ReliefConnect.API.Extensions;
+using ReliefConnect.API.Services;
 
 namespace ReliefConnect.API.Controllers;
 
@@ -134,6 +135,12 @@ public class AdminSystemController : ControllerBase
                 ? $"{display} ({userId})"
                 : match.Value;
         });
+    }
+
+    private void InvalidateActiveAnnouncementCaches()
+    {
+        foreach (var limit in AnnouncementCacheKeys.CommonActiveLimits)
+            _cache.Remove(AnnouncementCacheKeys.Active(limit));
     }
 
     private async Task<Dictionary<string, string>> BuildUserDisplayMapAsync(IEnumerable<string?> userIds)
@@ -454,6 +461,7 @@ public class AdminSystemController : ControllerBase
         await _db.SaveChangesAsync();
 
         await this.LogAdminAction(_db, "AnnouncementCreated", $"Created announcement '{dto.Title}' (id={announcement.Id})");
+        InvalidateActiveAnnouncementCaches();
         await _notificationRealtimeDispatcher.PublishAnnouncementsChangedAsync(announcement.Id, "created");
         _logger.LogInformation("Admin created announcement #{Id}: {Title}", announcement.Id, dto.Title);
 
@@ -482,6 +490,7 @@ public class AdminSystemController : ControllerBase
         await _db.SaveChangesAsync();
 
         await this.LogAdminAction(_db, "AnnouncementUpdated", $"Updated announcement #{id}");
+        InvalidateActiveAnnouncementCaches();
         await _notificationRealtimeDispatcher.PublishAnnouncementsChangedAsync(id, "updated");
         _logger.LogInformation("Admin updated announcement #{Id}", id);
 
@@ -502,6 +511,7 @@ public class AdminSystemController : ControllerBase
         await _db.SaveChangesAsync();
 
         await this.LogAdminAction(_db, "AnnouncementDeleted", $"Deleted announcement #{id}");
+        InvalidateActiveAnnouncementCaches();
         await _notificationRealtimeDispatcher.PublishAnnouncementsChangedAsync(id, "deleted");
         _logger.LogInformation("Admin deleted announcement #{Id}", id);
 

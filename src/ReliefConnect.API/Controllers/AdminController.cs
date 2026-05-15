@@ -10,6 +10,7 @@ using ReliefConnect.Core.Enums;
 using ReliefConnect.Core.Interfaces;
 using ReliefConnect.Infrastructure.Data;
 using ReliefConnect.API.Extensions;
+using ReliefConnect.API.Services;
 
 namespace ReliefConnect.API.Controllers;
 
@@ -50,6 +51,11 @@ public class AdminController : ControllerBase
         return string.IsNullOrWhiteSpace(csv)
             ? []
             : csv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+    }
+
+    private void InvalidateAuthUserState(string userId)
+    {
+        _cache.Remove(AuthValidationCacheKeys.UserState(userId));
     }
 
     private static AdminUserDto MapAdminUserDto(ApplicationUser user)
@@ -270,6 +276,7 @@ public class AdminController : ControllerBase
         }
 
         // Invalidate caches immediately
+        InvalidateAuthUserState(user.Id);
         _cache.Remove("admin:stats");
         _cache.Remove("admin:verifications");
 
@@ -379,6 +386,7 @@ public class AdminController : ControllerBase
         // Rotate security stamp to immediately invalidate all active tokens for this user
         await _userManager.UpdateSecurityStampAsync(user);
         await _userManager.UpdateAsync(user);
+        InvalidateAuthUserState(user.Id);
 
         var until = dto.Until.HasValue ? dto.Until.Value.ToString("o") : "permanent";
         await this.LogAdminAction(_db, "UserSuspended", $"Suspended {user.UserName} until {until}: {dto.Reason}");
@@ -400,6 +408,7 @@ public class AdminController : ControllerBase
         user.SuspendedUntil = null;
         user.BanReason = null;
         await _userManager.UpdateAsync(user);
+        InvalidateAuthUserState(user.Id);
 
         await this.LogAdminAction(_db, "UserUnsuspended", $"Lifted suspension for {user.UserName}");
         _logger.LogInformation("Admin unsuspended user: {Username}", user.UserName);
@@ -422,6 +431,7 @@ public class AdminController : ControllerBase
         // Rotate security stamp to immediately invalidate all active tokens for this user
         await _userManager.UpdateSecurityStampAsync(user);
         await _userManager.UpdateAsync(user);
+        InvalidateAuthUserState(user.Id);
 
         // Also blacklist the tracked JTI as a belt-and-suspenders measure
         if (!string.IsNullOrEmpty(user.LastTokenJti))
@@ -447,6 +457,7 @@ public class AdminController : ControllerBase
         // Rotate security stamp to immediately invalidate all active tokens for this user
         await _userManager.UpdateSecurityStampAsync(user);
         await _userManager.UpdateAsync(user);
+        InvalidateAuthUserState(user.Id);
 
         // Also blacklist the tracked JTI as a belt-and-suspenders measure
         if (!string.IsNullOrEmpty(user.LastTokenJti))
@@ -557,7 +568,9 @@ public class AdminController : ControllerBase
                 user.RequestedRole = null;
                 user.VerificationReason = null;
                 user.VerificationImageUrls = null;
+                await _userManager.UpdateSecurityStampAsync(user);
                 await _userManager.UpdateAsync(user);
+                InvalidateAuthUserState(user.Id);
 
                 var pendingHistory = await GetLatestPendingVerificationHistory(op.UserId);
                 if (pendingHistory != null)

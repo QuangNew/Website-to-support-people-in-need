@@ -5,7 +5,8 @@ import { notificationApi, announcementApi } from '../../services/api';
 import { useAuthStore, getSignalRToken } from '../../stores/authStore';
 import { useLanguage } from '../../contexts/LanguageContext';
 
-const NOTIFICATION_POLL_MS = 10_000;
+const NOTIFICATION_POLL_MS = 60_000;
+const MIN_NOTIFICATION_REFRESH_GAP_MS = 5_000;
 const NOTIFICATION_HUB_URL = (import.meta.env.VITE_API_URL || '/api').replace(/\/api\/?$/, '') + '/hubs/notifications';
 const ANNOUNCEMENT_CURSOR_PREFIX = 'notification:last-seen-announcement:';
 
@@ -102,6 +103,7 @@ export default function NotificationBell() {
   const connectionRef = useRef<signalR.HubConnection | null>(null);
   const announcementInitRef = useRef(false);
   const previousUnreadCountRef = useRef<number | null>(null);
+  const lastRefreshAtRef = useRef(0);
 
   useEffect(() => {
     openRef.current = open;
@@ -112,6 +114,7 @@ export default function NotificationBell() {
     setAnnouncementUnreadCount(0);
     setHasFreshActivity(false);
     previousUnreadCountRef.current = null;
+    lastRefreshAtRef.current = 0;
   }, [user?.id]);
 
   useEffect(() => {
@@ -238,7 +241,15 @@ export default function NotificationBell() {
     }
   }, [isAuthenticated, syncAnnouncementUnread]);
 
-  const refreshBellState = useCallback(() => {
+  const refreshBellState = useCallback((force = false) => {
+    if (document.hidden) return;
+
+    const now = Date.now();
+    if (!force && now - lastRefreshAtRef.current < MIN_NOTIFICATION_REFRESH_GAP_MS) {
+      return;
+    }
+
+    lastRefreshAtRef.current = now;
     void fetchUnreadCount();
 
     if (openRef.current) {
@@ -249,12 +260,17 @@ export default function NotificationBell() {
     void refreshAnnouncementUnread(false);
   }, [fetchAll, fetchUnreadCount, refreshAnnouncementUnread]);
 
-  // Poll every 30s
+  // Fallback poll. SignalR handles real-time updates; this covers missed events.
   useEffect(() => {
     if (!isAuthenticated) return;
-    refreshBellState();
+    refreshBellState(true);
     pollRef.current = setInterval(refreshBellState, NOTIFICATION_POLL_MS);
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
   }, [isAuthenticated, refreshBellState]);
 
   useEffect(() => {
@@ -292,7 +308,7 @@ export default function NotificationBell() {
     });
 
     connection.onreconnected(async () => {
-      refreshBellState();
+      refreshBellState(true);
     });
 
     connection.start()

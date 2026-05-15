@@ -84,6 +84,8 @@ export default function DonatePage() {
   const [pollStatus, setPollStatus] = useState<'pending' | 'paid' | 'cancelled'>('pending');
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollInFlightRef = useRef(false);
+  const historyRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Handle PayOS redirect back
   useEffect(() => {
@@ -112,25 +114,52 @@ export default function DonatePage() {
   // Polling after QR shown
   useEffect(() => {
     if (!qrData) {
-      if (pollRef.current) clearInterval(pollRef.current);
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+      pollInFlightRef.current = false;
       return;
     }
     setPollStatus('pending');
+    pollInFlightRef.current = false;
     pollRef.current = setInterval(async () => {
+      if (pollInFlightRef.current) return;
+      pollInFlightRef.current = true;
       try {
         const { data } = await api.get<{ status: string }>(`/donation/status/${qrData.orderCode}`);
         if (data.status === 'Paid') {
           setPollStatus('paid');
-          clearInterval(pollRef.current!);
+          if (pollRef.current) {
+            clearInterval(pollRef.current);
+            pollRef.current = null;
+          }
           // Refresh history after short delay
-          setTimeout(() => { void fetchHistory(); }, 1000);
+          if (historyRefreshTimeoutRef.current) clearTimeout(historyRefreshTimeoutRef.current);
+          historyRefreshTimeoutRef.current = setTimeout(() => { void fetchHistory(); }, 1000);
         } else if (data.status === 'Cancelled') {
           setPollStatus('cancelled');
-          clearInterval(pollRef.current!);
+          if (pollRef.current) {
+            clearInterval(pollRef.current);
+            pollRef.current = null;
+          }
         }
       } catch { /* ignore */ }
+      finally {
+        pollInFlightRef.current = false;
+      }
     }, 3000);
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+      if (historyRefreshTimeoutRef.current) {
+        clearTimeout(historyRefreshTimeoutRef.current);
+        historyRefreshTimeoutRef.current = null;
+      }
+      pollInFlightRef.current = false;
+    };
   }, [qrData, fetchHistory]);
 
   const effectiveAmount = selectedAmount ?? (customAmount ? parseInt(customAmount.replace(/\D/g, ''), 10) : 0);

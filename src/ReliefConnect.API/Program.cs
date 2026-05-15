@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.IdentityModel.Tokens;
 using ReliefConnect.API.Hubs;
 using ReliefConnect.API.Middleware;
@@ -152,7 +153,7 @@ builder.Services.AddAuthentication(options =>
         {
             var blacklist = context.HttpContext.RequestServices.GetRequiredService<ITokenBlacklistService>();
             var jti = context.Principal?.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Jti)?.Value;
-            if (jti != null && blacklist.IsBlacklisted(jti))
+            if (!string.IsNullOrWhiteSpace(jti) && blacklist.IsBlacklisted(jti))
             {
                 context.Fail("Token revoked");
                 return;
@@ -166,33 +167,31 @@ builder.Services.AddAuthentication(options =>
                 return;
             }
 
-            var userManager = context.HttpContext.RequestServices.GetRequiredService<UserManager<ApplicationUser>>();
-            var user = await userManager.FindByIdAsync(userId);
-            if (user == null)
+            var userState = await GetCachedAuthUserStateAsync(context.HttpContext, userId);
+            if (userState == null)
             {
                 context.Fail("Token revoked: user not found");
                 return;
             }
 
-            if (user.IsSuspended && (user.SuspendedUntil == null || user.SuspendedUntil > DateTime.UtcNow))
+            if (userState.IsSuspended && (userState.SuspendedUntil == null || userState.SuspendedUntil > DateTime.UtcNow))
             {
                 context.Fail("Token revoked: account suspended");
                 return;
             }
 
             var roleClaim = context.Principal?.FindFirst("Role")?.Value;
-            if (roleClaim != null && roleClaim != user.Role.ToString())
+            if (roleClaim != null && roleClaim != userState.Role.ToString())
             {
                 context.Fail("Token revoked: role changed");
                 return;
             }
 
             var stampClaim = context.Principal?.FindFirst("stamp")?.Value;
-                var currentStamp = user.SecurityStamp ?? string.Empty;
-                if (stampClaim != currentStamp)
+            if (stampClaim != userState.SecurityStamp)
             {
                 context.Fail("Token revoked: session invalidated");
-                    return;
+                return;
             }
         }
     };
@@ -536,6 +535,47 @@ static bool TryParseIpNetwork(string value, out System.Net.IPNetwork ipNetwork)
 
     ipNetwork = new System.Net.IPNetwork(prefix, prefixLength);
     return true;
+}
+
+static async Task<AuthUserStateCacheEntry?> GetCachedAuthUserStateAsync(HttpContext httpContext, string userId)
+{
+    var cache = httpContext.RequestServices.GetRequiredService<IMemoryCache>();
+    var cacheKey = AuthValidationCacheKeys.UserState(userId);
+
+    if (cache.TryGetValue(cacheKey, out AuthUserStateCacheEntry? cached) && cached != null)
+        return cached;
+
+    var userManager = httpContext.RequestServices.GetRequiredService<UserManager<ApplicationUser>>();
+    var userState = await userManager.Users
+        .AsNoTracking()
+        .Where(u => u.Id == userId)
+        .Select(u => new AuthUserStateCacheEntry(
+            u.Id,
+            u.Role,
+            u.IsSuspended,
+            u.SuspendedUntil,
+            u.SecurityStamp ?? string.Empty))
+        .FirstOrDefaultAsync(httpContext.RequestAborted);
+
+    if (userState == null)
+        return null;
+
+    cache.Set(cacheKey, userState, GetAuthUserStateCacheDuration(userState));
+    return userState;
+}
+
+static TimeSpan GetAuthUserStateCacheDuration(AuthUserStateCacheEntry userState)
+{
+    var defaultTtl = TimeSpan.FromSeconds(30);
+
+    if (userState.IsSuspended && userState.SuspendedUntil is { } suspendedUntil)
+    {
+        var remaining = suspendedUntil - DateTime.UtcNow;
+        if (remaining > TimeSpan.Zero && remaining < defaultTtl)
+            return remaining;
+    }
+
+    return defaultTtl;
 }
 
 static async Task SeedDevelopmentAdminAsync(WebApplication app)

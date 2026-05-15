@@ -125,19 +125,29 @@ export function startDirectMessageConnection() {
 
   newConnection.onclose((error) => {
     console.warn('[SignalR] Connection closed', error?.message);
-    connection = null;
+    if (connection === newConnection) {
+      connection = null;
+    }
     isConnecting = false;
   });
 
+  connection = newConnection;
   newConnection.start()
     .then(() => {
+      if (connection !== newConnection) {
+        void newConnection.stop();
+        return;
+      }
       console.log('[SignalR] Connected successfully. State:', newConnection.state);
-      connection = newConnection;
       isConnecting = false;
     })
     .catch((err) => {
       console.error('[SignalR] Connection failed:', err);
+      if (connection === newConnection) {
+        connection = null;
+      }
       isConnecting = false;
+      void newConnection.stop().catch(() => undefined);
       // Don't set connection — it failed. Automatic reconnect won't work
       // because the initial start failed. Retry on next auth state change.
     });

@@ -44,12 +44,22 @@ function debounce<T extends (...args: Parameters<T>) => void>(fn: T, delay: numb
 // ─── Auto-refresh hook ───
 function useAutoRefresh(refresh: () => void, intervalMs: number) {
   const refreshRef = useRef(refresh);
+  const lastRefreshAtRef = useRef(0);
   refreshRef.current = refresh;
 
   useEffect(() => {
-    const tick = () => refreshRef.current();
+    const runRefresh = (force = false) => {
+      if (document.hidden) return;
+
+      const now = Date.now();
+      if (!force && now - lastRefreshAtRef.current < 5_000) return;
+
+      lastRefreshAtRef.current = now;
+      refreshRef.current();
+    };
+    const tick = () => runRefresh();
     const timer = setInterval(tick, intervalMs);
-    const onFocus = () => { if (!document.hidden) refreshRef.current(); };
+    const onFocus = () => runRefresh(true);
     document.addEventListener('visibilitychange', onFocus);
     return () => {
       clearInterval(timer);

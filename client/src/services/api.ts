@@ -35,6 +35,10 @@ function isPublicAuthRequest(url: string): boolean {
   return /\/auth\/(login|register|google|forgot-password|reset-password)$/.test(url);
 }
 
+function isAuthHydrationRequest(url: string): boolean {
+  return /\/auth\/me$/.test(url);
+}
+
 function notifyAuthExpired() {
   _inMemoryToken = null;
   sessionStorage.removeItem(TOKEN_STORAGE_KEY);
@@ -88,6 +92,7 @@ api.interceptors.response.use(
     if (
       error.response?.status === 401
       && !isPublicAuthRequest(requestUrl)
+      && !isAuthHydrationRequest(requestUrl)
     ) {
       notifyAuthExpired();
     }

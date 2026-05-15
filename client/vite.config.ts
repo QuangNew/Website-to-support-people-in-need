@@ -59,6 +59,10 @@ export default defineConfig({
     },
   },
   build: {
+    // Vite 8 defaults CSS minification to lightningcss when JS minify is enabled.
+    // That currently drops the standard backdrop-filter when a -webkit fallback is
+    // present, making glass surfaces look more transparent in production builds.
+    cssMinify: false,
     rollupOptions: {
       output: {
         manualChunks(id) {
