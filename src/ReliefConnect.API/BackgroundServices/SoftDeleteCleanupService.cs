@@ -13,6 +13,7 @@ public class SoftDeleteCleanupService : BackgroundService
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<SoftDeleteCleanupService> _logger;
+    private static readonly TimeSpan StartupDelay = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan CheckInterval = TimeSpan.FromHours(6);
 
     public SoftDeleteCleanupService(IServiceScopeFactory scopeFactory, ILogger<SoftDeleteCleanupService> logger)
@@ -23,8 +24,7 @@ public class SoftDeleteCleanupService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // Rule 2.2: Wait for EF Core + Hangfire to finish startup initialization
-        await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+        await Task.Delay(StartupDelay, stoppingToken);
         _logger.LogInformation("SoftDeleteCleanupService started — checking every {Interval} hours", CheckInterval.TotalHours);
 
         while (!stoppingToken.IsCancellationRequested)
@@ -53,7 +53,7 @@ public class SoftDeleteCleanupService : BackgroundService
         var postCutoff = now.AddDays(-7);
         var deletedPosts = await db.Posts
             .Where(p => p.IsDeleted && p.DeletedAt != null && p.DeletedAt < postCutoff)
-            .ExecuteDeleteAsync(CancellationToken.None);
+            .ExecuteDeleteAsync(ct);
 
         if (deletedPosts > 0)
             _logger.LogInformation("Permanently deleted {Count} expired soft-deleted posts", deletedPosts);
@@ -61,7 +61,7 @@ public class SoftDeleteCleanupService : BackgroundService
         // Hard-delete comments whose moderation window has expired
         var deletedComments = await db.Comments
             .Where(c => c.IsHidden && c.HiddenUntil != null && c.HiddenUntil < now)
-            .ExecuteDeleteAsync(CancellationToken.None);
+            .ExecuteDeleteAsync(ct);
 
         if (deletedComments > 0)
             _logger.LogInformation("Permanently deleted {Count} expired hidden comments", deletedComments);

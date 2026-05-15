@@ -11,6 +11,7 @@ public class TokenCleanupService : BackgroundService
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<TokenCleanupService> _logger;
+    private static readonly TimeSpan StartupDelay = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan Interval = TimeSpan.FromHours(1);
 
     public TokenCleanupService(IServiceScopeFactory scopeFactory, ILogger<TokenCleanupService> logger)
@@ -21,8 +22,7 @@ public class TokenCleanupService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // Rule 2.2: Wait for EF Core + Hangfire to finish startup initialization
-        await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+        await Task.Delay(StartupDelay, stoppingToken);
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -34,7 +34,7 @@ public class TokenCleanupService : BackgroundService
 
                 var deleted = await db.BlacklistedTokens
                     .Where(t => t.Expiry < now)
-                    .ExecuteDeleteAsync(CancellationToken.None);
+                    .ExecuteDeleteAsync(stoppingToken);
 
                 if (deleted > 0)
                     _logger.LogInformation("Cleaned up {Count} expired blacklisted tokens", deleted);

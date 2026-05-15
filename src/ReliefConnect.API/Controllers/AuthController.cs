@@ -94,8 +94,9 @@ public class AuthController : ControllerBase
         _logger.LogInformation("User registered: {Username} ({Email}) — verification code sent", dto.Username, dto.Email);
 
         var token = GenerateJwtToken(user);
-        user.LastTokenJti = token.Jti;
-        await _userManager.UpdateAsync(user);
+        if (!await TryPersistLastTokenJtiAsync(user, token.Jti, "registration"))
+            return StatusCode(500, new ApiErrorResponse { StatusCode = 500, Message = "Không thể hoàn tất đăng nhập. Vui lòng thử lại." });
+
         AppendAuthCookie(token.Token, token.ExpiresAt);
         return Ok(new AuthResponseDto
         {
@@ -297,8 +298,9 @@ public class AuthController : ControllerBase
         _logger.LogInformation("User logged in: {Username}", user.UserName);
 
         var token = GenerateJwtToken(user);
-        user.LastTokenJti = token.Jti;
-        await _userManager.UpdateAsync(user);
+        if (!await TryPersistLastTokenJtiAsync(user, token.Jti, "login"))
+            return StatusCode(500, new ApiErrorResponse { StatusCode = 500, Message = "Không thể hoàn tất đăng nhập. Vui lòng thử lại." });
+
         AppendAuthCookie(token.Token, token.ExpiresAt);
         return Ok(new AuthResponseDto
         {
@@ -411,8 +413,9 @@ public class AuthController : ControllerBase
         _logger.LogInformation("Google login: {Username}", user.UserName);
 
         var token = GenerateJwtToken(user);
-        user.LastTokenJti = token.Jti;
-        await _userManager.UpdateAsync(user);
+        if (!await TryPersistLastTokenJtiAsync(user, token.Jti, "Google login"))
+            return StatusCode(500, new ApiErrorResponse { StatusCode = 500, Message = "Không thể hoàn tất đăng nhập. Vui lòng thử lại." });
+
         AppendAuthCookie(token.Token, token.ExpiresAt);
         return Ok(new AuthResponseDto
         {
@@ -654,6 +657,21 @@ public class AuthController : ControllerBase
     // ═══════════════════════════════════════════
     //  PRIVATE HELPERS
     // ═══════════════════════════════════════════
+
+    private async Task<bool> TryPersistLastTokenJtiAsync(ApplicationUser user, string jti, string action)
+    {
+        user.LastTokenJti = jti;
+        var updateResult = await _userManager.UpdateAsync(user);
+        if (updateResult.Succeeded)
+            return true;
+
+        _logger.LogError(
+            "Failed to persist {Action} token for user {UserId}: {Errors}",
+            action,
+            user.Id,
+            string.Join("; ", updateResult.Errors.Select(e => e.Code)));
+        return false;
+    }
 
     private (string Token, DateTime ExpiresAt, string Jti) GenerateJwtToken(ApplicationUser user)
     {

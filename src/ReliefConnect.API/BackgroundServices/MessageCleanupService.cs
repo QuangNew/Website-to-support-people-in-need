@@ -12,6 +12,7 @@ public class MessageCleanupService : BackgroundService
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<MessageCleanupService> _logger;
+    private static readonly TimeSpan StartupDelay = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan Interval = TimeSpan.FromHours(24);
 
     public MessageCleanupService(IServiceScopeFactory scopeFactory, ILogger<MessageCleanupService> logger)
@@ -22,15 +23,14 @@ public class MessageCleanupService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // Wait for startup
-        await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken);
+        await Task.Delay(StartupDelay, stoppingToken);
         _logger.LogInformation("MessageCleanupService started — running every {Hours}h", Interval.TotalHours);
 
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
-                await CleanupOldMessages();
+                await CleanupOldMessages(stoppingToken);
             }
             catch (Exception ex)
             {
@@ -41,7 +41,7 @@ public class MessageCleanupService : BackgroundService
         }
     }
 
-    private async Task CleanupOldMessages()
+    private async Task CleanupOldMessages(CancellationToken ct)
     {
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -54,7 +54,7 @@ public class MessageCleanupService : BackgroundService
             .Where(m => m.SentAt < threshold)
             .Select(m => m.ConversationId)
             .Distinct()
-            .ToListAsync();
+            .ToListAsync(ct);
 
         if (affectedConvIds.Count == 0)
         {
@@ -65,22 +65,18 @@ public class MessageCleanupService : BackgroundService
         // Delete old messages
         var deleted = await db.DirectMessages
             .Where(m => m.SentAt < threshold)
-            .ExecuteDeleteAsync();
+            .ExecuteDeleteAsync(ct);
 
-        // Update LastMessageAt for affected conversations
-        foreach (var convId in affectedConvIds)
-        {
-            var latestSentAt = await db.DirectMessages
-                .AsNoTracking()
-                .Where(m => m.ConversationId == convId && m.DeletedAt == null)
-                .OrderByDescending(m => m.SentAt)
-                .Select(m => (DateTime?)m.SentAt)
-                .FirstOrDefaultAsync();
-
-            await db.DirectConversations
-                .Where(c => c.Id == convId)
-                .ExecuteUpdateAsync(c => c.SetProperty(x => x.LastMessageAt, latestSentAt));
-        }
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE "DirectConversations" AS c
+            SET "LastMessageAt" = (
+                SELECT MAX(m."SentAt")
+                FROM "DirectMessages" AS m
+                WHERE m."ConversationId" = c."Id"
+                  AND m."DeletedAt" IS NULL
+            )
+            WHERE c."Id" = ANY({affectedConvIds.ToArray()});
+            """, ct);
 
         // Log result
         db.SystemLogs.Add(new SystemLog
@@ -90,7 +86,7 @@ public class MessageCleanupService : BackgroundService
             UserName = "system",
             CreatedAt = DateTime.UtcNow
         });
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(ct);
 
         _logger.LogInformation("MessageCleanup: deleted {Count} messages from {Conversations} conversations",
             deleted, affectedConvIds.Count);
