@@ -542,3 +542,7 @@ docs/RELEASE_CHECKLIST.md
 src/ReliefConnect.API/publish.zip
 client/.env.production
 issue/
+src/ReliefConnect.API/ReliefConnect.API.csproj.lscache
+src/ReliefConnect.Core/ReliefConnect.Core.csproj.lscache
+src/ReliefConnect.Tests/ReliefConnect.Tests.csproj.lscache
+src/ReliefConnect.Infrastructure/ReliefConnect.Infrastructure.csproj.lscache
