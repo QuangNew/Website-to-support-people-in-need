@@ -1,8 +1,10 @@
-import axios from 'axios';
+import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios';
 import toast from 'react-hot-toast';
 import { uploadToStorage } from './supabase';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
+const PUBLIC_AUTH_TIMEOUT_MS = 30000;
+const PUBLIC_AUTH_RETRY_DELAY_MS = 800;
 
 /** Base server URL (without /api) for resolving uploaded file paths like /uploads/... */
 const SERVER_BASE_URL = API_BASE_URL.replace(/\/api\/?$/, '');
@@ -31,12 +33,35 @@ export interface HideCommentRequest {
 
 export const AUTH_EXPIRED_EVENT = 'reliefconnect:auth-expired';
 
+type RetryableRequestConfig = InternalAxiosRequestConfig & {
+  _publicAuthRetry?: boolean;
+};
+
 function isPublicAuthRequest(url: string): boolean {
   return /\/auth\/(login|register|google|verify-email|resend-code|forgot-password|reset-password)$/.test(url);
 }
 
+function isRetryableAuthRequest(url: string): boolean {
+  return /\/auth\/(login|register)$/.test(url);
+}
+
 function isAuthHydrationRequest(url: string): boolean {
   return /\/auth\/me$/.test(url);
+}
+
+function isTransientPublicAuthError(error: AxiosError): boolean {
+  const status = error.response?.status;
+  if (status !== undefined) {
+    return status === 502 || status === 503 || status === 504;
+  }
+
+  return error.code === 'ECONNABORTED'
+    || error.code === 'ERR_NETWORK'
+    || /timeout/i.test(error.message);
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 function notifyAuthExpired() {
@@ -87,8 +112,21 @@ api.interceptors.request.use(
 // Response interceptor: Handle 401 and 429
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
-    const requestUrl = String(error.config?.url ?? '');
+  async (error: AxiosError) => {
+    const config = error.config as RetryableRequestConfig | undefined;
+    const requestUrl = String(config?.url ?? '');
+
+    if (
+      config
+      && isRetryableAuthRequest(requestUrl)
+      && !config._publicAuthRetry
+      && isTransientPublicAuthError(error)
+    ) {
+      config._publicAuthRetry = true;
+      await wait(PUBLIC_AUTH_RETRY_DELAY_MS);
+      return api.request(config);
+    }
+
     if (
       error.response?.status === 401
       && !isPublicAuthRequest(requestUrl)
@@ -113,10 +151,10 @@ api.interceptors.response.use(
 // ═══════════════════════════════════════════
 export const authApi = {
   register: (data: { username: string; email: string; password: string; fullName: string }) =>
-    api.post('/auth/register', data),
+    api.post('/auth/register', data, { timeout: PUBLIC_AUTH_TIMEOUT_MS }),
 
   login: (data: { email: string; password: string }) =>
-    api.post('/auth/login', data),
+    api.post('/auth/login', data, { timeout: PUBLIC_AUTH_TIMEOUT_MS }),
 
   googleLogin: (data: { credential: string }) =>
     api.post('/auth/google', data),
