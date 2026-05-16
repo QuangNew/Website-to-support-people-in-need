@@ -37,8 +37,8 @@ interface AuthState {
     login: (email: string, password: string) => Promise<void>;
     register: (data: { username: string; email: string; password: string; fullName: string }) => Promise<void>;
     googleLogin: (credential: string) => Promise<void>;
-    verifyEmail: (code: string) => Promise<void>;
-    resendCode: () => Promise<void>;
+    verifyEmail: (email: string, code: string) => Promise<void>;
+    resendCode: (email: string) => Promise<void>;
     logout: (options?: { localOnly?: boolean }) => Promise<void>;
     loadUser: () => Promise<void>;
     setUser: (user: User) => void;
@@ -117,7 +117,7 @@ function hydrateAuthenticatedUserInBackground(set: (partial: Partial<AuthState>)
     }, 300);
 }
 
-export const useAuthStore = create<AuthState>((set, get) => ({
+export const useAuthStore = create<AuthState>((set) => ({
     user: null,
     isAuthenticated: false,
     isLoading: false,
@@ -141,9 +141,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     register: async (data) => {
         set({ isLoading: true });
         try {
-            const res = await authApi.register(data);
-            applyAuthResponse(set, res.data, 'None');
-            hydrateAuthenticatedUserInBackground(set);
+            await authApi.register(data);
         } catch (err: unknown) {
             const axiosErr = err as { response?: { data?: { message?: string; errors?: string[] } } };
             const message = axiosErr?.response?.data?.message;
@@ -169,12 +167,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         }
     },
 
-    verifyEmail: async (code) => {
+    verifyEmail: async (email, code) => {
         set({ isLoading: true });
         try {
-            await authApi.verifyEmail({ code });
-            const user = get().user;
-            if (user) set({ user: { ...user, emailVerified: true } });
+            await authApi.verifyEmail({ email, code });
         } catch (err: unknown) {
             const axiosErr = err as { response?: { data?: { message?: string } } };
             const message = axiosErr?.response?.data?.message;
@@ -184,9 +180,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         }
     },
 
-    resendCode: async () => {
+    resendCode: async (email) => {
         try {
-            await authApi.resendCode();
+            await authApi.resendCode({ email });
         } catch (err: unknown) {
             const axiosErr = err as { response?: { data?: { message?: string } } };
             const message = axiosErr?.response?.data?.message;

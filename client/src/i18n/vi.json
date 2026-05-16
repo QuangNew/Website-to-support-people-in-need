@@ -51,6 +51,7 @@
     "verifyBtn": "Xác nhận",
     "codeSent": "Đã gửi mã xác nhận về email!",
     "emailVerified": "Email đã xác nhận thành công!",
+    "registrationComplete": "Đăng ký thành công. Vui lòng đăng nhập để tiếp tục.",
     "verifyFailed": "Xác nhận thất bại",
     "enter6Digits": "Vui lòng nhập đủ 6 chữ số",
     "resendCode": "Gửi lại mã",

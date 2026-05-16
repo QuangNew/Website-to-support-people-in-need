@@ -4,7 +4,7 @@ import {
     ArrowRight, Sun, Moon, Globe, Shield, Zap, Radio,
     Activity, ChevronRight,
 } from 'lucide-react';
-import { useLanguage } from '../contexts/LanguageContext';
+import { getNextLocaleLabel, useLanguage } from '../contexts/LanguageContext';
 import { useTheme } from '../contexts/ThemeContext';
 
 /* ─────────────────────────────────────────────
@@ -112,7 +112,7 @@ export default function LandingPage() {
 
                 {/* Controls */}
                 <div style={{ display: 'flex', gap: 'var(--sp-2)', alignItems: 'center' }}>
-                    <button className="btn btn-ghost btn-icon" onClick={toggleLocale} title={locale === 'vi' ? 'English' : 'Tiếng Việt'}>
+                    <button className="btn btn-ghost btn-icon" onClick={toggleLocale} title={getNextLocaleLabel(locale)}>
                         <Globe size={17} />
                     </button>
                     <button className="btn btn-ghost btn-icon" onClick={toggleTheme}>

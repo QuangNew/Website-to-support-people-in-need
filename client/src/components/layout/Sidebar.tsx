@@ -24,7 +24,7 @@ import { useMapStore, type PanelType } from '../../stores/mapStore';
 import { useAuthStore } from '../../stores/authStore';
 import { useMessageStore } from '../../stores/messageStore';
 import { useTheme } from '../../contexts/ThemeContext';
-import { useLanguage } from '../../contexts/LanguageContext';
+import { getNextLocaleLabel, useLanguage } from '../../contexts/LanguageContext';
 
 
 interface NavItem {
@@ -170,11 +170,11 @@ export default function Sidebar() {
         <button
           className="sidebar-nav-item"
           onClick={toggleLocale}
-          title={!sidebarExpanded ? (locale === 'vi' ? 'English' : 'Tiếng Việt') : undefined}
+          title={!sidebarExpanded ? getNextLocaleLabel(locale) : undefined}
         >
           <Globe size={20} />
           {sidebarExpanded && (
-            <span className="sidebar-nav-label">{locale === 'vi' ? 'English' : 'Tiếng Việt'}</span>
+            <span className="sidebar-nav-label">{getNextLocaleLabel(locale)}</span>
           )}
         </button>
 

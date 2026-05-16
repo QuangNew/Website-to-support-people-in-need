@@ -52,62 +52,114 @@ public class AuthController : ControllerBase
     // ═══════════════════════════════════════════
 
     /// <summary>
-    /// Register a new user account. Sends a 6-digit verification code to the email.
+    /// Start registration. Sends a 6-digit verification code before the account is created.
     /// </summary>
     [HttpPost("register")]
-    public async Task<ActionResult<AuthResponseDto>> Register([FromBody] RegisterDto dto)
+    public async Task<ActionResult<RegistrationStartedResponseDto>> Register([FromBody] RegisterDto dto)
     {
-        var existingUser = await _userManager.FindByEmailAsync(dto.Email);
+        var email = dto.Email.Trim();
+        var username = dto.Username.Trim();
+        var fullName = dto.FullName.Trim();
+        var normalizedEmail = NormalizeEmailAddress(email);
+        var normalizedUserName = NormalizeUserName(username);
+
+        await RemoveExpiredPendingRegistrationsAsync();
+
+        var existingUser = await _userManager.FindByEmailAsync(email);
         if (existingUser != null)
             return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Email đã được sử dụng." });
 
-        // Generate 6-digit verification code
-        var verificationCode = GenerateVerificationCode();
+        var existingUserName = await _userManager.FindByNameAsync(username);
+        if (existingUserName != null)
+            return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Tên đăng nhập đã được sử dụng." });
 
-        var user = new ApplicationUser
+        var pendingWithUserName = await _db.PendingRegistrations
+            .AsTracking()
+            .FirstOrDefaultAsync(p => p.NormalizedUserName == normalizedUserName);
+        if (pendingWithUserName != null && pendingWithUserName.NormalizedEmail != normalizedEmail)
+            return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Tên đăng nhập đang chờ xác minh bởi email khác." });
+
+        var tempUser = new ApplicationUser
         {
-            UserName = dto.Username,
-            Email = dto.Email,
-            FullName = dto.FullName,
+            UserName = username,
+            Email = email,
+            FullName = fullName,
             Role = RoleEnum.Guest,
             VerificationStatus = VerificationStatus.None,
-            EmailConfirmed = false,
-            EmailVerificationCode = verificationCode,
-            EmailVerificationCodeExpiry = DateTime.UtcNow.AddMinutes(15),
-            CreatedAt = DateTime.UtcNow
+            EmailConfirmed = true
         };
 
-        var result = await _userManager.CreateAsync(user, dto.Password);
-        if (!result.Succeeded)
+        var validationErrors = new List<IdentityError>();
+        foreach (var validator in _userManager.UserValidators)
         {
+            var validationResult = await validator.ValidateAsync(_userManager, tempUser);
+            if (!validationResult.Succeeded)
+                validationErrors.AddRange(validationResult.Errors);
+        }
+
+        foreach (var validator in _userManager.PasswordValidators)
+        {
+            var validationResult = await validator.ValidateAsync(_userManager, tempUser, dto.Password);
+            if (!validationResult.Succeeded)
+                validationErrors.AddRange(validationResult.Errors);
+        }
+
+        if (validationErrors.Count > 0)
             return BadRequest(new ApiErrorResponse
             {
                 StatusCode = 400,
                 Message = "Đăng ký thất bại.",
-                Errors = result.Errors.Select(e => e.Description)
+                Errors = validationErrors.Select(e => e.Description)
+            });
+
+        var verificationCode = GenerateVerificationCode();
+        var now = DateTime.UtcNow;
+        var expiresAt = now.AddMinutes(15);
+        var passwordHash = _userManager.PasswordHasher.HashPassword(tempUser, dto.Password);
+
+        var pending = await _db.PendingRegistrations
+            .AsTracking()
+            .FirstOrDefaultAsync(p => p.NormalizedEmail == normalizedEmail);
+
+        if (pending == null)
+        {
+            _db.PendingRegistrations.Add(new PendingRegistration
+            {
+                UserName = username,
+                NormalizedUserName = normalizedUserName,
+                Email = email,
+                NormalizedEmail = normalizedEmail,
+                FullName = fullName,
+                PasswordHash = passwordHash,
+                VerificationCode = verificationCode,
+                ExpiresAt = expiresAt,
+                CreatedAt = now,
+                LastSentAt = now
             });
         }
-
-        // Send verification email
-        await _emailService.SendVerificationCodeAsync(dto.Email, verificationCode);
-
-        _logger.LogInformation("User registered: {Username} ({Email}) — verification code sent", dto.Username, dto.Email);
-
-        var token = GenerateJwtToken(user);
-        if (!await TryPersistLastTokenJtiAsync(user, token.Jti, "registration"))
-            return StatusCode(500, new ApiErrorResponse { StatusCode = 500, Message = "Không thể hoàn tất đăng nhập. Vui lòng thử lại." });
-
-        AppendAuthCookie(token.Token, token.ExpiresAt);
-        return Ok(new AuthResponseDto
+        else
         {
-            Token = token.Token,
-            UserId = user.Id,
-            UserName = user.UserName!,
-            Email = user.Email!,
-            FullName = user.FullName,
-            Role = user.Role.ToString(),
-            EmailVerified = false,
-            ExpiresAt = token.ExpiresAt
+            pending.UserName = username;
+            pending.NormalizedUserName = normalizedUserName;
+            pending.Email = email;
+            pending.NormalizedEmail = normalizedEmail;
+            pending.FullName = fullName;
+            pending.PasswordHash = passwordHash;
+            pending.VerificationCode = verificationCode;
+            pending.ExpiresAt = expiresAt;
+            pending.LastSentAt = now;
+        }
+
+        await _db.SaveChangesAsync();
+        await _emailService.SendVerificationCodeAsync(email, verificationCode);
+
+        _logger.LogInformation("Registration OTP sent: {Username} ({Email})", username, email);
+
+        return Ok(new RegistrationStartedResponseDto
+        {
+            Email = email,
+            ExpiresAt = expiresAt,
+            Message = "Mã xác nhận đã được gửi. Tài khoản sẽ chỉ được tạo sau khi nhập đúng mã OTP."
         });
     }
 
@@ -116,60 +168,67 @@ public class AuthController : ControllerBase
     // ═══════════════════════════════════════════
 
     /// <summary>
-    /// Verify email with the 6-digit code sent during registration.
+    /// Verify registration email and create the account only after the OTP is valid.
     /// </summary>
     [HttpPost("verify-email")]
-    [Authorize]
+    [AllowAnonymous]
     public async Task<ActionResult> VerifyEmail([FromBody] VerifyEmailDto dto)
     {
-        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (userId == null) return Unauthorized();
+        var email = dto.Email.Trim();
+        var normalizedEmail = NormalizeEmailAddress(email);
 
-        var user = await _userManager.FindByIdAsync(userId);
-        if (user == null) return NotFound();
+        var pending = await _db.PendingRegistrations
+            .AsTracking()
+            .FirstOrDefaultAsync(p => p.NormalizedEmail == normalizedEmail);
 
-        if (user.EmailConfirmed)
-            return Ok(new { message = "Email đã được xác nhận trước đó." });
+        if (pending != null)
+            return await CompletePendingRegistrationAsync(pending, dto.Code);
 
-        if (user.EmailVerificationCode == null ||
-            !CryptographicOperations.FixedTimeEquals(
-                Encoding.UTF8.GetBytes(user.EmailVerificationCode.PadRight(10)),
-                Encoding.UTF8.GetBytes(dto.Code.PadRight(10))))
-            return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Mã xác nhận không đúng." });
-
-        if (user.EmailVerificationCodeExpiry.HasValue && user.EmailVerificationCodeExpiry < DateTime.UtcNow)
-            return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Mã xác nhận đã hết hạn. Vui lòng yêu cầu gửi lại." });
-
-        user.EmailConfirmed = true;
-        user.EmailVerificationCode = null;
-        user.EmailVerificationCodeExpiry = null;
-        await _userManager.UpdateAsync(user);
-
-        _logger.LogInformation("Email verified: {Username}", user.UserName);
-
-        return Ok(new { message = "Email đã được xác nhận thành công!" });
+        return await VerifyLegacyEmailAsync(email, dto.Code);
     }
 
     /// <summary>
     /// Resend the email verification code.
     /// </summary>
     [HttpPost("resend-code")]
-    [Authorize]
-    public async Task<ActionResult> ResendVerificationCode()
+    [AllowAnonymous]
+    public async Task<ActionResult> ResendVerificationCode([FromBody] ResendVerificationCodeDto dto)
     {
-        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (userId == null) return Unauthorized();
-
-        var user = await _userManager.FindByIdAsync(userId);
-        if (user == null) return NotFound();
-
-        if (user.EmailConfirmed)
-            return Ok(new { message = "Email đã được xác nhận rồi." });
-
+        var email = dto.Email.Trim();
+        var normalizedEmail = NormalizeEmailAddress(email);
         var code = GenerateVerificationCode();
+        var now = DateTime.UtcNow;
+        var expiresAt = now.AddMinutes(15);
+
+        var pending = await _db.PendingRegistrations
+            .AsTracking()
+            .FirstOrDefaultAsync(p => p.NormalizedEmail == normalizedEmail);
+
+        if (pending != null)
+        {
+            pending.VerificationCode = code;
+            pending.ExpiresAt = expiresAt;
+            pending.LastSentAt = now;
+            await _db.SaveChangesAsync();
+
+            await _emailService.SendVerificationCodeAsync(pending.Email, code);
+            return Ok(new { message = "Mã xác nhận mới đã được gửi." });
+        }
+
+        var user = await _userManager.FindByEmailAsync(email);
+        if (user == null || user.EmailConfirmed)
+            return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Không tìm thấy yêu cầu đăng ký đang chờ xác minh." });
+
         user.EmailVerificationCode = code;
-        user.EmailVerificationCodeExpiry = DateTime.UtcNow.AddMinutes(15);
-        await _userManager.UpdateAsync(user);
+        user.EmailVerificationCodeExpiry = expiresAt;
+        var updateResult = await _userManager.UpdateAsync(user);
+        if (!updateResult.Succeeded)
+            return BadRequest(new ApiErrorResponse
+            {
+                StatusCode = 400,
+                Message = "Không thể gửi lại mã xác nhận.",
+                Errors = updateResult.Errors.Select(e => e.Description)
+            });
 
         await _emailService.SendVerificationCodeAsync(user.Email!, code);
 
@@ -294,6 +353,9 @@ public class AuthController : ControllerBase
 
             return Unauthorized(new ApiErrorResponse { StatusCode = 401, Message = "Email/tên đăng nhập hoặc mật khẩu không đúng." });
         }
+
+        if (!user.EmailConfirmed)
+            return Unauthorized(new ApiErrorResponse { StatusCode = 401, Message = "Vui lòng xác nhận email bằng mã OTP trước khi đăng nhập." });
 
         _logger.LogInformation("User logged in: {Username}", user.UserName);
 
@@ -658,6 +720,107 @@ public class AuthController : ControllerBase
     //  PRIVATE HELPERS
     // ═══════════════════════════════════════════
 
+    private async Task<ActionResult> CompletePendingRegistrationAsync(PendingRegistration pending, string code)
+    {
+        if (pending.ExpiresAt < DateTime.UtcNow)
+        {
+            _db.PendingRegistrations.Remove(pending);
+            await _db.SaveChangesAsync();
+            return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Mã xác nhận đã hết hạn. Vui lòng đăng ký lại." });
+        }
+
+        if (!VerificationCodesMatch(pending.VerificationCode, code))
+            return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Mã xác nhận không đúng." });
+
+        if (await _userManager.FindByEmailAsync(pending.Email) != null)
+        {
+            _db.PendingRegistrations.Remove(pending);
+            await _db.SaveChangesAsync();
+            return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Email đã được sử dụng." });
+        }
+
+        if (await _userManager.FindByNameAsync(pending.UserName) != null)
+        {
+            _db.PendingRegistrations.Remove(pending);
+            await _db.SaveChangesAsync();
+            return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Tên đăng nhập đã được sử dụng. Vui lòng đăng ký lại." });
+        }
+
+        var user = new ApplicationUser
+        {
+            UserName = pending.UserName,
+            NormalizedUserName = pending.NormalizedUserName,
+            Email = pending.Email,
+            NormalizedEmail = pending.NormalizedEmail,
+            FullName = pending.FullName,
+            PasswordHash = pending.PasswordHash,
+            Role = RoleEnum.Guest,
+            VerificationStatus = VerificationStatus.None,
+            EmailConfirmed = true,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        await using var transaction = await _db.Database.BeginTransactionAsync();
+        var createResult = await _userManager.CreateAsync(user);
+        if (!createResult.Succeeded)
+        {
+            await transaction.RollbackAsync();
+            return BadRequest(new ApiErrorResponse
+            {
+                StatusCode = 400,
+                Message = "Đăng ký thất bại.",
+                Errors = createResult.Errors.Select(e => e.Description)
+            });
+        }
+
+        _db.PendingRegistrations.Remove(pending);
+        await _db.SaveChangesAsync();
+        await transaction.CommitAsync();
+
+        _logger.LogInformation("Registration verified and account created: {Username} ({Email})", user.UserName, user.Email);
+
+        return Ok(new { message = "Đăng ký thành công. Vui lòng đăng nhập để tiếp tục." });
+    }
+
+    private async Task<ActionResult> VerifyLegacyEmailAsync(string email, string code)
+    {
+        var user = await _userManager.FindByEmailAsync(email);
+        if (user == null)
+            return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Không tìm thấy yêu cầu đăng ký đang chờ xác minh." });
+
+        if (user.EmailConfirmed)
+            return Ok(new { message = "Email đã được xác nhận trước đó." });
+
+        if (user.EmailVerificationCode == null || !VerificationCodesMatch(user.EmailVerificationCode, code))
+            return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Mã xác nhận không đúng." });
+
+        if (user.EmailVerificationCodeExpiry.HasValue && user.EmailVerificationCodeExpiry < DateTime.UtcNow)
+            return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Mã xác nhận đã hết hạn. Vui lòng yêu cầu gửi lại." });
+
+        user.EmailConfirmed = true;
+        user.EmailVerificationCode = null;
+        user.EmailVerificationCodeExpiry = null;
+        var updateResult = await _userManager.UpdateAsync(user);
+        if (!updateResult.Succeeded)
+            return BadRequest(new ApiErrorResponse
+            {
+                StatusCode = 400,
+                Message = "Không thể xác nhận email.",
+                Errors = updateResult.Errors.Select(e => e.Description)
+            });
+
+        _logger.LogInformation("Legacy email verified: {Username}", user.UserName);
+
+        return Ok(new { message = "Email đã được xác nhận thành công. Vui lòng đăng nhập để tiếp tục." });
+    }
+
+    private async Task RemoveExpiredPendingRegistrationsAsync()
+    {
+        await _db.PendingRegistrations
+            .Where(p => p.ExpiresAt < DateTime.UtcNow)
+            .ExecuteDeleteAsync();
+    }
+
     private async Task<bool> TryPersistLastTokenJtiAsync(ApplicationUser user, string jti, string action)
     {
         user.LastTokenJti = jti;
@@ -776,6 +939,23 @@ public class AuthController : ControllerBase
     private static string GenerateVerificationCode()
     {
         return RandomNumberGenerator.GetInt32(100000, 1000000).ToString();
+    }
+
+    private static bool VerificationCodesMatch(string expected, string supplied)
+    {
+        return CryptographicOperations.FixedTimeEquals(
+            Encoding.UTF8.GetBytes(expected.Trim().PadRight(10)),
+            Encoding.UTF8.GetBytes(supplied.Trim().PadRight(10)));
+    }
+
+    private string NormalizeEmailAddress(string email)
+    {
+        return _userManager.NormalizeEmail(email) ?? email.ToUpperInvariant();
+    }
+
+    private string NormalizeUserName(string userName)
+    {
+        return _userManager.NormalizeName(userName) ?? userName.ToUpperInvariant();
     }
 
     private async Task<ApplicationUser?> FindUserByGoogleIdOrEmail(string googleId, string email)

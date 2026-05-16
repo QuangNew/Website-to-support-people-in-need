@@ -9,7 +9,7 @@ import { useMapStore, type PanelType } from '../../stores/mapStore';
 import { useAuthStore } from '../../stores/authStore';
 import { useMessageStore } from '../../stores/messageStore';
 import { useTheme } from '../../contexts/ThemeContext';
-import { useLanguage } from '../../contexts/LanguageContext';
+import { getNextLocaleLabel, useLanguage } from '../../contexts/LanguageContext';
 
 export default function MobileNav() {
   const { activePanel, setActivePanel, setAuthModal } = useMapStore();
@@ -169,7 +169,7 @@ export default function MobileNav() {
         {/* Locale toggle */}
         <button type="button" className="mobile-nav-item" onClick={toggleLocale}>
           <Globe size={22} strokeWidth={2} />
-          <span>{locale === 'vi' ? 'English' : 'Tiếng Việt'}</span>
+          <span>{getNextLocaleLabel(locale)}</span>
         </button>
 
         {/* Login / Logout */}

@@ -51,6 +51,7 @@
         "verifyBtn": "Verify",
         "codeSent": "Verification code sent to your email!",
         "emailVerified": "Email verified successfully!",
+        "registrationComplete": "Registration complete. Please log in to continue.",
         "verifyFailed": "Verification failed",
         "enter6Digits": "Please enter all 6 digits",
         "resendCode": "Resend code",

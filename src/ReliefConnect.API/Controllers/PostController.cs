@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Security.Cryptography;
 using Ganss.Xss;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -17,6 +18,14 @@ namespace ReliefConnect.API.Controllers;
 [Route("api/social")]
 public class PostController : ControllerBase
 {
+    private const long MaxImageUploadBytes = 5 * 1024 * 1024;
+    private static readonly Dictionary<string, string[]> AllowedImageExtensionsByContentType = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["image/jpeg"] = [".jpg", ".jpeg"],
+        ["image/png"] = [".png"],
+        ["image/webp"] = [".webp"]
+    };
+
     private readonly IPostRepository _postRepo;
     private readonly AppDbContext _db;
     private readonly HtmlSanitizer _sanitizer;
@@ -88,34 +97,78 @@ public class PostController : ControllerBase
         if (file == null || file.Length == 0)
             return BadRequest(new { message = "No file uploaded" });
 
-        var allowedTypes = new[] { "image/jpeg", "image/png", "image/webp" };
-        var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".webp" };
-
-        if (!allowedTypes.Contains(file.ContentType))
+        if (!AllowedImageExtensionsByContentType.TryGetValue(file.ContentType, out var allowedExtensions))
             return BadRequest(new { message = "Only JPG, PNG, WEBP allowed" });
 
         var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
         if (!allowedExtensions.Contains(extension))
             return BadRequest(new { message = "Invalid file extension" });
 
-        if (file.Length > 5 * 1024 * 1024)
+        if (file.Length > MaxImageUploadBytes)
             return BadRequest(new { message = "File too large (max 5MB)" });
+
+        if (!await HasValidImageSignatureAsync(file, file.ContentType))
+            return BadRequest(new { message = "Invalid image file" });
 
         _logger.LogWarning("Local file upload used — files stored in wwwroot/uploads are ephemeral on Azure. Configure Supabase Storage for production.");
 
         var uploadsDir = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads");
-        Directory.CreateDirectory(uploadsDir);
+        var now = DateTime.UtcNow;
+        var datePath = Path.Combine(now.ToString("yyyy"), now.ToString("MM"), now.ToString("dd"));
+        var targetDir = Path.Combine(uploadsDir, datePath);
+        Directory.CreateDirectory(targetDir);
 
-        var fileName = $"{Guid.NewGuid()}{extension}";
-        var filePath = Path.Combine(uploadsDir, fileName);
+        var fileName = $"{CreateUnpredictableFileStem()}{NormalizeImageExtension(extension)}";
+        var filePath = Path.Combine(targetDir, fileName);
 
-        using (var stream = new FileStream(filePath, FileMode.Create))
+        await using (var stream = new FileStream(filePath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
         {
             await file.CopyToAsync(stream);
         }
 
-        var imageUrl = $"/uploads/{fileName}";
+        var imageUrl = $"/uploads/{now:yyyy}/{now:MM}/{now:dd}/{fileName}";
         return Ok(new { imageUrl });
+    }
+
+    private static string NormalizeImageExtension(string extension)
+    {
+        return extension.Equals(".jpeg", StringComparison.OrdinalIgnoreCase) ? ".jpg" : extension;
+    }
+
+    private static string CreateUnpredictableFileStem()
+    {
+        return Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant();
+    }
+
+    private static async Task<bool> HasValidImageSignatureAsync(IFormFile file, string contentType)
+    {
+        var buffer = new byte[12];
+        await using var stream = file.OpenReadStream();
+        var read = await stream.ReadAsync(buffer);
+
+        return contentType.ToLowerInvariant() switch
+        {
+            "image/jpeg" => read >= 3 && buffer[0] == 0xFF && buffer[1] == 0xD8 && buffer[2] == 0xFF,
+            "image/png" => read >= 8
+                && buffer[0] == 0x89
+                && buffer[1] == 0x50
+                && buffer[2] == 0x4E
+                && buffer[3] == 0x47
+                && buffer[4] == 0x0D
+                && buffer[5] == 0x0A
+                && buffer[6] == 0x1A
+                && buffer[7] == 0x0A,
+            "image/webp" => read >= 12
+                && buffer[0] == 0x52
+                && buffer[1] == 0x49
+                && buffer[2] == 0x46
+                && buffer[3] == 0x46
+                && buffer[8] == 0x57
+                && buffer[9] == 0x45
+                && buffer[10] == 0x42
+                && buffer[11] == 0x50,
+            _ => false
+        };
     }
 
     // POST /api/social/posts

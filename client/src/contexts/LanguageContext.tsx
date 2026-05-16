@@ -1,13 +1,24 @@
 import { createContext, useContext, useState, useMemo, useCallback, type ReactNode } from 'react';
 import vi from '../i18n/vi.json';
 import en from '../i18n/en.json';
+import ja from '../i18n/ja.json';
 
-export type Locale = 'vi' | 'en';
+export type Locale = 'vi' | 'en' | 'ja';
+export const SUPPORTED_LOCALES: Locale[] = ['vi', 'en', 'ja'];
+export const LOCALE_LABELS: Record<Locale, string> = {
+    vi: 'Tiếng Việt',
+    en: 'English',
+    ja: '日本語',
+};
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type TranslationDict = Record<string, any>;
 
-const translations: Record<Locale, TranslationDict> = { vi: vi as TranslationDict, en: en as TranslationDict };
+const translations: Record<Locale, TranslationDict> = {
+    vi: vi as TranslationDict,
+    en: en as TranslationDict,
+    ja: ja as TranslationDict,
+};
 
 interface LanguageContextType {
     locale: Locale;
@@ -21,8 +32,17 @@ const LanguageContext = createContext<LanguageContextType | undefined>(undefined
 function getInitialLocale(): Locale {
     if (typeof window === 'undefined') return 'vi';
     const stored = localStorage.getItem('rc-locale') as Locale | null;
-    if (stored === 'vi' || stored === 'en') return stored;
+    if (stored && SUPPORTED_LOCALES.includes(stored)) return stored;
     return 'vi';
+}
+
+export function getNextLocale(locale: Locale): Locale {
+    const index = SUPPORTED_LOCALES.indexOf(locale);
+    return SUPPORTED_LOCALES[(index + 1) % SUPPORTED_LOCALES.length];
+}
+
+export function getNextLocaleLabel(locale: Locale): string {
+    return LOCALE_LABELS[getNextLocale(locale)];
 }
 
 function getNestedValue(obj: TranslationDict, path: string, params?: Record<string, string | number>): string {
@@ -54,7 +74,7 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     }, []);
 
     const toggleLocale = useCallback(() => {
-        setLocale(locale === 'vi' ? 'en' : 'vi');
+        setLocale(getNextLocale(locale));
     }, [locale, setLocale]);
 
     const t = useCallback((key: string, params?: Record<string, string | number>): string => {

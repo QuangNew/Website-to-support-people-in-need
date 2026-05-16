@@ -38,7 +38,7 @@ type Step = 'form' | 'verify';
 
 export default function RegisterModal() {
   const { showAuthModal, setAuthModal } = useMapStore();
-  const { register, googleLogin, verifyEmail, resendCode, isLoading, user } = useAuthStore();
+  const { register, googleLogin, verifyEmail, resendCode, isLoading } = useAuthStore();
   const { t } = useLanguage();
 
   const [step, setStep] = useState<Step>('form');
@@ -193,6 +193,7 @@ export default function RegisterModal() {
     try {
       await register({ fullName: form.fullName, username: form.username, email: form.email, password: form.password });
       toast.success(t('auth.codeSent'));
+      setResendCooldown(60);
       setStep('verify');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : t('auth.registerError');
@@ -210,9 +211,9 @@ export default function RegisterModal() {
     }
 
     try {
-      await verifyEmail(otpCode);
-      toast.success(t('auth.emailVerified'));
-      setAuthModal(null);
+      await verifyEmail(form.email, otpCode);
+      toast.success(t('auth.registrationComplete'));
+      setAuthModal('login');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : t('auth.verifyFailed');
       setError(msg);
@@ -221,7 +222,7 @@ export default function RegisterModal() {
 
   const handleResend = async () => {
     try {
-      await resendCode();
+      await resendCode(form.email);
       setResendCooldown(60);
       toast.success(t('auth.codeResent'));
     } catch (err: unknown) {
@@ -241,7 +242,7 @@ export default function RegisterModal() {
             </div>
             <h2>{t('auth.verifyEmailTitle')}</h2>
             <p className="auth-subtitle">
-              {t('auth.verifyEmailSubtitle')} {user?.email || form.email}
+              {t('auth.verifyEmailSubtitle')} {form.email}
             </p>
           </div>
 

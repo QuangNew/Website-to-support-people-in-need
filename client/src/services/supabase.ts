@@ -13,6 +13,39 @@ export const supabase = SUPABASE_URL && SUPABASE_ANON_KEY
 
 type Bucket = 'avatars' | 'post-images';
 
+const IMAGE_EXTENSIONS_BY_TYPE: Record<string, string[]> = {
+  'image/jpeg': ['jpg', 'jpeg'],
+  'image/png': ['png'],
+  'image/webp': ['webp'],
+};
+
+function getSafeImageExtension(file: File): string | null {
+  const allowedExtensions = IMAGE_EXTENSIONS_BY_TYPE[file.type];
+  if (!allowedExtensions) return null;
+
+  const suppliedExtension = file.name.split('.').pop()?.toLowerCase();
+  if (suppliedExtension && allowedExtensions.includes(suppliedExtension)) {
+    return suppliedExtension === 'jpeg' ? 'jpg' : suppliedExtension;
+  }
+
+  return allowedExtensions[0];
+}
+
+function createRandomObjectPath(file: File): string | null {
+  const extension = getSafeImageExtension(file);
+  if (!extension) return null;
+
+  const bytes = new Uint8Array(24);
+  crypto.getRandomValues(bytes);
+  const randomName = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+  const now = new Date();
+  const year = String(now.getUTCFullYear());
+  const month = String(now.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(now.getUTCDate()).padStart(2, '0');
+
+  return `${year}/${month}/${day}/${randomName}.${extension}`;
+}
+
 /**
  * Upload a file to Supabase Storage and return its public URL.
  * Retries once on failure. Falls back to `null` when Supabase is not configured.
@@ -23,10 +56,9 @@ export async function uploadToStorage(
 ): Promise<string | null> {
   if (!supabase) return null;
 
-  const ext = file.name.split('.').pop()?.toLowerCase() ?? 'jpg';
-
   for (let attempt = 0; attempt < 2; attempt++) {
-    const path = `${crypto.randomUUID()}.${ext}`;
+    const path = createRandomObjectPath(file);
+    if (!path) return null;
 
     const { error } = await supabase.storage.from(bucket).upload(path, file, {
       contentType: file.type,

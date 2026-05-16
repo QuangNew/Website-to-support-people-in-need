@@ -44,6 +44,13 @@ public class AuthResponseDto
     public DateTime ExpiresAt { get; set; }
 }
 
+public class RegistrationStartedResponseDto
+{
+    public string Email { get; set; } = string.Empty;
+    public DateTime ExpiresAt { get; set; }
+    public string Message { get; set; } = string.Empty;
+}
+
 public class UserProfileDto
 {
     public string Id { get; set; } = string.Empty;
@@ -111,8 +118,17 @@ public class GoogleLoginDto
 
 public class VerifyEmailDto
 {
+    [Required, EmailAddress]
+    public string Email { get; set; } = string.Empty;
+
     [Required, StringLength(6, MinimumLength = 6)]
     public string Code { get; set; } = string.Empty;
+}
+
+public class ResendVerificationCodeDto
+{
+    [Required, EmailAddress]
+    public string Email { get; set; } = string.Empty;
 }
 
 public class ForgotPasswordDto

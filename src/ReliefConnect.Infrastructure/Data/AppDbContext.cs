@@ -34,6 +34,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<DirectConversation> DirectConversations => Set<DirectConversation>();
     public DbSet<DirectMessage> DirectMessages => Set<DirectMessage>();
     public DbSet<DonationRecord> DonationRecords => Set<DonationRecord>();
+    public DbSet<PendingRegistration> PendingRegistrations => Set<PendingRegistration>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -51,6 +52,23 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
             entity.HasIndex(u => u.VerificationStatus);
             entity.HasIndex(u => u.GoogleId);
             entity.HasIndex(u => u.Role);
+        });
+
+        // ═══════ PENDING REGISTRATION ═══════
+        builder.Entity<PendingRegistration>(entity =>
+        {
+            entity.HasKey(p => p.Id);
+            entity.Property(p => p.UserName).HasMaxLength(50).IsRequired();
+            entity.Property(p => p.NormalizedUserName).HasMaxLength(50).IsRequired();
+            entity.Property(p => p.Email).HasMaxLength(256).IsRequired();
+            entity.Property(p => p.NormalizedEmail).HasMaxLength(256).IsRequired();
+            entity.Property(p => p.FullName).HasMaxLength(200).IsRequired();
+            entity.Property(p => p.PasswordHash).IsRequired();
+            entity.Property(p => p.VerificationCode).HasMaxLength(6).IsRequired();
+
+            entity.HasIndex(p => p.NormalizedEmail).IsUnique();
+            entity.HasIndex(p => p.NormalizedUserName).IsUnique();
+            entity.HasIndex(p => p.ExpiresAt);
         });
 
         // ═══════ VERIFICATION HISTORY ═══════

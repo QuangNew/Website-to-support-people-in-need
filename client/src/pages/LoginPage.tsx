@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { Heart, Mail, Lock, Eye, EyeOff, ArrowRight } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '../stores/authStore';
-import { useLanguage } from '../contexts/LanguageContext';
+import { getNextLocaleLabel, useLanguage } from '../contexts/LanguageContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { Sun, Moon, Globe } from 'lucide-react';
 
@@ -36,7 +36,7 @@ export default function LoginPage() {
     <div className="auth-layout">
       {/* Top-right controls */}
       <div style={{ position: 'fixed', top: 16, right: 16, display: 'flex', gap: 8, zIndex: 100 }}>
-        <button className="btn btn-ghost btn-icon" onClick={toggleLocale} title={locale === 'vi' ? 'English' : 'Tiếng Việt'}>
+        <button className="btn btn-ghost btn-icon" onClick={toggleLocale} title={getNextLocaleLabel(locale)}>
           <Globe size={18} />
         </button>
         <button className="btn btn-ghost btn-icon" onClick={toggleTheme} title={theme === 'dark' ? t('common.lightMode') : t('common.darkMode')}>

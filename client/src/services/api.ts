@@ -32,7 +32,7 @@ export interface HideCommentRequest {
 export const AUTH_EXPIRED_EVENT = 'reliefconnect:auth-expired';
 
 function isPublicAuthRequest(url: string): boolean {
-  return /\/auth\/(login|register|google|forgot-password|reset-password)$/.test(url);
+  return /\/auth\/(login|register|google|verify-email|resend-code|forgot-password|reset-password)$/.test(url);
 }
 
 function isAuthHydrationRequest(url: string): boolean {
@@ -121,11 +121,11 @@ export const authApi = {
   googleLogin: (data: { credential: string }) =>
     api.post('/auth/google', data),
 
-  verifyEmail: (data: { code: string }) =>
+  verifyEmail: (data: { email: string; code: string }) =>
     api.post('/auth/verify-email', data),
 
-  resendCode: () =>
-    api.post('/auth/resend-code'),
+  resendCode: (data: { email: string }) =>
+    api.post('/auth/resend-code', data),
 
   logout: () =>
     api.post('/auth/logout'),

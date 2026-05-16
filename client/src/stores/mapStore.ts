@@ -48,11 +48,11 @@ export interface RouteInfo {
 export interface RouteData {
     /** Primary route coordinates */
     coordinates: Array<[number, number]>;
-    /** Alternative routes coordinates (up to 1) */
+    /** Alternative routes coordinates (up to 2) */
     alternatives: Array<{ coordinates: Array<[number, number]>; info: RouteInfo }>;
     /** Route summary */
     info: RouteInfo;
-    /** Currently selected route index (0 = primary, 1 = alt1) */
+    /** Currently selected route index (0 = primary, 1..N = alternatives) */
     selectedIndex: number;
     /** Origin point */
     origin: { lat: number; lng: number };
@@ -94,12 +94,12 @@ type RouteVariant = { coordinates: Array<[number, number]>; info: RouteInfo };
 type RouteCandidate = RouteVariant & { nodeIds: number[]; signature: string };
 
 const OSRM_ROUTE_URL = 'https://router.project-osrm.org/route/v1/driving';
-const MAX_TOTAL_ROUTES = 2;
+const MAX_TOTAL_ROUTES = 3;
 const MAX_ROUTE_ALTERNATIVES = MAX_TOTAL_ROUTES - 1;
 const NATIVE_ALTERNATIVE_CANDIDATES = 3;
-const MAX_FALLBACK_ROUTE_REQUESTS = 4;
+const MAX_FALLBACK_ROUTE_REQUESTS = 8;
 const FALLBACK_ROUTE_BATCH_SIZE = 2;
-const FALLBACK_ROUTE_TIME_BUDGET_MS = 2200;
+const FALLBACK_ROUTE_TIME_BUDGET_MS = 3200;
 const ROUTE_SAMPLE_POINTS = 16;
 const PRIMARY_OSRM_TIMEOUT_MS = 4500;
 const FALLBACK_OSRM_TIMEOUT_MS = 1800;
@@ -372,10 +372,33 @@ function rankAlternativeCandidates(primary: RouteCandidate, candidates: RouteCan
         .sort((first, second) => second.score - first.score || first.candidate.info.durationMin - second.candidate.info.durationMin);
 }
 
+function isDiverseFromSelectedAlternatives(candidate: RouteCandidate, selected: RouteCandidate[]): boolean {
+    for (const selectedRoute of selected) {
+        const overlapRatio = computeRouteNodeOverlapRatio(selectedRoute.nodeIds, candidate.nodeIds);
+        const deviationKm = computeRouteDeviationKm(selectedRoute.coordinates, candidate.coordinates);
+
+        if (overlapRatio !== null && overlapRatio >= 0.75 && deviationKm < 0.5) {
+            return false;
+        }
+
+        if (overlapRatio === null && deviationKm < 0.35) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 function selectBestAlternatives(primary: RouteCandidate, candidates: RouteCandidate[]): RouteVariant[] {
-    return rankAlternativeCandidates(primary, candidates)
-        .slice(0, MAX_ROUTE_ALTERNATIVES)
-        .map(({ candidate }) => ({
+    const selected: RouteCandidate[] = [];
+    for (const { candidate } of rankAlternativeCandidates(primary, candidates)) {
+        if (!isDiverseFromSelectedAlternatives(candidate, selected)) continue;
+        selected.push(candidate);
+        if (selected.length >= MAX_ROUTE_ALTERNATIVES) break;
+    }
+
+    return selected
+        .map((candidate) => ({
             coordinates: candidate.coordinates,
             info: candidate.info,
         }));
@@ -383,7 +406,6 @@ function selectBestAlternatives(primary: RouteCandidate, candidates: RouteCandid
 
 function shouldExpandWithFallback(primary: RouteCandidate, candidates: RouteCandidate[]): boolean {
     if (candidates.length >= MAX_ROUTE_ALTERNATIVES) return false;
-    if (candidates.length > 0) return false;
 
     return primary.info.distanceKm <= 45 && primary.info.durationMin <= 70;
 }
@@ -510,10 +532,12 @@ async function buildFallbackAlternatives(
     if (waypoints.length === 0) return [];
 
     const alternatives: RouteCandidate[] = [];
+    const missingAlternativeCount = Math.max(0, MAX_ROUTE_ALTERNATIVES - existingAlternatives.length);
+    if (missingAlternativeCount === 0) return [];
 
     const startedAt = Date.now();
     for (let index = 0; index < waypoints.length; index += FALLBACK_ROUTE_BATCH_SIZE) {
-        if (alternatives.length >= MAX_ROUTE_ALTERNATIVES) break;
+        if (alternatives.length >= missingAlternativeCount) break;
         if (Date.now() - startedAt >= FALLBACK_ROUTE_TIME_BUDGET_MS) break;
 
         const batch = waypoints.slice(index, index + FALLBACK_ROUTE_BATCH_SIZE);
@@ -538,7 +562,7 @@ async function buildFallbackAlternatives(
             existingSignatures.add(signature);
             alternatives.push(route);
 
-            if (alternatives.length >= MAX_ROUTE_ALTERNATIVES) {
+            if (alternatives.length >= missingAlternativeCount) {
                 break;
             }
         }
