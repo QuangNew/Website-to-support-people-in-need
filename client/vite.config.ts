@@ -1,8 +1,8 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-const BACKEND = 'http://localhost:5164';
-// const BACKEND = 'https://reliefconnect-api.azurewebsites.net';
+// const BACKEND = 'http://localhost:5164';
+const BACKEND = 'https://reliefconnect-api.azurewebsites.net';
 
 // https://vite.dev/config/
 export default defineConfig({
