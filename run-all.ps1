@@ -23,19 +23,16 @@ foreach ($cmd in $requiredCommands) {
     }
 }
 
-Write-Host '[1/2] Cai dependencies frontend (pnpm install)...' -ForegroundColor Cyan
-Push-Location $clientPath
-try {
-    pnpm install
-
-    Write-Host '[2/2] Build frontend (pnpm run build)...' -ForegroundColor Cyan
-    pnpm run build
-}
-finally {
-    Pop-Location
-}
-
 if ($Install) {
+    Write-Host '[Install] Cai dependencies frontend (pnpm install --frozen-lockfile)...' -ForegroundColor Cyan
+    Push-Location $clientPath
+    try {
+        pnpm install --frozen-lockfile
+    }
+    finally {
+        Pop-Location
+    }
+
     Write-Host '[Install] Restore backend (.NET)...' -ForegroundColor Cyan
     Push-Location $apiPath
     try {
@@ -44,6 +41,21 @@ if ($Install) {
     finally {
         Pop-Location
     }
+}
+else {
+    $clientNodeModules = Join-Path $clientPath 'node_modules'
+    if (-not (Test-Path $clientNodeModules)) {
+        throw "Chua co node_modules frontend. Chay './run-all.ps1 -Install' mot lan de cai dependencies theo pnpm-lock.yaml."
+    }
+}
+
+Write-Host '[1/2] Build frontend (pnpm run build)...' -ForegroundColor Cyan
+Push-Location $clientPath
+try {
+    pnpm run build
+}
+finally {
+    Pop-Location
 }
 
 Write-Host 'Khoi dong backend: http://localhost:5164' -ForegroundColor Green

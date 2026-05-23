@@ -1,6 +1,16 @@
 # DEV.md - Development Tasks & Status
 
-> Last updated: 2026-03-31
+> Last updated: 2026-05-23
+
+## Action Required - 2026-05-23
+
+- Run `docs/plans/2026-05-23-ping-user-states.sql` on the target PostgreSQL/Supabase database before testing SOS viewed/pinned state. This creates `PingUserStates` for per-user viewed state, blinking attention, and max-5 SOS pins.
+- After applying the SQL, test with at least two accounts: account A creates SOS, account B sees the blinking exclamation, account B opens the ping and the exclamation disappears, then account B pins it and confirms the exclamation remains until unpinned.
+- Also test a new SOS from a normal user while logged in as Admin, Volunteer, PersonInNeed, and Sponsor in separate sessions. Each non-creator active account should receive an unread notification, and the SOS create request should return success immediately instead of showing an error then appearing later.
+- 2026-05-23 follow-up: re-test that pinned SOS remains pinned after opening/viewing the ping detail, stays in the separate "Đã ghim" section, and still shows the warning exclamation until the same user unpins it.
+- 2026-05-23 follow-up: re-test the map list sort controls. "Mới nhất" sorts each section by time; "Gần tôi" asks for browser GPS and sorts each section by distance.
+- 2026-05-23 follow-up: Admin Dashboard now has a separate "Hoạt động" view. Re-test the 24h/day/month/year/custom filters there with each activity type.
+- No additional SQL is required for the 2026-05-23 follow-up fixes. The notification optimization and dashboard/layout changes are code-only.
 
 ## Database Migration Status
 

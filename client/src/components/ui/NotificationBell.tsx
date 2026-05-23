@@ -5,7 +5,7 @@ import { notificationApi, announcementApi } from '../../services/api';
 import { useAuthStore, getSignalRToken } from '../../stores/authStore';
 import { useLanguage } from '../../contexts/LanguageContext';
 
-const NOTIFICATION_POLL_MS = 60_000;
+const NOTIFICATION_POLL_MS = 20_000;
 const MIN_NOTIFICATION_REFRESH_GAP_MS = 5_000;
 const NOTIFICATION_HUB_URL = (import.meta.env.VITE_API_URL || '/api').replace(/\/api\/?$/, '') + '/hubs/notifications';
 const ANNOUNCEMENT_CURSOR_PREFIX = 'notification:last-seen-announcement:';
@@ -292,7 +292,13 @@ export default function NotificationBell() {
       .build();
 
     connection.on('UnreadCountChanged', (data: { totalUnread?: number }) => {
-      setNotificationUnreadCount(Math.max(0, Number(data?.totalUnread ?? 0)));
+      const nextUnread = Math.max(0, Number(data?.totalUnread ?? 0));
+      setNotificationUnreadCount((previousUnread) => {
+        if (nextUnread > previousUnread && !openRef.current) {
+          setHasFreshActivity(true);
+        }
+        return nextUnread;
+      });
       if (openRef.current) {
         void fetchAll();
       }

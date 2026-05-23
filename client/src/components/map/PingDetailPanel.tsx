@@ -16,6 +16,8 @@ import {
   Trash2,
   UtensilsCrossed,
   Mail,
+  Pin,
+  PinOff,
 } from 'lucide-react';
 import { useMapStore, type PingType } from '../../stores/mapStore';
 import { mapBackendPing } from '../../stores/mapStore';
@@ -51,7 +53,10 @@ export default function PingDetailPanel() {
   const { t } = useLanguage();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [pinSaving, setPinSaving] = useState(false);
   const [imgError, setImgError] = useState(false);
+  const [avatarError, setAvatarError] = useState(false);
+  const [avatarRetry, setAvatarRetry] = useState(0);
   const [showReporterPreview, setShowReporterPreview] = useState(false);
 
   const ping = useMemo(
@@ -79,6 +84,8 @@ export default function PingDetailPanel() {
       return;
     }
     setImgError(false);
+    setAvatarError(false);
+    setAvatarRetry(0);
     setShowReporterPreview(false);
 
     let cancelled = false;
@@ -86,7 +93,16 @@ export default function PingDetailPanel() {
     mapApi.getPingById(Number(selectedPingId))
       .then((response) => {
         if (!cancelled) {
-          upsertPing(mapBackendPing(response.data as Record<string, unknown>));
+          const refreshedPing = mapBackendPing(response.data as Record<string, unknown>);
+          const currentPing = useMapStore.getState().pings.find((item) => item.id === selectedPingId);
+
+          if (currentPing?.isPinnedForViewer && !refreshedPing.isPinnedForViewer) {
+            refreshedPing.isPinnedForViewer = true;
+            refreshedPing.requiresViewerAttention = true;
+            refreshedPing.pinnedAt = currentPing.pinnedAt;
+          }
+
+          upsertPing(refreshedPing);
         }
       })
       .catch(() => {
@@ -97,6 +113,11 @@ export default function PingDetailPanel() {
       cancelled = true;
     };
   }, [selectedPingId, upsertPing, user?.role]);
+
+  useEffect(() => {
+    setAvatarError(false);
+    setAvatarRetry(0);
+  }, [ping?.userAvatarUrl]);
 
   if (!ping) return null;
 
@@ -110,10 +131,15 @@ export default function PingDetailPanel() {
   const contactPhone = canViewSensitiveContact ? ping.contactPhone : undefined;
   const contactEmail = canViewSensitiveContact ? ping.contactEmail : undefined;
   const hasSensitiveContact = Boolean(contactPhone || contactEmail);
+  const avatarBaseUrl = ping.userAvatarUrl ? getImageUrl(ping.userAvatarUrl) : '';
+  const avatarUrl = avatarBaseUrl && avatarRetry > 0
+    ? `${avatarBaseUrl}${avatarBaseUrl.includes('?') ? '&' : '?'}retry=${avatarRetry}`
+    : avatarBaseUrl;
   const incidentSummary = ping.description || (ping.type === 'need_help' ? t('ping.needsHelpGeneral') : t(config.label));
   const locationLabel = ping.address || `${ping.lat.toFixed(5)}, ${ping.lng.toFixed(5)}`;
   const googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${ping.lat},${ping.lng}`;
   const canOpenReporterProfile = Boolean(ping.userId);
+  const canPinSos = Boolean(user && ping.type === 'need_help');
   const initials = contactName
     .split(' ')
     .map((segment) => segment[0])
@@ -148,6 +174,31 @@ export default function PingDetailPanel() {
   const handleDirections = () => {
     if (isRouting) return;
     fetchRoute(ping.lat, ping.lng);
+  };
+
+  const handleTogglePin = async () => {
+    if (!canPinSos || pinSaving) return;
+
+    setPinSaving(true);
+    try {
+      const response = ping.isPinnedForViewer
+        ? await mapApi.unpinPing(Number(ping.id))
+        : await mapApi.pinPing(Number(ping.id));
+      const nextPinned = !ping.isPinnedForViewer;
+      const nextPing = mapBackendPing(response.data as Record<string, unknown>);
+      upsertPing({
+        ...nextPing,
+        isPinnedForViewer: nextPinned,
+        requiresViewerAttention: nextPinned || nextPing.isNewForViewer === true,
+        pinnedAt: nextPinned ? nextPing.pinnedAt ?? new Date().toISOString() : undefined,
+      });
+      toast.success(ping.isPinnedForViewer ? 'Đã bỏ ghim SOS' : 'Đã ghim SOS');
+    } catch (error: unknown) {
+      const message = (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      toast.error(message || 'Không thể cập nhật ghim SOS');
+    } finally {
+      setPinSaving(false);
+    }
   };
 
   const handleClose = () => {
@@ -194,12 +245,20 @@ export default function PingDetailPanel() {
           onClick={() => setShowReporterPreview(true)}
         >
           <div className="ping-detail-avatar">
-            {ping.userAvatarUrl ? (
+            {avatarUrl && !avatarError ? (
               <img
-                src={getImageUrl(ping.userAvatarUrl)}
+                src={avatarUrl}
                 alt=""
                 className="ping-detail-avatar-image"
-                loading="lazy"
+                loading="eager"
+                decoding="async"
+                onError={() => {
+                  if (avatarRetry < 2) {
+                    window.setTimeout(() => setAvatarRetry((value) => value + 1), 900 * (avatarRetry + 1));
+                    return;
+                  }
+                  setAvatarError(true);
+                }}
               />
             ) : (
               initials || 'RC'
@@ -365,6 +424,23 @@ export default function PingDetailPanel() {
             <Phone size={15} />
             {t('ping.contactReporter')}
           </a>
+        )}
+        {canPinSos && (
+          <button
+            className="ping-cta-btn ping-cta-btn--contact"
+            onClick={handleTogglePin}
+            disabled={pinSaving}
+            title={ping.isPinnedForViewer ? 'Bỏ ghim SOS' : 'Ghim SOS'}
+          >
+            {pinSaving ? (
+              <Loader2 size={15} className="animate-spin" />
+            ) : ping.isPinnedForViewer ? (
+              <PinOff size={15} />
+            ) : (
+              <Pin size={15} />
+            )}
+            {ping.isPinnedForViewer ? 'Bỏ ghim SOS' : 'Ghim SOS'}
+          </button>
         )}
       </div>
 

@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Authorization;
@@ -78,6 +79,13 @@ public class AdminSystemController : ControllerBase
         public string Id { get; set; } = string.Empty;
         public string? FullName { get; set; }
         public string? UserName { get; set; }
+    }
+
+    private sealed class TimelineEvent
+    {
+        public DateTime CreatedAt { get; set; }
+        public string Kind { get; set; } = string.Empty;
+        public bool IsSos { get; set; }
     }
 
     private static string BuildUserDisplay(string? fullName, string? userName)
@@ -202,6 +210,76 @@ public class AdminSystemController : ControllerBase
         }).ToList();
     }
 
+    private static DateTime NormalizeUtc(DateTime value)
+    {
+        return value.Kind switch
+        {
+            DateTimeKind.Utc => value,
+            DateTimeKind.Local => value.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(value, DateTimeKind.Utc),
+        };
+    }
+
+    private static DateTime ParseUtcOrDefault(string? value, DateTime fallback)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return fallback;
+
+        return DateTime.TryParse(
+            value,
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+            out var parsed)
+            ? NormalizeUtc(parsed)
+            : fallback;
+    }
+
+    private static string NormalizeGranularity(string? value, TimeSpan range)
+    {
+        var normalized = value?.Trim().ToLowerInvariant();
+        if (normalized is "hour" or "day" or "month" or "year")
+            return normalized;
+
+        return range <= TimeSpan.FromDays(2) ? "hour" : "day";
+    }
+
+    private static DateTime BucketStart(DateTime value, string granularity)
+    {
+        var utc = NormalizeUtc(value);
+        return granularity switch
+        {
+            "hour" => new DateTime(utc.Year, utc.Month, utc.Day, utc.Hour, 0, 0, DateTimeKind.Utc),
+            "month" => new DateTime(utc.Year, utc.Month, 1, 0, 0, 0, DateTimeKind.Utc),
+            "year" => new DateTime(utc.Year, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            _ => new DateTime(utc.Year, utc.Month, utc.Day, 0, 0, 0, DateTimeKind.Utc),
+        };
+    }
+
+    private static DateTime AddBucket(DateTime value, string granularity)
+    {
+        return granularity switch
+        {
+            "hour" => value.AddHours(1),
+            "month" => value.AddMonths(1),
+            "year" => value.AddYears(1),
+            _ => value.AddDays(1),
+        };
+    }
+
+    private static bool ActivityTypeMatches(string kind, string? activityType)
+    {
+        var normalized = activityType?.Trim().ToLowerInvariant();
+        return normalized is null or "" or "all" || normalized == kind;
+    }
+
+    private static string? TruncateActivitySubtitle(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return value;
+
+        return value.Length > 160 ? value[..160] : value;
+    }
+
     /// <summary>
     /// Get system-wide statistics including pending verifications and reports.
     /// Uses a single UNION ALL SQL query (1 DB round-trip).
@@ -267,6 +345,231 @@ public class AdminSystemController : ControllerBase
 
         cache.Set("admin:stats", stats, TimeSpan.FromSeconds(60));
         return Ok(stats);
+    }
+
+    /// <summary>
+    /// Get dashboard timeline statistics and recent activity for a selected time range.
+    /// </summary>
+    [HttpGet("stats/timeline")]
+    public async Task<ActionResult<SystemStatsTimelineDto>> GetStatsTimeline(
+        [FromQuery] string? from,
+        [FromQuery] string? to,
+        [FromQuery] string? granularity,
+        [FromQuery] string? activityType)
+    {
+        var now = DateTime.UtcNow;
+        var toDate = ParseUtcOrDefault(to, now);
+        var fromDate = ParseUtcOrDefault(from, toDate.AddHours(-24));
+
+        if (fromDate > toDate)
+            (fromDate, toDate) = (toDate, fromDate);
+
+        if (toDate - fromDate > TimeSpan.FromDays(370))
+            fromDate = toDate.AddDays(-370);
+
+        var bucketSize = NormalizeGranularity(granularity, toDate - fromDate);
+        var includeUsers = ActivityTypeMatches("users", activityType);
+        var includePings = ActivityTypeMatches("pings", activityType);
+        var includePosts = ActivityTypeMatches("posts", activityType);
+        var includeNotifications = ActivityTypeMatches("notifications", activityType);
+        var includeReports = ActivityTypeMatches("reports", activityType);
+
+        var events = new List<TimelineEvent>();
+
+        if (includeUsers)
+        {
+            events.AddRange(await _db.Users
+                .AsNoTracking()
+                .Where(u => u.CreatedAt >= fromDate && u.CreatedAt <= toDate)
+                .Select(u => new TimelineEvent { CreatedAt = u.CreatedAt, Kind = "users" })
+                .ToListAsync());
+        }
+
+        if (includePings)
+        {
+            events.AddRange(await _db.Pings
+                .AsNoTracking()
+                .Where(p => p.CreatedAt >= fromDate && p.CreatedAt <= toDate)
+                .Select(p => new TimelineEvent { CreatedAt = p.CreatedAt, Kind = "pings", IsSos = p.Type == MapItemType.SOS })
+                .ToListAsync());
+        }
+
+        if (includePosts)
+        {
+            events.AddRange(await _db.Posts
+                .AsNoTracking()
+                .Where(p => p.CreatedAt >= fromDate && p.CreatedAt <= toDate)
+                .Select(p => new TimelineEvent { CreatedAt = p.CreatedAt, Kind = "posts" })
+                .ToListAsync());
+        }
+
+        if (includeNotifications)
+        {
+            events.AddRange(await _db.Notifications
+                .AsNoTracking()
+                .Where(n => n.CreatedAt >= fromDate && n.CreatedAt <= toDate)
+                .Select(n => new TimelineEvent { CreatedAt = n.CreatedAt, Kind = "notifications" })
+                .ToListAsync());
+        }
+
+        if (includeReports)
+        {
+            events.AddRange(await _db.Reports
+                .AsNoTracking()
+                .Where(r => r.CreatedAt >= fromDate && r.CreatedAt <= toDate)
+                .Select(r => new TimelineEvent { CreatedAt = r.CreatedAt, Kind = "reports" })
+                .ToListAsync());
+        }
+
+        var buckets = new Dictionary<DateTime, SystemStatsTimelinePointDto>();
+        for (var cursor = BucketStart(fromDate, bucketSize); cursor <= toDate; cursor = AddBucket(cursor, bucketSize))
+        {
+            buckets[cursor] = new SystemStatsTimelinePointDto { Bucket = cursor };
+        }
+
+        foreach (var item in events)
+        {
+            var bucket = BucketStart(item.CreatedAt, bucketSize);
+            if (!buckets.TryGetValue(bucket, out var point))
+            {
+                point = new SystemStatsTimelinePointDto { Bucket = bucket };
+                buckets[bucket] = point;
+            }
+
+            switch (item.Kind)
+            {
+                case "users":
+                    point.Users++;
+                    break;
+                case "pings":
+                    point.Pings++;
+                    if (item.IsSos) point.Sos++;
+                    break;
+                case "posts":
+                    point.Posts++;
+                    break;
+                case "notifications":
+                    point.Notifications++;
+                    break;
+                case "reports":
+                    point.Reports++;
+                    break;
+            }
+        }
+
+        var activities = new List<SystemStatsActivityDto>();
+
+        if (includePings)
+        {
+            activities.AddRange(await _db.Pings
+                .AsNoTracking()
+                .Where(p => p.CreatedAt >= fromDate && p.CreatedAt <= toDate)
+                .OrderByDescending(p => p.CreatedAt)
+                .Take(20)
+                .Select(p => new SystemStatsActivityDto
+                {
+                    Kind = "pings",
+                    Id = p.Id.ToString(),
+                    Title = p.Type == MapItemType.SOS ? $"SOS #{p.Id}" : $"{p.Type} #{p.Id}",
+                    Subtitle = p.Details,
+                    Status = p.Status.ToString(),
+                    CreatedAt = p.CreatedAt,
+                })
+                .ToListAsync());
+        }
+
+        if (includePosts)
+        {
+            activities.AddRange(await _db.Posts
+                .AsNoTracking()
+                .Where(p => p.CreatedAt >= fromDate && p.CreatedAt <= toDate)
+                .OrderByDescending(p => p.CreatedAt)
+                .Take(20)
+                .Select(p => new SystemStatsActivityDto
+                {
+                    Kind = "posts",
+                    Id = p.Id.ToString(),
+                    Title = $"Post #{p.Id}",
+                    Subtitle = p.Content,
+                    Status = p.Category.ToString(),
+                    CreatedAt = p.CreatedAt,
+                })
+                .ToListAsync());
+        }
+
+        if (includeUsers)
+        {
+            activities.AddRange(await _db.Users
+                .AsNoTracking()
+                .Where(u => u.CreatedAt >= fromDate && u.CreatedAt <= toDate)
+                .OrderByDescending(u => u.CreatedAt)
+                .Take(20)
+                .Select(u => new SystemStatsActivityDto
+                {
+                    Kind = "users",
+                    Id = u.Id,
+                    Title = u.FullName ?? u.UserName ?? "New user",
+                    Subtitle = u.Email,
+                    Status = u.Role.ToString(),
+                    CreatedAt = u.CreatedAt,
+                })
+                .ToListAsync());
+        }
+
+        if (includeReports)
+        {
+            activities.AddRange(await _db.Reports
+                .AsNoTracking()
+                .Where(r => r.CreatedAt >= fromDate && r.CreatedAt <= toDate)
+                .OrderByDescending(r => r.CreatedAt)
+                .Take(20)
+                .Select(r => new SystemStatsActivityDto
+                {
+                    Kind = "reports",
+                    Id = r.Id.ToString(),
+                    Title = $"Report #{r.Id}",
+                    Subtitle = r.Reason,
+                    Status = r.Status.ToString(),
+                    CreatedAt = r.CreatedAt,
+                })
+                .ToListAsync());
+        }
+
+        if (includeNotifications)
+        {
+            activities.AddRange(await _db.Notifications
+                .AsNoTracking()
+                .Where(n => n.CreatedAt >= fromDate && n.CreatedAt <= toDate)
+                .OrderByDescending(n => n.CreatedAt)
+                .Take(20)
+                .Select(n => new SystemStatsActivityDto
+                {
+                    Kind = "notifications",
+                    Id = n.Id.ToString(),
+                    Title = "Notification",
+                    Subtitle = n.MessageText,
+                    Status = n.IsRead ? "Read" : "Unread",
+                    CreatedAt = n.CreatedAt,
+                })
+                .ToListAsync());
+        }
+
+        return Ok(new SystemStatsTimelineDto
+        {
+            From = fromDate,
+            To = toDate,
+            Granularity = bucketSize,
+            Series = buckets.Values.OrderBy(p => p.Bucket).ToList(),
+            Activities = activities
+                .OrderByDescending(a => a.CreatedAt)
+                .Take(50)
+                .Select(a =>
+                {
+                    a.Subtitle = TruncateActivitySubtitle(a.Subtitle);
+                    return a;
+                })
+                .ToList(),
+        });
     }
 
     // ═══════════════════════════════════════════

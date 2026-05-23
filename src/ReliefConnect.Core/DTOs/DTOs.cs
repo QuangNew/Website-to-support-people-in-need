@@ -226,7 +226,27 @@ public class PingResponseDto
     public string? ContactEmail { get; set; }
     public string? ConditionImageUrl { get; set; }
     public bool IsBlinking { get; set; }
+    public bool IsNewForViewer { get; set; }
+    public bool IsPinnedForViewer { get; set; }
+    public bool RequiresViewerAttention { get; set; }
+    public DateTime? ViewedAt { get; set; }
+    public DateTime? PinnedAt { get; set; }
     public string? AvatarUrl { get; set; }
+}
+
+public class PingAttentionRequestDto
+{
+    public List<int> PingIds { get; set; } = new();
+}
+
+public class PingAttentionDto
+{
+    public int PingId { get; set; }
+    public bool IsNewForViewer { get; set; }
+    public bool IsPinnedForViewer { get; set; }
+    public bool RequiresViewerAttention { get; set; }
+    public DateTime? ViewedAt { get; set; }
+    public DateTime? PinnedAt { get; set; }
 }
 
 public class UpdatePingStatusDto
@@ -463,6 +483,36 @@ public class SystemStatsDto
     public int TotalPostsEducation { get; set; }
     public int PendingVerifications { get; set; }
     public int PendingReports { get; set; }
+}
+
+public class SystemStatsTimelineDto
+{
+    public DateTime From { get; set; }
+    public DateTime To { get; set; }
+    public string Granularity { get; set; } = "day";
+    public List<SystemStatsTimelinePointDto> Series { get; set; } = [];
+    public List<SystemStatsActivityDto> Activities { get; set; } = [];
+}
+
+public class SystemStatsTimelinePointDto
+{
+    public DateTime Bucket { get; set; }
+    public int Users { get; set; }
+    public int Pings { get; set; }
+    public int Sos { get; set; }
+    public int Posts { get; set; }
+    public int Notifications { get; set; }
+    public int Reports { get; set; }
+}
+
+public class SystemStatsActivityDto
+{
+    public string Kind { get; set; } = string.Empty;
+    public string Id { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+    public string? Subtitle { get; set; }
+    public string? Status { get; set; }
+    public DateTime CreatedAt { get; set; }
 }
 
 public class SuspendUserDto

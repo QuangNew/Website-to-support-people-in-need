@@ -1,8 +1,8 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using System.Security.Claims;
 using ReliefConnect.API.Extensions;
 using ReliefConnect.Core.DTOs;
@@ -28,6 +28,7 @@ public class MapController : ControllerBase
     private readonly ILogger<MapController> _logger;
     private readonly ISpamGuardService _spamGuard;
     private readonly AppDbContext _db;
+    private readonly IServiceScopeFactory _scopeFactory;
 
     public MapController(
         IPingRepository pingRepo,
@@ -35,7 +36,8 @@ public class MapController : ControllerBase
         INotificationService notifications,
         ILogger<MapController> logger,
         ISpamGuardService spamGuard,
-        AppDbContext db)
+        AppDbContext db,
+        IServiceScopeFactory scopeFactory)
     {
         _pingRepo = pingRepo;
         _userManager = userManager;
@@ -43,6 +45,7 @@ public class MapController : ControllerBase
         _logger = logger;
         _spamGuard = spamGuard;
         _db = db;
+        _scopeFactory = scopeFactory;
     }
 
     // ─────────────────────────────────────
@@ -53,7 +56,6 @@ public class MapController : ControllerBase
     /// Public endpoint — guests can view the map.
     /// </summary>
     [HttpGet("pings")]
-    [OutputCache(PolicyName = "MapData30s")]
     public async Task<ActionResult<IEnumerable<PingResponseDto>>> GetPings(
         [FromQuery] double? lat,
         [FromQuery] double? lng,
@@ -79,8 +81,7 @@ public class MapController : ControllerBase
             pings = await _pingRepo.GetAllAsync(limit: 500);
         }
 
-        var dtos = pings.Select(ping => MapPingToDto(ping, includeSensitiveContact));
-        return Ok(dtos);
+        return Ok(pings.Select(ping => MapPingToDto(ping, includeSensitiveContact)));
     }
 
     // ─────────────────────────────────────
@@ -93,7 +94,10 @@ public class MapController : ControllerBase
         if (ping == null)
             return NotFound(new ApiErrorResponse { StatusCode = 404, Message = "Không tìm thấy điểm cứu trợ." });
 
-        return Ok(MapPingToDto(ping, CanViewSensitivePingContact(GetViewerRole())));
+        var viewerUserId = GetViewerUserId();
+        var viewerState = await MarkPingViewedAsync(ping, viewerUserId);
+
+        return Ok(MapPingToDto(ping, CanViewSensitivePingContact(GetViewerRole()), viewerState, viewerUserId));
     }
 
     // ─────────────────────────────────────
@@ -191,42 +195,32 @@ public class MapController : ControllerBase
         _logger.LogInformation("Ping created: Id={PingId}, Type={Type}, User={UserId}", created.Id, dto.Type, userId);
         await this.LogUserActivity(_db, "PingCreated", $"Created {created.Type} ping #{created.Id}; ping={created.Id}; status={created.Status}", userId, currentUser.DisplayName ?? currentUser.UserName);
 
-        // Notify volunteers about new SOS request
-        if (ping.Type == MapItemType.SOS)
+        // Notify all active users about new map pings.
+        var notificationMessage = ping.Type == MapItemType.SOS
+            ? $"SOS mới từ {contactName}: {(ping.Details?.Length > 100 ? ping.Details[..100] + "…" : ping.Details ?? "Không có chi tiết")}"
+            : $"Ping mới ({ping.Type}) #{created.Id}: {(ping.Details?.Length > 100 ? ping.Details[..100] + "…" : ping.Details ?? "Không có chi tiết")}";
+        try
         {
-            var detail = ping.Details?.Length > 100 ? ping.Details[..100] + "…" : ping.Details ?? "Không có chi tiết";
-            try
-            {
-                await _notifications.SendToRoleAsync((int)Core.Enums.RoleEnum.Volunteer,
-                    $"SOS mới từ {contactName}: {detail}");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to send volunteer notification for SOS {PingId}", created.Id);
-            }
+            var targetUserIds = await _db.Users
+                .AsNoTracking()
+                .Where(u => !u.IsSuspended)
+                .Select(u => u.Id)
+                .ToListAsync();
+
+            QueueSystemNotification(targetUserIds, notificationMessage, created.Id);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to queue system-wide notification for ping {PingId}", created.Id);
         }
 
         var includeSensitiveContact = CanViewSensitivePingContact(currentUser.Role);
 
-        var responseDto = new PingResponseDto
-        {
-            Id = created.Id,
-            Lat = created.CoordinatesLat,
-            Lng = created.CoordinatesLong,
-            Type = created.Type.ToString(),
-            Status = created.Status.ToString(),
-            PriorityLevel = created.PriorityLevel,
-            Details = created.Details,
-            SOSCategory = created.SOSCategory?.ToString()?.ToLowerInvariant(),
-            CreatedAt = created.CreatedAt,
-            UserId = userId,
-            UserName = contactName ?? currentUser.DisplayName,
-            ContactName = contactName ?? currentUser.DisplayName,
-            ContactPhone = includeSensitiveContact ? contactPhone : null,
-            ContactEmail = includeSensitiveContact ? currentUser.Email : null,
-            ConditionImageUrl = conditionImageUrl,
-            IsBlinking = false,
-        };
+        var responseDto = MapPingToDto(created, includeSensitiveContact, viewerUserId: userId);
+        responseDto.UserName = contactName ?? currentUser.DisplayName;
+        responseDto.ContactName = contactName ?? currentUser.DisplayName;
+        responseDto.ContactPhone = includeSensitiveContact ? contactPhone : null;
+        responseDto.ContactEmail = includeSensitiveContact ? currentUser.Email : null;
 
         if (spamCheck.Verdict == SpamVerdict.Warning)
             return CreatedAtAction(nameof(GetPingById), new { id = created.Id }, new { ping = responseDto, spamWarning = spamCheck.WarningMessage });
@@ -278,7 +272,9 @@ public class MapController : ControllerBase
             _logger.LogWarning(ex, "Failed to send owner notification for ping {PingId}", id);
         }
 
-        return Ok(MapPingToDto(ping, CanViewSensitivePingContact(GetViewerRole())));
+        var viewerUserId = GetViewerUserId();
+        var viewerState = await LoadViewerPingStateAsync(viewerUserId, ping.Id);
+        return Ok(MapPingToDto(ping, CanViewSensitivePingContact(GetViewerRole()), viewerState, viewerUserId));
     }
 
     // ─────────────────────────────────────
@@ -319,7 +315,8 @@ public class MapController : ControllerBase
             _logger.LogWarning(ex, "Failed to send volunteer safe-confirmation notification for ping {PingId}", id);
         }
 
-        return Ok(MapPingToDto(ping, CanViewSensitivePingContact(GetViewerRole())));
+        var viewerState = await LoadViewerPingStateAsync(userId, ping.Id);
+        return Ok(MapPingToDto(ping, CanViewSensitivePingContact(GetViewerRole()), viewerState, userId));
     }
 
     // ─────────────────────────────────────
@@ -332,6 +329,146 @@ public class MapController : ControllerBase
         var pings = await _pingRepo.GetPingsByUserAsync(userId);
         var includeSensitiveContact = CanViewSensitivePingContact(GetViewerRole());
         return Ok(pings.Select(ping => MapPingToDto(ping, includeSensitiveContact)));
+    }
+
+    // ─────────────────────────────────────
+    // POST /api/map/pings/attention
+    // ─────────────────────────────────────
+    [HttpPost("pings/attention")]
+    [Authorize]
+    public async Task<ActionResult<IEnumerable<PingAttentionDto>>> GetPingAttention([FromBody] PingAttentionRequestDto? dto)
+    {
+        var viewerUserId = GetViewerUserId();
+        if (string.IsNullOrEmpty(viewerUserId))
+            return Unauthorized();
+
+        var ids = (dto?.PingIds ?? new List<int>())
+            .Where(id => id > 0)
+            .Distinct()
+            .Take(500)
+            .ToList();
+
+        if (ids.Count == 0)
+            return Ok(Array.Empty<PingAttentionDto>());
+
+        var pings = await _db.Pings
+            .AsNoTracking()
+            .Where(p => ids.Contains(p.Id))
+            .Select(p => new
+            {
+                p.Id,
+                p.Type,
+                p.Status,
+                p.UserId,
+            })
+            .ToListAsync();
+
+        var viewerStates = await LoadViewerPingStatesAsync(viewerUserId, ids);
+        var attention = pings.Select(ping =>
+        {
+            viewerStates.TryGetValue(ping.Id, out var viewerState);
+            var isNewForViewer = IsNewForViewer(ping.Type, ping.Status, ping.UserId, viewerState, viewerUserId);
+            var isPinnedForViewer = viewerState?.IsPinned == true;
+
+            return new PingAttentionDto
+            {
+                PingId = ping.Id,
+                IsNewForViewer = isNewForViewer,
+                IsPinnedForViewer = isPinnedForViewer,
+                RequiresViewerAttention = isNewForViewer || isPinnedForViewer,
+                ViewedAt = viewerState?.ViewedAt,
+                PinnedAt = viewerState?.PinnedAt,
+            };
+        });
+
+        return Ok(attention);
+    }
+
+    // ─────────────────────────────────────
+    // PUT /api/map/pings/{id}/pin
+    // ─────────────────────────────────────
+    [HttpPut("pings/{id:int}/pin")]
+    [Authorize]
+    public async Task<ActionResult<PingResponseDto>> PinPing(int id)
+    {
+        var viewerUserId = GetViewerUserId();
+        if (string.IsNullOrEmpty(viewerUserId))
+            return Unauthorized();
+
+        var ping = await _pingRepo.GetPingWithFlagAsync(id);
+        if (ping == null)
+            return NotFound(new ApiErrorResponse { StatusCode = 404, Message = "Không tìm thấy điểm cứu trợ." });
+
+        if (ping.Type != MapItemType.SOS)
+            return BadRequest(new ApiErrorResponse { StatusCode = 400, Message = "Chỉ có thể ghim ping SOS." });
+
+        var now = DateTime.UtcNow;
+        var state = await _db.PingUserStates
+            .FirstOrDefaultAsync(s => s.UserId == viewerUserId && s.PingId == id);
+
+        if (state?.IsPinned != true)
+        {
+            var pinnedCount = await _db.PingUserStates
+                .AsNoTracking()
+                .CountAsync(s => s.UserId == viewerUserId && s.IsPinned);
+
+            if (pinnedCount >= 5)
+            {
+                return BadRequest(new ApiErrorResponse
+                {
+                    StatusCode = 400,
+                    Message = "Bạn chỉ có thể ghim tối đa 5 ping SOS cùng lúc.",
+                });
+            }
+
+            if (state == null)
+            {
+                state = new PingUserState
+                {
+                    PingId = id,
+                    UserId = viewerUserId,
+                    CreatedAt = now,
+                };
+                _db.PingUserStates.Add(state);
+            }
+
+            state.IsPinned = true;
+            state.PinnedAt = now;
+            state.ViewedAt ??= now;
+            state.UpdatedAt = now;
+            await _db.SaveChangesAsync();
+        }
+
+        return Ok(MapPingToDto(ping, CanViewSensitivePingContact(GetViewerRole()), state, viewerUserId));
+    }
+
+    // ─────────────────────────────────────
+    // DELETE /api/map/pings/{id}/pin
+    // ─────────────────────────────────────
+    [HttpDelete("pings/{id:int}/pin")]
+    [Authorize]
+    public async Task<ActionResult<PingResponseDto>> UnpinPing(int id)
+    {
+        var viewerUserId = GetViewerUserId();
+        if (string.IsNullOrEmpty(viewerUserId))
+            return Unauthorized();
+
+        var ping = await _pingRepo.GetPingWithFlagAsync(id);
+        if (ping == null)
+            return NotFound(new ApiErrorResponse { StatusCode = 404, Message = "Không tìm thấy điểm cứu trợ." });
+
+        var state = await _db.PingUserStates
+            .FirstOrDefaultAsync(s => s.UserId == viewerUserId && s.PingId == id);
+
+        if (state != null)
+        {
+            state.IsPinned = false;
+            state.PinnedAt = null;
+            state.UpdatedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync();
+        }
+
+        return Ok(MapPingToDto(ping, CanViewSensitivePingContact(GetViewerRole()), state, viewerUserId));
     }
 
     // ─────────────────────────────────────
@@ -351,27 +488,139 @@ public class MapController : ControllerBase
         return NoContent();
     }
 
-    // ─── DTO Mapping ───
-    private static PingResponseDto MapPingToDto(Ping ping, bool includeSensitiveContact) => new()
+    private void QueueSystemNotification(IReadOnlyCollection<string> targetUserIds, string message, int pingId)
     {
-        Id = ping.Id,
-        Lat = ping.CoordinatesLat,
-        Lng = ping.CoordinatesLong,
-        Type = ping.Type.ToString(),
-        Status = ping.Status.ToString(),
-        PriorityLevel = ping.PriorityLevel,
-        Details = ping.Details,
-        SOSCategory = ping.SOSCategory?.ToString()?.ToLowerInvariant(),
-        CreatedAt = ping.CreatedAt,
-        UserId = ping.UserId,
-        UserName = ping.ContactName ?? ping.User?.FullName ?? ping.User?.UserName,
-        ContactName = ping.ContactName ?? ping.User?.FullName ?? ping.User?.UserName,
-        ContactPhone = includeSensitiveContact ? ping.ContactPhone ?? ping.User?.PhoneNumber : null,
-        ContactEmail = includeSensitiveContact ? ping.User?.Email : null,
-        ConditionImageUrl = ping.ConditionImageUrl,
-        IsBlinking = ping.PingFlag?.IsBlinking ?? false,
-        AvatarUrl = ping.User?.AvatarUrl,
-    };
+        if (targetUserIds.Count == 0)
+            return;
+
+        _ = Task.Run(async () =>
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var notifications = scope.ServiceProvider.GetRequiredService<INotificationService>();
+            var logger = scope.ServiceProvider.GetRequiredService<ILogger<MapController>>();
+
+            try
+            {
+                await notifications.SendToManyAsync(targetUserIds, message);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to send system-wide notification for ping {PingId}", pingId);
+            }
+        });
+    }
+
+    // ─── DTO Mapping ───
+    private async Task<Dictionary<int, PingUserState>> LoadViewerPingStatesAsync(string? viewerUserId, IEnumerable<int> pingIds)
+    {
+        if (string.IsNullOrEmpty(viewerUserId))
+            return new Dictionary<int, PingUserState>();
+
+        var ids = pingIds.Distinct().ToList();
+        if (ids.Count == 0)
+            return new Dictionary<int, PingUserState>();
+
+        return await _db.PingUserStates
+            .AsNoTracking()
+            .Where(s => s.UserId == viewerUserId && ids.Contains(s.PingId))
+            .ToDictionaryAsync(s => s.PingId);
+    }
+
+    private async Task<PingUserState?> LoadViewerPingStateAsync(string? viewerUserId, int pingId)
+    {
+        if (string.IsNullOrEmpty(viewerUserId))
+            return null;
+
+        return await _db.PingUserStates
+            .AsNoTracking()
+            .FirstOrDefaultAsync(s => s.UserId == viewerUserId && s.PingId == pingId);
+    }
+
+    private async Task<PingUserState?> MarkPingViewedAsync(Ping ping, string? viewerUserId)
+    {
+        if (string.IsNullOrEmpty(viewerUserId) || ping.Type != MapItemType.SOS)
+            return await LoadViewerPingStateAsync(viewerUserId, ping.Id);
+
+        var now = DateTime.UtcNow;
+        var state = await _db.PingUserStates
+            .FirstOrDefaultAsync(s => s.UserId == viewerUserId && s.PingId == ping.Id);
+
+        if (state == null)
+        {
+            state = new PingUserState
+            {
+                PingId = ping.Id,
+                UserId = viewerUserId,
+                ViewedAt = now,
+                CreatedAt = now,
+                UpdatedAt = now,
+            };
+            _db.PingUserStates.Add(state);
+        }
+        else if (state.ViewedAt == null)
+        {
+            state.ViewedAt = now;
+            state.UpdatedAt = now;
+        }
+
+        await _db.SaveChangesAsync();
+        return state;
+    }
+
+    private static bool IsNewForViewer(Ping ping, PingUserState? viewerState, string? viewerUserId)
+    {
+        return IsNewForViewer(ping.Type, ping.Status, ping.UserId, viewerState, viewerUserId);
+    }
+
+    private static bool IsNewForViewer(
+        MapItemType pingType,
+        SOSStatus pingStatus,
+        string pingOwnerId,
+        PingUserState? viewerState,
+        string? viewerUserId)
+    {
+        return !string.IsNullOrEmpty(viewerUserId)
+            && pingType == MapItemType.SOS
+            && pingStatus is SOSStatus.Pending or SOSStatus.InProgress
+            && pingOwnerId != viewerUserId
+            && viewerState?.ViewedAt == null;
+    }
+
+    private static PingResponseDto MapPingToDto(
+        Ping ping,
+        bool includeSensitiveContact,
+        PingUserState? viewerState = null,
+        string? viewerUserId = null)
+    {
+        var isNewForViewer = IsNewForViewer(ping, viewerState, viewerUserId);
+        var isPinnedForViewer = viewerState?.IsPinned == true;
+
+        return new PingResponseDto
+        {
+            Id = ping.Id,
+            Lat = ping.CoordinatesLat,
+            Lng = ping.CoordinatesLong,
+            Type = ping.Type.ToString(),
+            Status = ping.Status.ToString(),
+            PriorityLevel = ping.PriorityLevel,
+            Details = ping.Details,
+            SOSCategory = ping.SOSCategory?.ToString()?.ToLowerInvariant(),
+            CreatedAt = ping.CreatedAt,
+            UserId = ping.UserId,
+            UserName = ping.ContactName ?? ping.User?.FullName ?? ping.User?.UserName,
+            ContactName = ping.ContactName ?? ping.User?.FullName ?? ping.User?.UserName,
+            ContactPhone = includeSensitiveContact ? ping.ContactPhone ?? ping.User?.PhoneNumber : null,
+            ContactEmail = includeSensitiveContact ? ping.User?.Email : null,
+            ConditionImageUrl = ping.ConditionImageUrl,
+            IsBlinking = ping.PingFlag?.IsBlinking ?? false,
+            IsNewForViewer = isNewForViewer,
+            IsPinnedForViewer = isPinnedForViewer,
+            RequiresViewerAttention = isNewForViewer || isPinnedForViewer,
+            ViewedAt = viewerState?.ViewedAt,
+            PinnedAt = viewerState?.PinnedAt,
+            AvatarUrl = ping.User?.AvatarUrl,
+        };
+    }
 
     private RoleEnum? GetViewerRole()
     {
@@ -381,6 +630,13 @@ public class MapController : ControllerBase
         var roleValue = User.FindFirstValue("Role") ?? User.FindFirstValue(ClaimTypes.Role);
         return Enum.TryParse<RoleEnum>(roleValue, true, out var role)
             ? role
+            : null;
+    }
+
+    private string? GetViewerUserId()
+    {
+        return User.Identity?.IsAuthenticated == true
+            ? User.FindFirstValue(ClaimTypes.NameIdentifier)
             : null;
     }
 

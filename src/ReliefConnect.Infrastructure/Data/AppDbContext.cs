@@ -14,6 +14,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
 
     public DbSet<Ping> Pings => Set<Ping>();
     public DbSet<PingFlag> PingFlags => Set<PingFlag>();
+    public DbSet<PingUserState> PingUserStates => Set<PingUserState>();
     public DbSet<Zone> Zones => Set<Zone>();
     public DbSet<SupplyItem> SupplyItems => Set<SupplyItem>();
     public DbSet<Post> Posts => Set<Post>();
@@ -134,6 +135,27 @@ public class AppDbContext : IdentityDbContext<ApplicationUser>
         builder.Entity<PingFlag>(entity =>
         {
             entity.HasKey(f => f.Id);
+        });
+
+        // ═══════ PING USER STATE ═══════
+        builder.Entity<PingUserState>(entity =>
+        {
+            entity.HasKey(s => s.Id);
+            entity.Property(s => s.UserId).IsRequired();
+
+            entity.HasIndex(s => new { s.UserId, s.PingId }).IsUnique();
+            entity.HasIndex(s => new { s.UserId, s.IsPinned });
+            entity.HasIndex(s => s.PingId);
+
+            entity.HasOne(s => s.Ping)
+                  .WithMany()
+                  .HasForeignKey(s => s.PingId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(s => s.User)
+                  .WithMany()
+                  .HasForeignKey(s => s.UserId)
+                  .OnDelete(DeleteBehavior.Cascade);
         });
 
         // ═══════ ZONE ═══════

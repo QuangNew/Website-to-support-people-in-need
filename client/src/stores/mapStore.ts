@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { mapApi, supplyApi } from '../services/api';
+import { getApiAuthToken, mapApi, supplyApi } from '../services/api';
 
 export type PingType = 'need_help' | 'offering' | 'received' | 'support_point';
 export type PanelType = 'list' | 'social' | 'chat' | 'profile' | 'verify' | 'guide' | 'my-sos' | 'volunteer' | 'sponsor' | 'messages' | null;
@@ -20,9 +20,23 @@ export interface PingData {
     conditionImageUrl?: string;
     status: 'active' | 'resolved' | 'expired';
     isBlinking?: boolean;
+    isNewForViewer?: boolean;
+    isPinnedForViewer?: boolean;
+    requiresViewerAttention?: boolean;
+    viewedAt?: string;
+    pinnedAt?: string;
     sosCategory?: string;
     userId?: string;
     userAvatarUrl?: string;
+}
+
+interface PingAttentionPayload {
+    pingId: number;
+    isNewForViewer?: boolean;
+    isPinnedForViewer?: boolean;
+    requiresViewerAttention?: boolean;
+    viewedAt?: string | null;
+    pinnedAt?: string | null;
 }
 
 export interface ZoneData {
@@ -30,6 +44,7 @@ export interface ZoneData {
     name: string;
     riskLevel: number;
     boundary: Array<{ lat: number; lng: number }>;
+    boundaries?: Array<Array<{ lat: number; lng: number }>>;
 }
 
 export interface SupplyData {
@@ -724,6 +739,8 @@ export function mapBackendPing(payload: Record<string, unknown>): PingData {
         : typeof payload.userName === 'string' && payload.userName.trim().length > 0
             ? payload.userName
             : undefined;
+    const isNewForViewer = Boolean(payload.isNewForViewer);
+    const isPinnedForViewer = Boolean(payload.isPinnedForViewer);
 
     return {
         id: String(payload.id),
@@ -741,9 +758,69 @@ export function mapBackendPing(payload: Record<string, unknown>): PingData {
         contactEmail: typeof payload.contactEmail === 'string' ? payload.contactEmail : undefined,
         conditionImageUrl: typeof payload.conditionImageUrl === 'string' ? payload.conditionImageUrl : undefined,
         isBlinking: Boolean(payload.isBlinking),
+        isNewForViewer,
+        isPinnedForViewer,
+        requiresViewerAttention: Boolean(payload.requiresViewerAttention) || isPinnedForViewer,
+        viewedAt: typeof payload.viewedAt === 'string' ? payload.viewedAt : undefined,
+        pinnedAt: typeof payload.pinnedAt === 'string' ? payload.pinnedAt : undefined,
         sosCategory: typeof payload.sosCategory === 'string' ? payload.sosCategory : undefined,
         userId: typeof payload.userId === 'string' && payload.userId.trim().length > 0 ? payload.userId : undefined,
         userAvatarUrl: typeof payload.avatarUrl === 'string' && payload.avatarUrl.trim().length > 0 ? payload.avatarUrl : undefined,
+    };
+}
+
+function mapPingAttention(payload: PingAttentionPayload): Partial<PingData> {
+    return {
+        isNewForViewer: Boolean(payload.isNewForViewer),
+        isPinnedForViewer: Boolean(payload.isPinnedForViewer),
+        requiresViewerAttention: Boolean(payload.requiresViewerAttention),
+        viewedAt: typeof payload.viewedAt === 'string' ? payload.viewedAt : undefined,
+        pinnedAt: typeof payload.pinnedAt === 'string' ? payload.pinnedAt : undefined,
+    };
+}
+
+async function enrichPingsWithAttention(pings: PingData[]): Promise<PingData[]> {
+    if (pings.length === 0 || !getApiAuthToken()) {
+        return pings;
+    }
+
+    const pingIds = pings
+        .map((ping) => Number(ping.id))
+        .filter((id) => Number.isFinite(id) && id > 0);
+
+    if (pingIds.length === 0) {
+        return pings;
+    }
+
+    try {
+        const response = await mapApi.getPingAttention({ pingIds });
+        const attentionById = new Map<string, Partial<PingData>>();
+
+        for (const item of response.data as PingAttentionPayload[]) {
+            if (typeof item.pingId === 'number') {
+                attentionById.set(String(item.pingId), mapPingAttention(item));
+            }
+        }
+
+        return pings.map((ping) => ({
+            ...ping,
+            ...(attentionById.get(ping.id) ?? {}),
+        }));
+    } catch {
+        return pings;
+    }
+}
+
+function mergePingViewerState(previous: PingData | undefined, next: PingData): PingData {
+    if (!previous?.isPinnedForViewer || next.isPinnedForViewer) {
+        return next;
+    }
+
+    return {
+        ...next,
+        isPinnedForViewer: true,
+        requiresViewerAttention: true,
+        pinnedAt: previous.pinnedAt,
     };
 }
 
@@ -823,8 +900,16 @@ export const useMapStore = create<MapState>((set, get) => ({
         set({ pingsLoading: true });
         try {
             const res = await mapApi.getPings();
-            const backendPings = (res.data as Array<Record<string, unknown>>).map(mapBackendPing);
-            set({ pings: backendPings, pingsLoading: false });
+            const backendPings = await enrichPingsWithAttention(
+                (res.data as Array<Record<string, unknown>>).map(mapBackendPing)
+            );
+            set((state) => {
+                const previousById = new Map(state.pings.map((ping) => [ping.id, ping]));
+                return {
+                    pings: backendPings.map((ping) => mergePingViewerState(previousById.get(ping.id), ping)),
+                    pingsLoading: false,
+                };
+            });
             // Reset bounds cache since we just loaded the full dataset
             cachedPingsBounds = null;
             lastFetchedBoundsKey = '';
@@ -880,13 +965,16 @@ export const useMapStore = create<MapState>((set, get) => ({
                 lng: centerLng,
                 radiusKm: Math.max(radiusKm, 20), // 20km minimum; backend validates ≤10000km
             });
-            const backendPings = (res.data as Array<Record<string, unknown>>).map(mapBackendPing);
+            const backendPings = await enrichPingsWithAttention(
+                (res.data as Array<Record<string, unknown>>).map(mapBackendPing)
+            );
 
             // Merge new pings with existing cache (upsert by ID)
             set((state) => {
                 const pingMap = new Map(state.pings.map((p) => [p.id, p]));
                 for (const ping of backendPings) {
-                    pingMap.set(ping.id, ping); // overwrite with fresh data
+                    const previous = pingMap.get(ping.id);
+                    pingMap.set(ping.id, mergePingViewerState(previous, { ...(previous ?? {}), ...ping }));
                 }
                 return { pings: Array.from(pingMap.values()), pingsLoading: false };
             });
@@ -914,24 +1002,30 @@ export const useMapStore = create<MapState>((set, get) => ({
             const res = await mapApi.getZones();
             const backendZones: ZoneData[] = (res.data as Array<Record<string, unknown>>).map((z) => {
                 // Parse GeoJSON boundary string into coordinate array
-                let boundary: Array<{ lat: number; lng: number }> = [];
+                let boundaries: Array<Array<{ lat: number; lng: number }>> = [];
                 try {
                     const geoJson = typeof z.boundaryGeoJson === 'string'
                         ? JSON.parse(z.boundaryGeoJson)
                         : z.boundaryGeoJson;
+                    const toBoundary = (ring: number[][]) => ring.map((coord: number[]) => ({
+                        lat: coord[1],
+                        lng: coord[0],
+                    }));
+
                     // Support GeoJSON Polygon: { type: "Polygon", coordinates: [[[lng, lat], ...]] }
                     if (geoJson?.type === 'Polygon' && Array.isArray(geoJson.coordinates?.[0])) {
-                        boundary = geoJson.coordinates[0].map((coord: number[]) => ({
-                            lat: coord[1],
-                            lng: coord[0],
-                        }));
+                        boundaries = [toBoundary(geoJson.coordinates[0])];
+                    }
+                    // Support GeoJSON MultiPolygon: { type: "MultiPolygon", coordinates: [[[[lng, lat], ...]], ...] }
+                    else if (geoJson?.type === 'MultiPolygon' && Array.isArray(geoJson.coordinates)) {
+                        boundaries = geoJson.coordinates
+                            .map((polygon: number[][][]) => polygon[0])
+                            .filter((ring: number[][] | undefined): ring is number[][] => Array.isArray(ring))
+                            .map(toBoundary);
                     }
                     // Support plain coordinate array: [[lng, lat], ...]
                     else if (Array.isArray(geoJson)) {
-                        boundary = geoJson.map((coord: number[]) => ({
-                            lat: coord[1],
-                            lng: coord[0],
-                        }));
+                        boundaries = [toBoundary(geoJson)];
                     }
                 } catch {
                     console.warn('[MapStore] Failed to parse zone boundary:', z.id);
@@ -940,7 +1034,8 @@ export const useMapStore = create<MapState>((set, get) => ({
                     id: z.id as number,
                     name: (z.name as string) || '',
                     riskLevel: (z.riskLevel as number) || 1,
-                    boundary,
+                    boundary: boundaries[0] ?? [],
+                    boundaries,
                 };
             });
             set({ zones: backendZones });

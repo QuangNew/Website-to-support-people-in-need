@@ -112,6 +112,36 @@ export interface SystemStats {
   pendingReports: number;
 }
 
+export type StatsGranularity = 'hour' | 'day' | 'month' | 'year';
+export type StatsActivityType = 'all' | 'users' | 'pings' | 'posts' | 'notifications' | 'reports';
+
+export interface SystemStatsTimelinePoint {
+  bucket: string;
+  users: number;
+  pings: number;
+  sos: number;
+  posts: number;
+  notifications: number;
+  reports: number;
+}
+
+export interface SystemStatsActivity {
+  kind: StatsActivityType;
+  id: string;
+  title: string;
+  subtitle?: string;
+  status?: string;
+  createdAt: string;
+}
+
+export interface SystemStatsTimeline {
+  from: string;
+  to: string;
+  granularity: StatsGranularity;
+  series: SystemStatsTimelinePoint[];
+  activities: SystemStatsActivity[];
+}
+
 export interface PagedResponse<T> {
   items: T[];
   total: number;

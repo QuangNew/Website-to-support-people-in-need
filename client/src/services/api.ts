@@ -1,6 +1,7 @@
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios';
 import toast from 'react-hot-toast';
 import { uploadToStorage } from './supabase';
+import type { StatsActivityType, StatsGranularity } from '../types/admin';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 const PUBLIC_AUTH_TIMEOUT_MS = 30000;
@@ -218,6 +219,9 @@ export const mapApi = {
   getPingById: (id: number) =>
     api.get(`/map/pings/${id}`),
 
+  getPingAttention: (data: { pingIds: number[] }) =>
+    api.post('/map/pings/attention', data),
+
   createPing: (data: {
     lat: number;
     lng: number;
@@ -235,6 +239,12 @@ export const mapApi = {
 
   confirmSafe: (id: number) =>
     api.post(`/map/pings/${id}/confirm-safe`),
+
+  pinPing: (id: number) =>
+    api.put(`/map/pings/${id}/pin`),
+
+  unpinPing: (id: number) =>
+    api.delete(`/map/pings/${id}/pin`),
 
   // Routes: handled client-side via OSRM (OpenStreetMap), no backend proxy needed
 
@@ -428,6 +438,14 @@ export const adminApi = {
   // ── System Operations (AdminSystemController: /api/admin/system) ──
   getStats: () =>
     api.get('/admin/system/stats'),
+
+  getStatsTimeline: (params?: {
+    from?: string;
+    to?: string;
+    granularity?: StatsGranularity;
+    activityType?: StatsActivityType;
+  }) =>
+    api.get('/admin/system/stats/timeline', { params }),
 
   getLogs: (params?: { from?: string; to?: string; action?: string; adminsOnly?: boolean; userId?: string; page?: number; pageSize?: number }) =>
     api.get('/admin/system/logs', { params }),

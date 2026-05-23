@@ -1,4 +1,4 @@
-import { Fragment, useState, useEffect, useCallback, useRef } from 'react';
+import { Fragment, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Users, Shield, FileText, Flag, ScrollText, Megaphone, BarChart3,
@@ -7,6 +7,7 @@ import {
   ArrowLeft, Search, CheckCircle2, XCircle, AlertTriangle,
   Heart, BookOpen, Stethoscope, Home, Activity, ShieldCheck, Plus, Edit2,
   MapPin, Package, X, Key, RotateCcw, Image as ImageIcon,
+  CalendarDays, Clock3, Filter, LineChart, BellRing,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
@@ -26,6 +27,10 @@ import type {
   Report,
   Announcement,
   SystemStats,
+  SystemStatsTimeline,
+  SystemStatsTimelinePoint,
+  StatsActivityType,
+  StatsGranularity,
   PagedResponse,
   DeletedPost,
   HiddenComment,
@@ -104,6 +109,44 @@ function VerificationImageGallery({
           <img src={getImageUrl(imageUrl)} alt={`${altPrefix} ${index + 1}`} />
         </a>
       ))}
+    </div>
+  );
+}
+
+function AdminAvatar({ imageUrl, fallback }: { imageUrl?: string | null; fallback: string }) {
+  const [failed, setFailed] = useState(false);
+  const [retry, setRetry] = useState(0);
+
+  useEffect(() => {
+    setFailed(false);
+    setRetry(0);
+  }, [imageUrl]);
+
+  const resolvedUrl = imageUrl && !failed ? getImageUrl(imageUrl) : '';
+  const src = resolvedUrl && retry > 0
+    ? `${resolvedUrl}${resolvedUrl.includes('?') ? '&' : '?'}retry=${retry}`
+    : resolvedUrl;
+  const initial = fallback.trim().charAt(0).toUpperCase() || 'U';
+
+  return (
+    <div className="admin-avatar" style={{ background: 'var(--bg-subtle)' }}>
+      {src ? (
+        <img
+          src={src}
+          alt=""
+          loading="eager"
+          decoding="async"
+          onError={() => {
+            if (retry < 2) {
+              window.setTimeout(() => setRetry((value) => value + 1), 800 * (retry + 1));
+              return;
+            }
+            setFailed(true);
+          }}
+        />
+      ) : (
+        <span>{initial}</span>
+      )}
     </div>
   );
 }
@@ -281,27 +324,277 @@ export default function AdminPage() {
 //  STATS PANEL
 // ═══════════════════════════════════════════
 
+type StatsRangePreset = '24h' | 'day' | 'month' | 'year' | 'custom';
+type StatsView = 'overview' | 'activity';
+
+const STATS_ACTIVITY_OPTIONS: Array<{ value: StatsActivityType; label: string }> = [
+  { value: 'all', label: 'All activity' },
+  { value: 'users', label: 'Users' },
+  { value: 'pings', label: 'Pings' },
+  { value: 'posts', label: 'Posts' },
+  { value: 'notifications', label: 'Notifications' },
+  { value: 'reports', label: 'Reports' },
+];
+
+function toLocalInputValue(date: Date): string {
+  const offset = date.getTimezoneOffset();
+  const local = new Date(date.getTime() - offset * 60_000);
+  return local.toISOString().slice(0, 16);
+}
+
+function parseLocalDate(value: string, fallback: Date): Date {
+  const parsed = value ? new Date(value) : fallback;
+  return Number.isNaN(parsed.getTime()) ? fallback : parsed;
+}
+
+function getStatsRangeParams(
+  preset: StatsRangePreset,
+  customFrom: string,
+  customTo: string,
+  activityType: StatsActivityType
+): { from: string; to: string; granularity: StatsGranularity; activityType: StatsActivityType } {
+  const now = new Date();
+  let fromDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  let toDate = now;
+  let granularity: StatsGranularity = 'hour';
+
+  if (preset === 'day') {
+    fromDate = new Date(now);
+    fromDate.setHours(0, 0, 0, 0);
+    granularity = 'hour';
+  } else if (preset === 'month') {
+    fromDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    granularity = 'day';
+  } else if (preset === 'year') {
+    fromDate = new Date(now.getFullYear(), 0, 1);
+    granularity = 'month';
+  } else if (preset === 'custom') {
+    toDate = parseLocalDate(customTo, now);
+    fromDate = parseLocalDate(customFrom, new Date(toDate.getTime() - 24 * 60 * 60 * 1000));
+    const rangeMs = Math.abs(toDate.getTime() - fromDate.getTime());
+    granularity = rangeMs <= 2 * 24 * 60 * 60 * 1000 ? 'hour' : rangeMs <= 370 * 24 * 60 * 60 * 1000 ? 'day' : 'month';
+  }
+
+  return {
+    from: fromDate.toISOString(),
+    to: toDate.toISOString(),
+    granularity,
+    activityType,
+  };
+}
+
+function getPointTotal(point: SystemStatsTimelinePoint): number {
+  return point.users + point.pings + point.posts + point.notifications + point.reports;
+}
+
+function formatBucketLabel(bucket: string, granularity: StatsGranularity): string {
+  const date = new Date(bucket);
+  if (granularity === 'hour') {
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+  if (granularity === 'month') {
+    return date.toLocaleDateString([], { month: 'short' });
+  }
+  if (granularity === 'year') {
+    return String(date.getFullYear());
+  }
+  return date.toLocaleDateString([], { day: '2-digit', month: '2-digit' });
+}
+
+function StatsTimelineChart({ timeline }: { timeline: SystemStatsTimeline | null }) {
+  const points = timeline?.series ?? [];
+  const maxValue = Math.max(1, ...points.map(getPointTotal));
+
+  return (
+    <div className="glass-card" style={{ padding: 'var(--sp-4)', marginTop: 'var(--sp-4)', borderRadius: 'var(--radius-lg)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--sp-3)', marginBottom: 'var(--sp-4)' }}>
+        <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', color: 'var(--text-primary)' }}>
+          <LineChart size={18} /> Timeline
+        </h3>
+        {timeline && (
+          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+            {new Date(timeline.from).toLocaleString()} - {new Date(timeline.to).toLocaleString()}
+          </span>
+        )}
+      </div>
+
+      {points.length === 0 ? (
+        <div className="admin-empty" style={{ minHeight: 180 }}>
+          <BarChart3 size={32} />
+          <p>No data in this range</p>
+        </div>
+      ) : (
+        <div style={{ overflowX: 'auto', paddingBottom: 4 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${points.length}, minmax(18px, 1fr))`, gap: 8, alignItems: 'end', minHeight: 240, minWidth: Math.max(520, points.length * 26) }}>
+            {points.map((point) => {
+              const total = getPointTotal(point);
+              const sosShare = point.pings > 0 ? Math.max(0, Math.min(100, (point.sos / point.pings) * 100)) : 0;
+              return (
+                <div key={point.bucket} title={`${formatBucketLabel(point.bucket, timeline?.granularity ?? 'day')}: ${total}`} style={{ minWidth: 0 }}>
+                  <div style={{ height: 190, display: 'flex', alignItems: 'end', borderBottom: '1px solid var(--border-subtle)' }}>
+                    <div
+                      style={{
+                        width: '100%',
+                        minHeight: total > 0 ? 6 : 2,
+                        height: `${Math.max(2, (total / maxValue) * 100)}%`,
+                        borderRadius: 6,
+                        background: `linear-gradient(to top, var(--primary-500) ${100 - sosShare}%, var(--danger-500) ${100 - sosShare}%)`,
+                        opacity: total > 0 ? 0.95 : 0.28,
+                      }}
+                    />
+                  </div>
+                  <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: 6, textAlign: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {formatBucketLabel(point.bucket, timeline?.granularity ?? 'day')}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--sp-3)', marginTop: 'var(--sp-3)', fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+        <span>Users: {points.reduce((sum, p) => sum + p.users, 0)}</span>
+        <span>Pings: {points.reduce((sum, p) => sum + p.pings, 0)}</span>
+        <span>SOS: {points.reduce((sum, p) => sum + p.sos, 0)}</span>
+        <span>Posts: {points.reduce((sum, p) => sum + p.posts, 0)}</span>
+        <span>Notifications: {points.reduce((sum, p) => sum + p.notifications, 0)}</span>
+        <span>Reports: {points.reduce((sum, p) => sum + p.reports, 0)}</span>
+      </div>
+    </div>
+  );
+}
+
+function StatsActivityList({ timeline, expanded = false }: { timeline: SystemStatsTimeline | null; expanded?: boolean }) {
+  const activities = timeline?.activities ?? [];
+
+  return (
+    <div className="glass-card" style={{ padding: 'var(--sp-4)', marginTop: expanded ? 'var(--sp-4)' : 0, borderRadius: 'var(--radius-lg)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--sp-3)', marginBottom: 'var(--sp-3)' }}>
+        <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', color: 'var(--text-primary)' }}>
+          <Clock3 size={18} /> Hoạt động
+        </h3>
+        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>{activities.length} mục</span>
+      </div>
+      {activities.length === 0 ? (
+        <div className="admin-empty" style={{ minHeight: expanded ? 260 : 120 }}>
+          <Filter size={28} />
+          <p>No matching activity</p>
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gap: 'var(--sp-2)' }}>
+          {activities.map((item) => (
+            <div key={`${item.kind}-${item.id}-${item.createdAt}`} style={{ display: 'grid', gridTemplateColumns: expanded ? 'minmax(96px, auto) minmax(0, 1fr) minmax(190px, auto)' : 'minmax(72px, auto) 1fr auto', gap: 'var(--sp-3)', alignItems: 'center', padding: expanded ? 'var(--sp-3) 0' : 'var(--sp-2) 0', borderBottom: '1px solid var(--border-subtle)' }}>
+              <span className="admin-badge">{item.kind}</span>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontWeight: 700, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.title}</div>
+                {item.subtitle && (
+                  <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.subtitle}</div>
+                )}
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
+                {item.status && <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>{item.status}</span>}
+                <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{new Date(item.createdAt).toLocaleString()}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+type StatsCardConfig = {
+  label: string;
+  value: number;
+  icon: typeof Users;
+  color: string;
+  bg: string;
+};
+
+function StatsMetricCard({ card }: { card: StatsCardConfig }) {
+  return (
+    <div className="admin-stat-card glass-card">
+      <div className="admin-stat-card__icon" style={{ background: card.bg, color: card.color }}>
+        <card.icon size={22} />
+      </div>
+      <div className="admin-stat-card__info">
+        <span className="admin-stat-card__value">{card.value}</span>
+        <span className="admin-stat-card__label">{card.label}</span>
+      </div>
+    </div>
+  );
+}
+
+function StatsMetricRows({ title, icon: Icon, items }: { title: string; icon: typeof Users; items: StatsCardConfig[] }) {
+  return (
+    <div className="glass-card" style={{ padding: 'var(--sp-4)', borderRadius: 'var(--radius-lg)' }}>
+      <h3 style={{ margin: '0 0 var(--sp-3)', display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', color: 'var(--text-primary)' }}>
+        <Icon size={18} /> {title}
+      </h3>
+      <div style={{ display: 'grid', gap: 'var(--sp-3)' }}>
+        {items.map((item) => (
+          <div key={item.label} style={{ display: 'grid', gridTemplateColumns: '36px 1fr auto', alignItems: 'center', gap: 'var(--sp-3)' }}>
+            <div style={{ width: 36, height: 36, borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', justifyContent: 'center', background: item.bg, color: item.color }}>
+              <item.icon size={17} />
+            </div>
+            <span style={{ minWidth: 0, color: 'var(--text-secondary)', fontSize: 'var(--text-sm)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {item.label}
+            </span>
+            <strong style={{ color: 'var(--text-primary)', fontSize: 'var(--text-lg)' }}>{item.value}</strong>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function StatsPanel() {
   const { t } = useLanguage();
   const [stats, setStats] = useState<SystemStats | null>(null);
+  const [timeline, setTimeline] = useState<SystemStatsTimeline | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [statsView, setStatsView] = useState<StatsView>('overview');
+  const [rangePreset, setRangePreset] = useState<StatsRangePreset>('24h');
+  const [activityType, setActivityType] = useState<StatsActivityType>('all');
+  const [customFrom, setCustomFrom] = useState(() => toLocalInputValue(new Date(Date.now() - 24 * 60 * 60 * 1000)));
+  const [customTo, setCustomTo] = useState(() => toLocalInputValue(new Date()));
+
+  const timelineParams = useMemo(
+    () => getStatsRangeParams(rangePreset, customFrom, customTo, activityType),
+    [activityType, customFrom, customTo, rangePreset]
+  );
 
   const load = useCallback(() => {
     setLoading(true);
     setError(false);
-    adminApi.getStats()
-      .then((res) => { setStats(res.data); setLastUpdated(new Date()); })
+    Promise.all([
+      adminApi.getStats(),
+      adminApi.getStatsTimeline(timelineParams),
+    ])
+      .then(([statsRes, timelineRes]) => {
+        setStats(statsRes.data as SystemStats);
+        setTimeline(timelineRes.data as SystemStatsTimeline);
+        setLastUpdated(new Date());
+      })
       .catch(() => setError(true))
       .finally(() => setLoading(false));
-  }, []);
+  }, [timelineParams]);
 
   const silentRefresh = useCallback(() => {
-    adminApi.getStats()
-      .then((res) => { setStats(res.data); setLastUpdated(new Date()); })
+    Promise.all([
+      adminApi.getStats(),
+      adminApi.getStatsTimeline(timelineParams),
+    ])
+      .then(([statsRes, timelineRes]) => {
+        setStats(statsRes.data as SystemStats);
+        setTimeline(timelineRes.data as SystemStatsTimeline);
+        setLastUpdated(new Date());
+      })
       .catch(() => {});
-  }, []);
+  }, [timelineParams]);
 
   useEffect(() => { load(); }, [load]);
   useAutoRefresh(silentRefresh, 60_000);
@@ -334,7 +627,7 @@ function StatsPanel() {
 
   if (!stats) return null;
 
-  const cards = [
+  const cards: StatsCardConfig[] = [
     { label: t('admin.totalUsers'), value: stats.totalUsers, icon: Users, color: 'var(--accent-400)', bg: 'rgba(6, 182, 212, 0.1)' },
     { label: t('admin.personsInNeed'), value: stats.totalPersonsInNeed, icon: AlertTriangle, color: 'var(--danger-500)', bg: 'rgba(239, 68, 68, 0.1)' },
     { label: t('admin.sponsors'), value: stats.totalSponsors, icon: Heart, color: 'var(--primary-400)', bg: 'rgba(249, 115, 22, 0.1)' },
@@ -345,54 +638,124 @@ function StatsPanel() {
     { label: 'Pending Reports', value: stats.pendingReports, icon: Flag, color: 'var(--danger-500)', bg: 'rgba(239, 68, 68, 0.1)' },
   ];
 
-  const postCards = [
+  const postCards: StatsCardConfig[] = [
     { label: t('admin.totalPosts'), value: stats.totalPosts, icon: FileText, color: 'var(--info-500)', bg: 'rgba(59, 130, 246, 0.1)' },
     { label: t('admin.postsLivelihood'), value: stats.totalPostsLivelihood, icon: Home, color: 'var(--primary-400)', bg: 'rgba(249, 115, 22, 0.1)' },
     { label: t('admin.postsMedical'), value: stats.totalPostsMedical, icon: Stethoscope, color: 'var(--danger-500)', bg: 'rgba(239, 68, 68, 0.1)' },
     { label: t('admin.postsEducation'), value: stats.totalPostsEducation, icon: BookOpen, color: 'var(--accent-400)', bg: 'rgba(6, 182, 212, 0.1)' },
   ];
+  const audienceCards = cards.slice(0, 4);
+  const operationsCards = cards.slice(4);
+  const rangeControls = (
+    <div className="glass-card" style={{ padding: 'var(--sp-4)', borderRadius: 'var(--radius-lg)' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 'var(--sp-3)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', color: 'var(--text-secondary)', fontWeight: 700 }}>
+          <CalendarDays size={17} />
+          <span>Statistics Range</span>
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--sp-2)' }}>
+          {[
+            ['24h', '24h'],
+            ['day', 'Day'],
+            ['month', 'Month'],
+            ['year', 'Year'],
+            ['custom', 'Custom'],
+          ].map(([value, label]) => (
+            <button
+              key={value}
+              className={`btn btn-sm ${rangePreset === value ? 'btn-primary' : 'btn-ghost'}`}
+              onClick={() => setRangePreset(value as StatsRangePreset)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', marginLeft: 'auto', color: 'var(--text-secondary)', fontSize: 'var(--text-sm)' }}>
+          <BellRing size={15} />
+          <select
+            className="admin-select"
+            value={activityType}
+            onChange={(e) => setActivityType(e.target.value as StatsActivityType)}
+          >
+            {STATS_ACTIVITY_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+      {rangePreset === 'custom' && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--sp-3)', marginTop: 'var(--sp-3)' }}>
+          <label style={{ display: 'grid', gap: 6, fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+            From
+            <input className="admin-select" type="datetime-local" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} />
+          </label>
+          <label style={{ display: 'grid', gap: 6, fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+            To
+            <input className="admin-select" type="datetime-local" value={customTo} onChange={(e) => setCustomTo(e.target.value)} />
+          </label>
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <div className="animate-fade-in-up">
-      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 'var(--sp-2)', marginBottom: 'var(--sp-3)' }}>
-        {lastUpdated && (
-          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
-            {t('admin.lastUpdated')} {lastUpdated.toLocaleTimeString()}
-          </span>
-        )}
-        <button className="btn btn-ghost btn-sm" onClick={load} title={t('admin.refresh')}>
-          <RefreshCw size={13} />
-        </button>
-      </div>
-      <div className="admin-stats-grid">
-        {cards.map((c) => (
-          <div key={c.label} className="admin-stat-card glass-card">
-            <div className="admin-stat-card__icon" style={{ background: c.bg, color: c.color }}>
-              <c.icon size={22} />
-            </div>
-            <div className="admin-stat-card__info">
-              <span className="admin-stat-card__value">{c.value}</span>
-              <span className="admin-stat-card__label">{c.label}</span>
-            </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 'var(--sp-4)', marginBottom: 'var(--sp-4)' }}>
+        <div>
+          <h2 style={{ margin: 0, color: 'var(--text-primary)', fontSize: 'var(--text-xl)' }}>
+            {statsView === 'overview' ? 'System Overview' : 'Hoạt động'}
+          </h2>
+          {lastUpdated && (
+            <span style={{ display: 'block', marginTop: 4, fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+              {t('admin.lastUpdated')} {lastUpdated.toLocaleTimeString()}
+            </span>
+          )}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
+          <div style={{ display: 'flex', gap: 'var(--sp-1)', padding: 3, borderRadius: 'var(--radius-md)', background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)' }}>
+            <button
+              className={`btn btn-sm ${statsView === 'overview' ? 'btn-primary' : 'btn-ghost'}`}
+              onClick={() => setStatsView('overview')}
+            >
+              <BarChart3 size={13} /> Tổng quan
+            </button>
+            <button
+              className={`btn btn-sm ${statsView === 'activity' ? 'btn-primary' : 'btn-ghost'}`}
+              onClick={() => setStatsView('activity')}
+            >
+              <Clock3 size={13} /> Hoạt động
+            </button>
           </div>
-        ))}
+          <button className="btn btn-secondary btn-sm" onClick={load} title={t('admin.refresh')}>
+            <RefreshCw size={13} /> {t('admin.refresh')}
+          </button>
+        </div>
       </div>
-      <h3 style={{ marginTop: 'var(--sp-6)', marginBottom: 'var(--sp-3)', color: 'var(--text-secondary)' }}>
-        {t('admin.posts')}
-      </h3>
-      <div className="admin-stats-grid">
-        {postCards.map((c) => (
-          <div key={c.label} className="admin-stat-card glass-card">
-            <div className="admin-stat-card__icon" style={{ background: c.bg, color: c.color }}>
-              <c.icon size={22} />
-            </div>
-            <div className="admin-stat-card__info">
-              <span className="admin-stat-card__value">{c.value}</span>
-              <span className="admin-stat-card__label">{c.label}</span>
-            </div>
+
+      {statsView === 'overview' ? (
+        <>
+          <div className="admin-stats-grid">
+            {audienceCards.map((card) => <StatsMetricCard key={card.label} card={card} />)}
           </div>
-        ))}
-      </div>
+
+          <div className="admin-stats-dashboard-grid">
+            <div style={{ minWidth: 0 }}>
+              {rangeControls}
+              <StatsTimelineChart timeline={timeline} />
+            </div>
+
+            <aside style={{ display: 'grid', gap: 'var(--sp-4)', minWidth: 0 }}>
+              <StatsMetricRows title="Operations" icon={Activity} items={operationsCards} />
+              <StatsMetricRows title={t('admin.posts')} icon={FileText} items={postCards} />
+            </aside>
+          </div>
+        </>
+      ) : (
+        <div style={{ display: 'grid', gap: 'var(--sp-4)' }}>
+          {rangeControls}
+          <StatsActivityList timeline={timeline} expanded />
+        </div>
+      )}
     </div>
   );
 }
@@ -525,11 +888,7 @@ function VerificationsPanel() {
                     </td>
                     <td>
                       <div className="admin-user-cell">
-                        <div className="admin-avatar" style={{ background: 'var(--bg-subtle)' }}>
-                          {v.avatarUrl
-                            ? <img src={getImageUrl(v.avatarUrl)} alt="" loading="lazy" decoding="async" />
-                            : <span>{v.fullName.charAt(0)}</span>}
-                        </div>
+                        <AdminAvatar imageUrl={v.avatarUrl} fallback={v.fullName} />
                         <div>
                           <div className="admin-user-name">{v.fullName}</div>
                           <div className="admin-user-sub">@{v.userName}</div>
@@ -795,11 +1154,7 @@ function UsersPanel() {
                     <td>
                       <button className="admin-user-trigger" onClick={() => openUserDetail(u)}>
                         <div className="admin-user-cell">
-                          <div className="admin-avatar" style={{ background: 'var(--bg-subtle)' }}>
-                            {u.avatarUrl
-                              ? <img src={getImageUrl(u.avatarUrl)} alt="" loading="lazy" decoding="async" />
-                              : <span>{u.fullName.charAt(0)}</span>}
-                          </div>
+                          <AdminAvatar imageUrl={u.avatarUrl} fallback={u.fullName} />
                           <div>
                             <div className="admin-user-name">{u.fullName}</div>
                             <div className="admin-user-sub">@{u.userName}</div>
@@ -2705,7 +3060,7 @@ function ZonesPanel() {
   const handleProvinceSelect = (provinceName: string) => {
     setSelectedProvince(provinceName);
     if (!provinceName) return;
-    const province = VIETNAM_PROVINCES.find((p) => p.name === provinceName);
+    const province = VIETNAM_PROVINCES.find((p) => p.code === provinceName);
     if (province) {
       setForm((f) => ({
         ...f,
@@ -2764,6 +3119,8 @@ function ZonesPanel() {
 
   if (loading) return <div className="admin-loading"><span className="spinner" /></div>;
 
+  const selectedProvinceMeta = VIETNAM_PROVINCES.find((p) => p.code === selectedProvince);
+
   return (
     <div className="animate-fade-in-up">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--sp-4)' }}>
@@ -2795,12 +3152,20 @@ function ZonesPanel() {
                 >
                   <option value="">— Choose a province/city —</option>
                   {VIETNAM_PROVINCES.map((p) => (
-                    <option key={p.name} value={p.name}>{p.nameVi}</option>
+                    <option key={p.code} value={p.code}>{p.code} — {p.nameVi}</option>
                   ))}
                 </select>
-                <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', margin: 'var(--sp-1) 0 0' }}>
-                  Or enter custom name and GeoJSON below.
-                </p>
+                {selectedProvinceMeta ? (
+                  <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: 'var(--sp-2)', lineHeight: 1.5 }}>
+                    <div>Center: {selectedProvinceMeta.center[0].toFixed(6)}, {selectedProvinceMeta.center[1].toFixed(6)}</div>
+                    <div>Merged from: {selectedProvinceMeta.mergedFrom}</div>
+                    <div>Source ID: {selectedProvinceMeta.sourceId}</div>
+                  </div>
+                ) : (
+                  <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', margin: 'var(--sp-1) 0 0' }}>
+                    Or enter custom name and GeoJSON below.
+                  </p>
+                )}
               </div>
             )}
             <input

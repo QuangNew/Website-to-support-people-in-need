@@ -78,7 +78,8 @@ const pingIconCache = new Map<string, L.DivIcon>();
 /** Create a Leaflet DivIcon for a ping marker (cached) */
 function createPingIcon(ping: PingData, isSelected: boolean): L.DivIcon {
   const cat = ping.type === 'need_help' && ping.sosCategory ? ping.sosCategory.toLowerCase() : '';
-  const cacheKey = `${ping.type}|${cat}|${isSelected ? 1 : 0}|${ping.isBlinking ? 1 : 0}`;
+  const hasAttention = ping.requiresViewerAttention === true;
+  const cacheKey = `${ping.type}|${cat}|${isSelected ? 1 : 0}|${ping.isBlinking ? 1 : 0}|${hasAttention ? 1 : 0}|${ping.isPinnedForViewer ? 1 : 0}`;
 
   let icon = pingIconCache.get(cacheKey);
   if (icon) return icon;
@@ -94,11 +95,12 @@ function createPingIcon(ping: PingData, isSelected: boolean): L.DivIcon {
     svg = PING_SVGS[ping.type];
   }
   const isPulsing = ping.isBlinking === true;
+  const attentionBadge = hasAttention ? '<span class="map-marker-attention" aria-hidden="true">!</span>' : '';
   icon = L.divIcon({
     className: '', // no default leaflet icon styles
     iconSize: [36, 36],
     iconAnchor: [18, 18],
-    html: `<button class="map-marker ${isSelected ? 'map-marker-selected' : ''} ${isPulsing ? 'map-marker-pulse' : ''}" style="background-color:${color}" aria-label="${ping.type}">${svg}</button>`,
+    html: `<button class="map-marker ${isSelected ? 'map-marker-selected' : ''} ${isPulsing ? 'map-marker-pulse' : ''}" style="background-color:${color}" aria-label="${ping.type}">${svg}${attentionBadge}</button>`,
   });
 
   pingIconCache.set(cacheKey, icon);
@@ -414,29 +416,32 @@ export default function MapView() {
     const map = mapRef.current;
 
     for (const zone of zones) {
-      if (zone.boundary.length < 3) continue;
+      const boundaries = zone.boundaries?.length ? zone.boundaries : [zone.boundary];
       const color = ZONE_COLORS[zone.riskLevel] || ZONE_COLORS[3];
       const isHighRisk = zone.riskLevel >= 4;
-      const latLngs: L.LatLngExpression[] = zone.boundary.map((b) => [b.lat, b.lng]);
+      for (const boundary of boundaries) {
+        if (boundary.length < 3) continue;
+        const latLngs: L.LatLngExpression[] = boundary.map((b) => [b.lat, b.lng]);
 
-      const polygon = L.polygon(latLngs, {
-        color: isHighRisk ? '#ef4444' : color,
-        weight: isHighRisk ? 3 : 2,
-        opacity: isHighRisk ? 1 : 0.8,
-        fillColor: color,
-        fillOpacity: isDark ? (isHighRisk ? 0.25 : 0.2) : (isHighRisk ? 0.2 : 0.15),
-        dashArray: isHighRisk ? undefined : '6, 4',
-      });
+        const polygon = L.polygon(latLngs, {
+          color: isHighRisk ? '#ef4444' : color,
+          weight: isHighRisk ? 3 : 2,
+          opacity: isHighRisk ? 1 : 0.8,
+          fillColor: color,
+          fillOpacity: isDark ? (isHighRisk ? 0.25 : 0.2) : (isHighRisk ? 0.2 : 0.15),
+          dashArray: isHighRisk ? undefined : '6, 4',
+        });
 
-      polygon.bindPopup(
-        `<div style="font-family:Inter,sans-serif;padding:2px 4px">
-          <strong>${zone.name}</strong><br/>
-          <span style="color:${color}">Mức độ rủi ro: ${zone.riskLevel}/5</span>
-        </div>`,
-      );
+        polygon.bindPopup(
+          `<div style="font-family:Inter,sans-serif;padding:2px 4px">
+            <strong>${zone.name}</strong><br/>
+            <span style="color:${color}">Mức độ rủi ro: ${zone.riskLevel}/5</span>
+          </div>`,
+        );
 
-      polygon.addTo(map);
-      zoneLayersRef.current.push(polygon);
+        polygon.addTo(map);
+        zoneLayersRef.current.push(polygon);
+      }
     }
   }, [zones, showZones, status, isDark]);
 

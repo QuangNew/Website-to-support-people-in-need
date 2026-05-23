@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using ReliefConnect.Core.Entities;
 using ReliefConnect.Core.Enums;
 using ReliefConnect.Core.Interfaces;
 using ReliefConnect.Infrastructure.Data;
@@ -26,42 +27,56 @@ public class NotificationService : INotificationService
         _logger = logger;
     }
 
-    private Task InsertNotificationAsync(string userId, string message)
+    private async Task InsertNotificationsAsync(IReadOnlyCollection<string> userIds, string message)
     {
         var createdAt = DateTime.UtcNow;
-        return _db.Database.ExecuteSqlInterpolatedAsync(
-            $@"INSERT INTO ""Notifications"" (""CreatedAt"", ""IsRead"", ""MessageText"", ""UserId"")
-               VALUES ({createdAt}, {false}, {message}, {userId})");
+        var notifications = userIds.Select(userId => new Notification
+        {
+            UserId = userId,
+            MessageText = message,
+            IsRead = false,
+            CreatedAt = createdAt,
+        });
+
+        _db.Notifications.AddRange(notifications);
+        await _db.SaveChangesAsync();
     }
 
-    private async Task PublishUnreadCountChangedAsync(string userId)
+    private async Task PublishUnreadCountsChangedAsync(IReadOnlyCollection<string> userIds)
     {
-        var unreadCount = await _db.Notifications
+        var unreadCounts = await _db.Notifications
             .AsNoTracking()
-            .CountAsync(n => n.UserId == userId && !n.IsRead);
+            .Where(n => userIds.Contains(n.UserId) && !n.IsRead)
+            .GroupBy(n => n.UserId)
+            .Select(g => new { UserId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(item => item.UserId, item => item.Count);
 
-        await _realtimeDispatcher.PublishUnreadCountChangedAsync(userId, unreadCount);
+        await Task.WhenAll(userIds.Select(userId =>
+            _realtimeDispatcher.PublishUnreadCountChangedAsync(
+                userId,
+                unreadCounts.GetValueOrDefault(userId))));
     }
 
     /// <inheritdoc />
     public async Task SendAsync(string userId, string message)
     {
-        await InsertNotificationAsync(userId, message);
-        await PublishUnreadCountChangedAsync(userId);
+        var ids = new[] { userId };
+        await InsertNotificationsAsync(ids, message);
+        await PublishUnreadCountsChangedAsync(ids);
         _logger.LogDebug("Notification sent to user {UserId}", userId);
     }
 
     /// <inheritdoc />
     public async Task SendToManyAsync(IEnumerable<string> userIds, string message)
     {
-        var ids = userIds.ToList();
+        var ids = userIds
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
         if (ids.Count == 0) return;
 
-        foreach (var userId in ids)
-        {
-            await InsertNotificationAsync(userId, message);
-            await PublishUnreadCountChangedAsync(userId);
-        }
+        await InsertNotificationsAsync(ids, message);
+        await PublishUnreadCountsChangedAsync(ids);
         _logger.LogDebug("Notification sent to {Count} users", ids.Count);
     }
 
