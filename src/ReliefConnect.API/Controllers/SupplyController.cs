@@ -142,6 +142,26 @@ public class SupplyController : ControllerBase
             supply.Quantity = dto.Quantity.Value;
         }
 
+        if (dto.Lat.HasValue != dto.Lng.HasValue)
+            return BadRequest(new ApiErrorResponse
+            {
+                StatusCode = 400,
+                Message = "Vĩ độ và kinh độ phải được cập nhật cùng nhau."
+            });
+
+        if (dto.Lat.HasValue && dto.Lng.HasValue)
+        {
+            if (!IsInsideVietnamTerritory(dto.Lat.Value, dto.Lng.Value))
+                return BadRequest(new ApiErrorResponse
+                {
+                    StatusCode = 400,
+                    Message = "Điểm cung cấp phải nằm trong lãnh thổ Việt Nam."
+                });
+
+            supply.CoordinatesLat = dto.Lat.Value;
+            supply.CoordinatesLong = dto.Lng.Value;
+        }
+
         await _db.SaveChangesAsync();
         _logger.LogInformation("Supply item updated: Id={SupplyId}", id);
 

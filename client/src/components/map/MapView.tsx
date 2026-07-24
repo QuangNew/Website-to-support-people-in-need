@@ -3,13 +3,19 @@ import { AlertCircle, RefreshCw } from 'lucide-react';
 import L from 'leaflet';
 import type {} from 'leaflet.markercluster';
 import 'leaflet/dist/leaflet.css';
+import 'maplibre-gl/dist/maplibre-gl.css';
+import '@maplibre/maplibre-gl-leaflet';
 import 'leaflet.markercluster/dist/leaflet.markercluster.js';
 import 'leaflet.markercluster/dist/MarkerCluster.css';
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
 import { useMapStore, type PingData, type PingType, type SupplyData } from '../../stores/mapStore';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useLanguage } from '../../contexts/LanguageContext';
-import { ISLAND_ZONES } from '../../utils/vietnamTerritory';
+import { loadVietnamBasemapStyle } from './vietnamBasemapStyle';
+import {
+  loadVietnamIslandTerritories,
+  type VietnamIslandTerritory,
+} from './vietnamTerritoryOverlay';
 
 // ─── Vietnam bounds (rectangle covering mainland + islands, 1.2× padding) ───
 // Vietnam extent including Paracel & Spratly islands: ~6.5°N–23.4°N, ~102.1°E–117.8°E
@@ -19,11 +25,10 @@ const VIETNAM_BOUNDS: L.LatLngBoundsExpression = [
   [25.09, 119.37], // Northeast corner (with 1.2× padding)
 ];
 
-// ─── Tile layer URLs ───
-const LIGHT_TILES = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
-const DARK_TILES = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
-const TILE_ATTRIBUTION =
-  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+const TERRITORY_DATA_ATTRIBUTION =
+  'Địa giới Hoàng Sa &amp; Trường Sa: ' +
+  '<a href="https://github.com/thanglequoc/vietnamese-provinces-database" ' +
+  'target="_blank" rel="noopener noreferrer">Vietnamese Provinces Database</a>';
 
 // ─── Ping marker colors & SVG icons ───
 const PING_COLORS: Record<PingType, string> = {
@@ -139,6 +144,38 @@ const ZONE_COLORS: Record<number, string> = {
   5: '#dc2626', // Dark red — critical
 };
 
+function getTerritoryPathStyle(isDark: boolean): L.PathOptions {
+  return {
+    color: isDark ? '#facc15' : '#dc2626',
+    weight: 2,
+    opacity: 0.95,
+    fillColor: isDark ? '#facc15' : '#ef4444',
+    fillOpacity: isDark ? 0.12 : 0.1,
+  };
+}
+
+function createTerritoryIcon(territory: VietnamIslandTerritory): L.DivIcon {
+  return L.divIcon({
+    className: 'vietnam-territory-marker-wrap',
+    iconSize: [190, 48],
+    iconAnchor: [95, 24],
+    html: `
+      <button
+        type="button"
+        class="vietnam-territory-marker"
+        data-territory="${territory.id}"
+        aria-label="${territory.nameVi} — lãnh thổ Việt Nam"
+      >
+        <span class="vietnam-territory-marker__emblem" aria-hidden="true">★</span>
+        <span class="vietnam-territory-marker__text">
+          <strong>${territory.nameVi}</strong>
+          <small>Lãnh thổ Việt Nam</small>
+        </span>
+      </button>
+    `,
+  });
+}
+
 // ─── Main Component ───
 export default function MapView() {
   const {
@@ -152,7 +189,8 @@ export default function MapView() {
 
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
-  const tileRef = useRef<L.TileLayer | null>(null);
+  const basemapRef = useRef<L.MaplibreGL | null>(null);
+  const appliedBasemapThemeRef = useRef<boolean | null>(null);
   const markersRef = useRef<Map<string, L.Marker>>(new Map());
   const clusterGroupRef = useRef<L.MarkerClusterGroup | null>(null);
   const zoneLayersRef = useRef<L.Polygon[]>([]);
@@ -162,7 +200,7 @@ export default function MapView() {
   const supplyLayerRef = useRef<L.LayerGroup | null>(null);
   const supplyMarkersRef = useRef<Map<number, L.Marker>>(new Map());
   const islandMarkersRef = useRef<L.Marker[]>([]);
-  const territoryLineRef = useRef<L.Polygon | null>(null);
+  const territoryLayersRef = useRef<L.GeoJSON[]>([]);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [errorMsg, setErrorMsg] = useState('');
 
@@ -197,68 +235,122 @@ export default function MapView() {
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
 
-    try {
-      const map = L.map(containerRef.current, {
-        center: [center.lat, center.lng],
-        zoom,
-        minZoom: 5,
-        maxZoom: 18,
-        maxBounds: VIETNAM_BOUNDS,
-        maxBoundsViscosity: 0.8,
-        zoomControl: false,
-        attributionControl: false,
-      });
+    let disposed = false;
+    const abortController = new AbortController();
 
-      const tileUrl = isDark ? DARK_TILES : LIGHT_TILES;
-      const tile = L.tileLayer(tileUrl, {
-        attribution: TILE_ATTRIBUTION,
-        maxZoom: 19,
-      }).addTo(map);
+    const initializeMap = async () => {
+      try {
+        const [basemapStyle, territories] = await Promise.all([
+          loadVietnamBasemapStyle(isDark, abortController.signal),
+          loadVietnamIslandTerritories(abortController.signal),
+        ]);
+        if (disposed || !containerRef.current) return;
 
-      // Sync store on user interaction with debounced pings fetch
-      map.on('moveend', () => {
-        const c = map.getCenter();
-        setCenter({ lat: c.lat, lng: c.lng });
-        debouncedFetchInBounds();
-      });
-      map.on('zoomend', () => {
-        setZoom(map.getZoom());
-        debouncedFetchInBounds();
-      });
-      map.on('click', () => {
-        selectPing(null);
-      });
+        const map = L.map(containerRef.current, {
+          center: [center.lat, center.lng],
+          zoom,
+          minZoom: 5,
+          maxZoom: 18,
+          maxBounds: VIETNAM_BOUNDS,
+          maxBoundsViscosity: 0.8,
+          zoomControl: false,
+          preferCanvas: true,
+        });
 
-      mapRef.current = map;
-      tileRef.current = tile;
+        map.attributionControl.setPrefix(false);
+        map.attributionControl.addAttribution(TERRITORY_DATA_ATTRIBUTION);
 
-      // Create marker cluster group
-      const clusterGroup = L.markerClusterGroup({
-        maxClusterRadius: 60,
-        spiderfyOnMaxZoom: true,
-        showCoverageOnHover: false,
-        zoomToBoundsOnClick: true,
-        disableClusteringAtZoom: 15,
-        spiderfyDistanceMultiplier: 1.5,
-        chunkedLoading: true,
-      });
-      map.addLayer(clusterGroup);
-      clusterGroupRef.current = clusterGroup;
+        const basemap = L.maplibreGL({
+          style: basemapStyle,
+          maxZoom: 18,
+        }).addTo(map);
 
-      const supplyLayer = L.layerGroup();
-      map.addLayer(supplyLayer);
-      supplyLayerRef.current = supplyLayer;
+        mapRef.current = map;
+        basemapRef.current = basemap;
+        appliedBasemapThemeRef.current = isDark;
 
-      setStatus('ready');
+        // Draw the locally bundled Vietnamese administrative geometry above
+        // the basemap, then keep a permanent Vietnamese label at every zoom.
+        for (const territory of territories) {
+          const territoryLayer = L.geoJSON(territory.geoJson, {
+            interactive: false,
+            style: getTerritoryPathStyle(isDark),
+          }).addTo(map);
+          territoryLayersRef.current.push(territoryLayer);
 
-      // Initial pings are loaded by MapShell (fetchPings — no bounds).
-      // Subsequent pan/zoom uses debouncedFetchInBounds for spatial filtering.
-    } catch (err) {
-      setStatus('error');
-      setErrorMsg(String(err));
-    }
+          const marker = L.marker([territory.center.lat, territory.center.lng], {
+            icon: createTerritoryIcon(territory),
+            interactive: true,
+            keyboard: true,
+            title: territory.nameVi,
+            alt: territory.nameVi,
+            zIndexOffset: 900,
+          })
+            .bindPopup(
+              `<div class="vietnam-territory-popup">
+                <strong>${territory.nameVi}</strong>
+                <span>${territory.administrativeUnit}</span>
+                <em>Lãnh thổ Việt Nam 🇻🇳</em>
+              </div>`,
+              { closeButton: false },
+            )
+            .on('click', () => {
+              map.flyTo([territory.center.lat, territory.center.lng], 8, { duration: 1.2 });
+            })
+            .addTo(map);
+          islandMarkersRef.current.push(marker);
+        }
+
+        // Sync store on user interaction with debounced pings fetch
+        map.on('moveend', () => {
+          const c = map.getCenter();
+          setCenter({ lat: c.lat, lng: c.lng });
+          debouncedFetchInBounds();
+        });
+        map.on('zoomend', () => {
+          setZoom(map.getZoom());
+          debouncedFetchInBounds();
+        });
+        map.on('click', () => {
+          selectPing(null);
+        });
+
+        // Create marker cluster group
+        const clusterGroup = L.markerClusterGroup({
+          maxClusterRadius: 60,
+          spiderfyOnMaxZoom: true,
+          showCoverageOnHover: false,
+          zoomToBoundsOnClick: true,
+          disableClusteringAtZoom: 15,
+          spiderfyDistanceMultiplier: 1.5,
+          chunkedLoading: true,
+        });
+        map.addLayer(clusterGroup);
+        clusterGroupRef.current = clusterGroup;
+
+        const supplyLayer = L.layerGroup();
+        map.addLayer(supplyLayer);
+        supplyLayerRef.current = supplyLayer;
+
+        const glMap = basemap.getMaplibreMap();
+        glMap.once('load', () => {
+          if (!disposed) setStatus('ready');
+        });
+
+        // Initial pings are loaded by MapShell (fetchPings — no bounds).
+        // Subsequent pan/zoom uses debouncedFetchInBounds for spatial filtering.
+      } catch (err) {
+        if (disposed || (err instanceof DOMException && err.name === 'AbortError')) return;
+        setStatus('error');
+        setErrorMsg(String(err));
+      }
+    };
+
+    void initializeMap();
 
     return () => {
+      disposed = true;
+      abortController.abort();
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
       }
@@ -266,16 +358,35 @@ export default function MapView() {
         mapRef.current.remove();
         mapRef.current = null;
       }
+      basemapRef.current = null;
+      appliedBasemapThemeRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ─── Switch tile layer on theme change ───
+  // ─── Switch the pre-filtered vector style on theme change ───
   useEffect(() => {
-    if (!mapRef.current || !tileRef.current) return;
-    const newUrl = isDark ? DARK_TILES : LIGHT_TILES;
-    tileRef.current.setUrl(newUrl);
-  }, [isDark]);
+    const basemap = basemapRef.current;
+    if (!basemap || status !== 'ready' || appliedBasemapThemeRef.current === isDark) return;
+
+    const abortController = new AbortController();
+    for (const territoryLayer of territoryLayersRef.current) {
+      territoryLayer.setStyle(getTerritoryPathStyle(isDark));
+    }
+
+    void loadVietnamBasemapStyle(isDark, abortController.signal)
+      .then((style) => {
+        if (abortController.signal.aborted) return;
+        basemap.getMaplibreMap().setStyle(style);
+        appliedBasemapThemeRef.current = isDark;
+      })
+      .catch((err: unknown) => {
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+        setErrorMsg(String(err));
+      });
+
+    return () => { abortController.abort(); };
+  }, [isDark, status]);
 
   // ─── Sync center when store changes externally ───
   const syncCenter = useCallback(() => {
@@ -579,66 +690,6 @@ export default function MapView() {
     routeMarkersRef.current.push(destMarker);
   }, [route, status, isDark]);
 
-  // ─── Vietnam territory boundary line (removed by design) ───
-  useEffect(() => {
-    if (territoryLineRef.current) { territoryLineRef.current.remove(); territoryLineRef.current = null; }
-  }, [status, isDark]);
-
-  // ─── Hoang Sa & Truong Sa island markers ───
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || status !== 'ready') return;
-
-    // Only show Paracel & Spratly (first 2 entries)
-    const islands = ISLAND_ZONES.filter((z) => z.name === 'Paracel Islands' || z.name === 'Spratly Islands');
-
-    // Create markers if not yet created
-    if (islandMarkersRef.current.length === 0) {
-      for (const island of islands) {
-        const icon = L.divIcon({
-          className: '',
-          iconSize: [32, 32],
-          iconAnchor: [16, 16],
-          html: `<div style="width:32px;height:32px;border-radius:50%;background:#dc2626;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,0.4);cursor:pointer;border:2px solid rgba(255,255,255,0.9)"><svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='#facc15' stroke='#facc15' stroke-width='0'><polygon points='12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26'/></svg></div>`,
-        });
-
-        const marker = L.marker([island.center.lat, island.center.lng], { icon, interactive: true })
-          .bindPopup(
-            `<div style="font-family:Inter,sans-serif;padding:4px 2px;min-width:140px">
-              <strong>${island.nameVi}</strong><br/>
-              <span style="font-size:0.85em;color:#6b7280">${island.name}</span><br/>
-              <span style="font-size:0.8em;color:#3b82f6">Lãnh thổ Việt Nam 🇻🇳</span>
-            </div>`,
-            { closeButton: false }
-          );
-
-        marker.on('click', () => {
-          map.flyTo([island.center.lat, island.center.lng], 8, { duration: 1.2 });
-        });
-
-        marker.addTo(map);
-        islandMarkersRef.current.push(marker);
-      }
-    }
-
-    // Show/hide based on zoom level
-    const updateVisibility = () => {
-      const currentZoom = map.getZoom();
-      for (const m of islandMarkersRef.current) {
-        if (currentZoom >= 8) {
-          m.setOpacity(0);
-          m.closePopup();
-        } else {
-          m.setOpacity(1);
-        }
-      }
-    };
-
-    updateVisibility();
-    map.on('zoomend', updateVisibility);
-    return () => { map.off('zoomend', updateVisibility); };
-  }, [status]);
-
   // ─── Cleanup on unmount ───
   useEffect(() => {
     return () => {
@@ -662,7 +713,8 @@ export default function MapView() {
       supplyMarkersRef.current.clear();
       for (const marker of islandMarkersRef.current) marker.remove();
       islandMarkersRef.current = [];
-      if (territoryLineRef.current) { territoryLineRef.current.remove(); territoryLineRef.current = null; }
+      for (const layer of territoryLayersRef.current) layer.remove();
+      territoryLayersRef.current = [];
     };
   }, []);
 

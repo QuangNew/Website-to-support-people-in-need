@@ -13,12 +13,16 @@ import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
 import { adminApi, getImageUrl, mapApi, supplyApi } from '../services/api';
 import { toExternalHref, toTelegramHref } from '../utils/contactLinks';
-import { VIETNAM_PROVINCES } from '../utils/vietnamProvinces';
+import {
+  parseBoundaryGeometry,
+  type AdministrativeBoundarySelection,
+} from '../services/vietnamAdministrativeGeo';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuthStore } from '../stores/authStore';
 import { useMessageStore } from '../stores/messageStore';
 import { useMapStore } from '../stores/mapStore';
 import Modal from '../components/ui/Modal';
+import VietnamAdministrativeAreaPicker from '../components/admin/VietnamAdministrativeAreaPicker';
 import type {
   AdminUser,
   AdminUserDetail,
@@ -3031,7 +3035,6 @@ function ZonesPanel() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState<ZoneFormState>(emptyZoneForm);
   const [saving, setSaving] = useState(false);
-  const [selectedProvince, setSelectedProvince] = useState('');
 
   const load = useCallback(() => {
     setLoading(true);
@@ -3046,33 +3049,30 @@ function ZonesPanel() {
   const openCreate = () => {
     setEditingId(null);
     setForm(emptyZoneForm);
-    setSelectedProvince('');
     setShowForm(true);
   };
 
   const openEdit = (z: ZoneRow) => {
     setEditingId(z.id);
     setForm({ name: z.name, boundaryGeoJson: z.boundaryGeoJson, riskLevel: z.riskLevel });
-    setSelectedProvince('');
     setShowForm(true);
   };
 
-  const handleProvinceSelect = (provinceName: string) => {
-    setSelectedProvince(provinceName);
-    if (!provinceName) return;
-    const province = VIETNAM_PROVINCES.find((p) => p.code === provinceName);
-    if (province) {
-      setForm((f) => ({
-        ...f,
-        name: province.nameVi,
-        boundaryGeoJson: province.boundaryGeoJson,
-      }));
-    }
+  const handleAreaSelected = (selection: AdministrativeBoundarySelection) => {
+    setForm((current) => ({
+      ...current,
+      name: selection.name,
+      boundaryGeoJson: JSON.stringify(selection.geometry),
+    }));
   };
 
   const handleSave = async () => {
     if (!form.name.trim() || !form.boundaryGeoJson.trim()) {
       toast.error('Name and boundary GeoJSON are required');
+      return;
+    }
+    if (!parseBoundaryGeometry(form.boundaryGeoJson)) {
+      toast.error('Boundary must be valid Polygon or MultiPolygon GeoJSON');
       return;
     }
     setSaving(true);
@@ -3119,8 +3119,6 @@ function ZonesPanel() {
 
   if (loading) return <div className="admin-loading"><span className="spinner" /></div>;
 
-  const selectedProvinceMeta = VIETNAM_PROVINCES.find((p) => p.code === selectedProvince);
-
   return (
     <div className="animate-fade-in-up">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--sp-4)' }}>
@@ -3139,35 +3137,11 @@ function ZonesPanel() {
             {editingId !== null ? 'Edit Zone' : 'New Zone'}
           </h4>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
-            {editingId === null && (
-              <div>
-                <label style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', display: 'block', marginBottom: 'var(--sp-1)' }}>
-                  Select Province / City:
-                </label>
-                <select
-                  className="admin-select"
-                  value={selectedProvince}
-                  onChange={(e) => handleProvinceSelect(e.target.value)}
-                  style={{ width: '100%' }}
-                >
-                  <option value="">— Choose a province/city —</option>
-                  {VIETNAM_PROVINCES.map((p) => (
-                    <option key={p.code} value={p.code}>{p.code} — {p.nameVi}</option>
-                  ))}
-                </select>
-                {selectedProvinceMeta ? (
-                  <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: 'var(--sp-2)', lineHeight: 1.5 }}>
-                    <div>Center: {selectedProvinceMeta.center[0].toFixed(6)}, {selectedProvinceMeta.center[1].toFixed(6)}</div>
-                    <div>Merged from: {selectedProvinceMeta.mergedFrom}</div>
-                    <div>Source ID: {selectedProvinceMeta.sourceId}</div>
-                  </div>
-                ) : (
-                  <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', margin: 'var(--sp-1) 0 0' }}>
-                    Or enter custom name and GeoJSON below.
-                  </p>
-                )}
-              </div>
-            )}
+            <VietnamAdministrativeAreaPicker
+              boundaryGeoJson={form.boundaryGeoJson}
+              onAreaSelected={handleAreaSelected}
+              disabled={saving}
+            />
             <input
               type="text"
               className="admin-select"
@@ -3176,14 +3150,16 @@ function ZonesPanel() {
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
               style={{ width: '100%' }}
             />
-            <textarea
-              className="admin-select"
-              placeholder="Boundary GeoJSON *"
-              value={form.boundaryGeoJson}
-              onChange={(e) => setForm((f) => ({ ...f, boundaryGeoJson: e.target.value }))}
-              rows={4}
-              style={{ width: '100%', resize: 'vertical', fontFamily: 'monospace', fontSize: 'var(--text-sm)' }}
-            />
+            <details className="admin-geo-picker__advanced">
+              <summary>Advanced: edit raw GeoJSON</summary>
+              <textarea
+                className="admin-select"
+                placeholder="Polygon or MultiPolygon GeoJSON *"
+                value={form.boundaryGeoJson}
+                onChange={(e) => setForm((f) => ({ ...f, boundaryGeoJson: e.target.value }))}
+                rows={5}
+              />
+            </details>
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
               <label style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>Risk Level:</label>
               <select
@@ -3300,6 +3276,15 @@ function SupplyPanel() {
     setShowForm(true);
   };
 
+  const handleAreaSelected = (selection: AdministrativeBoundarySelection) => {
+    setForm((current) => ({
+      ...current,
+      name: current.name.trim() || `Điểm cung ứng — ${selection.name}`,
+      lat: selection.representativePoint.lat,
+      lng: selection.representativePoint.lng,
+    }));
+  };
+
   const handleSave = async () => {
     if (!form.name.trim()) {
       toast.error('Supply name is required');
@@ -3309,10 +3294,19 @@ function SupplyPanel() {
       toast.error('Quantity must be non-negative');
       return;
     }
+    if (!Number.isFinite(form.lat) || !Number.isFinite(form.lng) || (form.lat === 0 && form.lng === 0)) {
+      toast.error('Choose the supply location on the map');
+      return;
+    }
     setSaving(true);
     try {
       if (editingId !== null) {
-        await supplyApi.updateSupply(editingId, { name: form.name, quantity: form.quantity });
+        await supplyApi.updateSupply(editingId, {
+          name: form.name,
+          quantity: form.quantity,
+          lat: form.lat,
+          lng: form.lng,
+        });
         toast.success('Supply updated');
       } else {
         await supplyApi.createSupply(form);
@@ -3360,6 +3354,12 @@ function SupplyPanel() {
             {editingId !== null ? 'Edit Supply' : 'New Supply'}
           </h4>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
+            <VietnamAdministrativeAreaPicker
+              point={form.lat === 0 && form.lng === 0 ? null : { lat: form.lat, lng: form.lng }}
+              onAreaSelected={handleAreaSelected}
+              onPointChange={(location) => setForm((current) => ({ ...current, ...location }))}
+              disabled={saving}
+            />
             <input
               type="text"
               className="admin-select"
@@ -3368,7 +3368,7 @@ function SupplyPanel() {
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
               style={{ width: '100%' }}
             />
-            <div style={{ display: 'flex', gap: 'var(--sp-3)' }}>
+            <div className="admin-supply-fields">
               <div style={{ flex: 1 }}>
                 <label style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>Quantity</label>
                 <input
@@ -3380,32 +3380,15 @@ function SupplyPanel() {
                   style={{ width: '100%' }}
                 />
               </div>
-              {editingId === null && (
-                <>
-                  <div style={{ flex: 1 }}>
-                    <label style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>Latitude</label>
-                    <input
-                      type="number"
-                      className="admin-select"
-                      value={form.lat}
-                      onChange={(e) => setForm((f) => ({ ...f, lat: Number(e.target.value) }))}
-                      step={0.0001}
-                      style={{ width: '100%' }}
-                    />
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <label style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>Longitude</label>
-                    <input
-                      type="number"
-                      className="admin-select"
-                      value={form.lng}
-                      onChange={(e) => setForm((f) => ({ ...f, lng: Number(e.target.value) }))}
-                      step={0.0001}
-                      style={{ width: '100%' }}
-                    />
-                  </div>
-                </>
-              )}
+              <div className="admin-supply-coordinate">
+                <span>Selected location</span>
+                <strong>
+                  <MapPin size={15} />
+                  {form.lat === 0 && form.lng === 0
+                    ? 'Not selected'
+                    : `${form.lat.toFixed(6)}, ${form.lng.toFixed(6)}`}
+                </strong>
+              </div>
             </div>
             <div style={{ display: 'flex', gap: 'var(--sp-2)', justifyContent: 'flex-end' }}>
               <button className="btn btn-ghost btn-sm" onClick={() => { setShowForm(false); setForm(emptySupplyForm); setEditingId(null); }} disabled={saving}>

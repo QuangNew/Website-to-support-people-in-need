@@ -112,9 +112,124 @@
   z-index: 0;
 }
 
-/* Brighten dark-theme tiles so the map isn't pitch-black */
-[data-theme="dark"] .leaflet-tile-pane {
-  filter: brightness(1.4) contrast(0.9) saturate(1.15);
+.map-container .leaflet-gl-layer,
+.map-container .maplibregl-map,
+.map-container .maplibregl-canvas {
+  width: 100%;
+  height: 100%;
+}
+
+.map-container .leaflet-control-attribution {
+  max-width: min(75vw, 620px);
+  color: #374151;
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(8px);
+}
+
+[data-theme="dark"] .map-container .leaflet-control-attribution {
+  color: #d1d5db;
+  background: rgba(17, 24, 39, 0.88);
+}
+
+.vietnam-territory-marker-wrap {
+  border: 0;
+  background: transparent;
+}
+
+.vietnam-territory-marker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 190px;
+  min-height: 44px;
+  padding: 6px 10px 6px 7px;
+  color: #7f1d1d;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(220, 38, 38, 0.5);
+  border-radius: 999px;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.28);
+  cursor: pointer;
+  text-align: left;
+  backdrop-filter: blur(8px);
+}
+
+.vietnam-territory-marker:hover,
+.vietnam-territory-marker:focus-visible {
+  border-color: #dc2626;
+  box-shadow: 0 5px 18px rgba(220, 38, 38, 0.34);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.vietnam-territory-marker__emblem {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  color: #facc15;
+  background: #dc2626;
+  border-radius: 50%;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.vietnam-territory-marker__text {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  line-height: 1.15;
+}
+
+.vietnam-territory-marker__text strong {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vietnam-territory-marker__text small {
+  margin-top: 2px;
+  color: #b91c1c;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+[data-theme="dark"] .vietnam-territory-marker {
+  color: #fef3c7;
+  background: rgba(69, 10, 10, 0.93);
+  border-color: rgba(250, 204, 21, 0.72);
+}
+
+[data-theme="dark"] .vietnam-territory-marker__text small {
+  color: #fde68a;
+}
+
+.vietnam-territory-popup {
+  display: flex;
+  min-width: 210px;
+  flex-direction: column;
+  gap: 4px;
+  font-family: Inter, sans-serif;
+}
+
+.vietnam-territory-popup strong {
+  color: #991b1b;
+  font-size: 14px;
+}
+
+.vietnam-territory-popup span {
+  color: #4b5563;
+  font-size: 12px;
+}
+
+.vietnam-territory-popup em {
+  color: #dc2626;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
 }
 
 .map-fallback {
@@ -4191,6 +4306,136 @@
   padding: var(--sp-1) var(--sp-2);
   font-size: var(--text-xs);
   border-radius: var(--radius-sm);
+}
+
+.admin-geo-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.admin-geo-picker__selectors {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-3);
+}
+
+.admin-geo-picker__selectors label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.admin-geo-picker__map {
+  position: relative;
+  z-index: 0;
+  width: 100%;
+  height: 320px;
+  overflow: hidden;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--primary-500) 8%, transparent), transparent),
+    var(--bg-subtle);
+}
+
+.admin-geo-picker__map--interactive {
+  cursor: crosshair;
+}
+
+.admin-geo-picker__map .leaflet-control-attribution {
+  max-width: min(76%, 680px);
+  color: #4b5563;
+  font-size: 9px;
+}
+
+.admin-geo-picker__status {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.admin-geo-picker__status span,
+.admin-geo-picker__status a,
+.admin-geo-picker__error,
+.admin-supply-coordinate strong {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+}
+
+.admin-geo-picker__status a {
+  color: var(--primary-500);
+}
+
+.admin-geo-picker__spin {
+  animation: spin 0.9s linear infinite;
+}
+
+.admin-geo-picker__error {
+  color: var(--danger-500);
+  font-size: var(--text-sm);
+}
+
+.admin-geo-picker__advanced {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.admin-geo-picker__advanced summary {
+  cursor: pointer;
+}
+
+.admin-geo-picker__advanced textarea {
+  width: 100%;
+  margin-top: var(--sp-2);
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: var(--text-xs);
+}
+
+.admin-supply-fields {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(240px, 1.4fr);
+  gap: var(--sp-3);
+}
+
+.admin-supply-coordinate {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.admin-supply-coordinate strong {
+  min-height: 42px;
+  padding: 0 var(--sp-3);
+  overflow: hidden;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .admin-geo-picker__selectors,
+  .admin-supply-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-geo-picker__map {
+    height: 260px;
+  }
 }
 
 .admin-api-key-summary {

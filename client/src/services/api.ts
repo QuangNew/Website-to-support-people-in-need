@@ -283,7 +283,7 @@ export const supplyApi = {
   createSupply: (data: { name: string; quantity: number; lat: number; lng: number }) =>
     api.post('/supply', data),
 
-  updateSupply: (id: number, data: { name?: string; quantity?: number }) =>
+  updateSupply: (id: number, data: { name?: string; quantity?: number; lat?: number; lng?: number }) =>
     api.put(`/supply/${id}`, data),
 
   deleteSupply: (id: number) =>

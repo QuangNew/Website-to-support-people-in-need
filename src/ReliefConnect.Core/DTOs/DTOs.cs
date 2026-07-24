@@ -671,6 +671,12 @@ public class UpdateSupplyDto
 
     [Range(0, int.MaxValue)]
     public int? Quantity { get; set; }
+
+    [Range(-90, 90)]
+    public double? Lat { get; set; }
+
+    [Range(-180, 180)]
+    public double? Lng { get; set; }
 }
 
 public class SupplyResponseDto

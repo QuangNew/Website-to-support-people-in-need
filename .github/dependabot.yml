@@ -1,51 +1,68 @@
 version: 2
 
-multi-ecosystem-groups:
-  all-dependencies:
+# Keep each manifest family in its own resolver job. The previous
+# multi-ecosystem group had to resolve two pnpm lockfiles, four NuGet projects,
+# and GitHub Actions before it could create one PR, which made the update job
+# unnecessarily large and left all ecosystems blocked behind a one-PR limit.
+updates:
+  - package-ecosystem: "npm"
+    directory: "/client"
     schedule:
       interval: "weekly"
       day: "monday"
       time: "09:00"
-      timezone: "UTC"
-    labels:
-      - "dependencies"
-    open-pull-requests-limit: 1
+      timezone: "Asia/Ho_Chi_Minh"
+    open-pull-requests-limit: 5
+    groups:
+      client-production-minor-patch:
+        dependency-type: "production"
+        update-types:
+          - "minor"
+          - "patch"
+      client-development-minor-patch:
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+    cooldown:
+      default-days: 14
+      semver-major-days: 21
+      semver-minor-days: 14
+      semver-patch-days: 7
     commit-message:
       prefix: "chore(deps)"
       prefix-development: "chore(deps-dev)"
       include: "scope"
-
-updates:
-  - package-ecosystem: "npm"
-    directory: "/"
-    patterns:
-      - "*"
-    multi-ecosystem-group: "all-dependencies"
-    cooldown:
-      default-days: 14
-      semver-major-days: 21
-      semver-minor-days: 14
-      semver-patch-days: 7
-    rebase-strategy: "disabled"
     labels:
       - "dependencies"
-      - "tooling"
       - "javascript"
 
   - package-ecosystem: "npm"
-    directory: "/client"
-    patterns:
-      - "*"
-    multi-ecosystem-group: "all-dependencies"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "10:00"
+      timezone: "Asia/Ho_Chi_Minh"
+    open-pull-requests-limit: 5
+    groups:
+      root-npm-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
     cooldown:
       default-days: 14
       semver-major-days: 21
       semver-minor-days: 14
       semver-patch-days: 7
-    rebase-strategy: "disabled"
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+      include: "scope"
     labels:
       - "dependencies"
-      - "frontend"
       - "javascript"
 
   - package-ecosystem: "nuget"
@@ -54,29 +71,49 @@ updates:
       - "/src/ReliefConnect.Core"
       - "/src/ReliefConnect.Infrastructure"
       - "/src/ReliefConnect.Tests"
-    patterns:
-      - "*"
-    multi-ecosystem-group: "all-dependencies"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "09:00"
+      timezone: "Asia/Ho_Chi_Minh"
+    open-pull-requests-limit: 5
+    groups:
+      backend-nuget-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
     cooldown:
       default-days: 14
       semver-major-days: 21
       semver-minor-days: 14
       semver-patch-days: 7
-    rebase-strategy: "disabled"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
     labels:
       - "dependencies"
-      - "backend"
-      - "dotnet"
 
   - package-ecosystem: "github-actions"
     directory: "/"
-    patterns:
-      - "*"
-    multi-ecosystem-group: "all-dependencies"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+      time: "09:00"
+      timezone: "Asia/Ho_Chi_Minh"
+    open-pull-requests-limit: 5
+    groups:
+      github-actions-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
     cooldown:
       default-days: 14
-    rebase-strategy: "disabled"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
     labels:
       - "dependencies"
-      - "ci"
-      - "github-actions"

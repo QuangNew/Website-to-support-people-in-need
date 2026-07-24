@@ -28,6 +28,16 @@
     <link rel="dns-prefetch" href="https://router.project-osrm.org" />
     <link rel="preconnect" href="https://tile.openstreetmap.org" crossorigin />
 
+    <script>
+      try {
+        const savedTheme = localStorage.getItem('rc-theme');
+        document.documentElement.dataset.theme =
+          savedTheme === 'dark' || savedTheme === 'light' ? savedTheme : 'light';
+      } catch {
+        document.documentElement.dataset.theme = 'light';
+      }
+    </script>
+
     <title>ReliefConnect — Kết nối Cứu trợ</title>
   </head>
   <body>
