@@ -22,10 +22,10 @@ updates:
       - "*"
     multi-ecosystem-group: "all-dependencies"
     cooldown:
-      default-days: 5
+      default-days: 14
       semver-major-days: 21
-      semver-minor-days: 7
-      semver-patch-days: 3
+      semver-minor-days: 14
+      semver-patch-days: 7
     rebase-strategy: "disabled"
     labels:
       - "dependencies"
@@ -38,10 +38,10 @@ updates:
       - "*"
     multi-ecosystem-group: "all-dependencies"
     cooldown:
-      default-days: 5
+      default-days: 14
       semver-major-days: 21
-      semver-minor-days: 7
-      semver-patch-days: 3
+      semver-minor-days: 14
+      semver-patch-days: 7
     rebase-strategy: "disabled"
     labels:
       - "dependencies"
@@ -58,10 +58,10 @@ updates:
       - "*"
     multi-ecosystem-group: "all-dependencies"
     cooldown:
-      default-days: 3
-      semver-major-days: 14
-      semver-minor-days: 5
-      semver-patch-days: 2
+      default-days: 14
+      semver-major-days: 21
+      semver-minor-days: 14
+      semver-patch-days: 7
     rebase-strategy: "disabled"
     labels:
       - "dependencies"
@@ -74,7 +74,7 @@ updates:
       - "*"
     multi-ecosystem-group: "all-dependencies"
     cooldown:
-      default-days: 2
+      default-days: 14
     rebase-strategy: "disabled"
     labels:
       - "dependencies"
