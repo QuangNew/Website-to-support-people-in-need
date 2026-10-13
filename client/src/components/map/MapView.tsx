@@ -185,12 +185,13 @@ export default function MapView() {
     supplyItems, showSupplyPoints, fetchSupplyItems,
   } = useMapStore();
   const { isDark } = useTheme();
-  const { t } = useLanguage();
+  const { t, locale } = useLanguage();
 
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const basemapRef = useRef<L.MaplibreGL | null>(null);
   const appliedBasemapThemeRef = useRef<boolean | null>(null);
+  const appliedBasemapLocaleRef = useRef<string | null>(null);
   const markersRef = useRef<Map<string, L.Marker>>(new Map());
   const clusterGroupRef = useRef<L.MarkerClusterGroup | null>(null);
   const zoneLayersRef = useRef<L.Polygon[]>([]);
@@ -241,7 +242,7 @@ export default function MapView() {
     const initializeMap = async () => {
       try {
         const [basemapStyle, territories] = await Promise.all([
-          loadVietnamBasemapStyle(isDark, abortController.signal),
+          loadVietnamBasemapStyle(isDark, abortController.signal, locale),
           loadVietnamIslandTerritories(abortController.signal),
         ]);
         if (disposed || !containerRef.current) return;
@@ -268,6 +269,7 @@ export default function MapView() {
         mapRef.current = map;
         basemapRef.current = basemap;
         appliedBasemapThemeRef.current = isDark;
+        appliedBasemapLocaleRef.current = locale;
 
         // Draw the locally bundled Vietnamese administrative geometry above
         // the basemap, then keep a permanent Vietnamese label at every zoom.
@@ -332,10 +334,9 @@ export default function MapView() {
         map.addLayer(supplyLayer);
         supplyLayerRef.current = supplyLayer;
 
-        const glMap = basemap.getMaplibreMap();
-        glMap.once('load', () => {
-          if (!disposed) setStatus('ready');
-        });
+        // Leaflet and the relief layers are ready. Remote basemap tiles must
+        // never keep the loading overlay up or prevent SOS markers appearing.
+        setStatus('ready');
 
         // Initial pings are loaded by MapShell (fetchPings — no bounds).
         // Subsequent pan/zoom uses debouncedFetchInBounds for spatial filtering.
@@ -360,25 +361,28 @@ export default function MapView() {
       }
       basemapRef.current = null;
       appliedBasemapThemeRef.current = null;
+      appliedBasemapLocaleRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ─── Switch the pre-filtered vector style on theme change ───
+  // ─── Switch the pre-filtered vector style on theme or language change ───
   useEffect(() => {
     const basemap = basemapRef.current;
-    if (!basemap || status !== 'ready' || appliedBasemapThemeRef.current === isDark) return;
+    if (!basemap || status !== 'ready'
+      || (appliedBasemapThemeRef.current === isDark && appliedBasemapLocaleRef.current === locale)) return;
 
     const abortController = new AbortController();
     for (const territoryLayer of territoryLayersRef.current) {
       territoryLayer.setStyle(getTerritoryPathStyle(isDark));
     }
 
-    void loadVietnamBasemapStyle(isDark, abortController.signal)
+    void loadVietnamBasemapStyle(isDark, abortController.signal, locale)
       .then((style) => {
         if (abortController.signal.aborted) return;
         basemap.getMaplibreMap().setStyle(style);
         appliedBasemapThemeRef.current = isDark;
+        appliedBasemapLocaleRef.current = locale;
       })
       .catch((err: unknown) => {
         if (err instanceof DOMException && err.name === 'AbortError') return;
@@ -386,7 +390,7 @@ export default function MapView() {
       });
 
     return () => { abortController.abort(); };
-  }, [isDark, status]);
+  }, [isDark, locale, status]);
 
   // ─── Sync center when store changes externally ───
   const syncCenter = useCallback(() => {

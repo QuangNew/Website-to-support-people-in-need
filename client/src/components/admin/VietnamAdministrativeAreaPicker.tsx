@@ -5,6 +5,7 @@ import 'leaflet/dist/leaflet.css';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { AlertCircle, Database, LoaderCircle, MapPin } from 'lucide-react';
 import { useTheme } from '../../contexts/ThemeContext';
+import { useLanguage } from '../../contexts/LanguageContext';
 import { loadVietnamBasemapStyle } from '../map/vietnamBasemapStyle';
 import {
   VIETNAM_ADMINISTRATIVE_DATASET,
@@ -32,6 +33,7 @@ export default function VietnamAdministrativeAreaPicker({
   disabled = false,
 }: VietnamAdministrativeAreaPickerProps) {
   const { isDark } = useTheme();
+  const { locale } = useLanguage();
   const [catalog, setCatalog] = useState<VietnamAdministrativeProvince[]>([]);
   const [selectedProvinceCode, setSelectedProvinceCode] = useState('');
   const [selectedWardCode, setSelectedWardCode] = useState('');
@@ -133,7 +135,7 @@ export default function VietnamAdministrativeAreaPicker({
     basemapRef.current?.remove();
     basemapRef.current = null;
 
-    loadVietnamBasemapStyle(isDark, controller.signal)
+    loadVietnamBasemapStyle(isDark, controller.signal, locale)
       .then((style) => {
         if (controller.signal.aborted || !mapRef.current) return;
         const layer = maplibreGL({ style });
@@ -149,7 +151,7 @@ export default function VietnamAdministrativeAreaPicker({
       });
 
     return () => controller.abort();
-  }, [isDark]);
+  }, [isDark, locale]);
 
   useEffect(() => {
     const map = mapRef.current;

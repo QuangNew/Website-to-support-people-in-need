@@ -7,7 +7,7 @@ test('loads the map with a bundled worker', async ({ page }) => {
   await page.route('**/api/**', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
   // Empty vector tiles keep this worker check independent of the public tile server.
-  await page.route('https://vector.openstreetmap.org/shortbread_v1/**', (route) =>
+  await page.route('https://tiles.versatiles.org/tiles/osm/**', (route) =>
     route.fulfill({
       status: 200,
       contentType: 'application/vnd.mapbox-vector-tile',

@@ -3,6 +3,10 @@ import type {
   LayerSpecification,
   StyleSpecification,
 } from 'maplibre-gl';
+import type { Locale } from '../../contexts/LanguageContext';
+import { applyBasemapPresentation } from './basemapPresentation';
+
+declare const __BASEMAP_TILE_URL__: string;
 
 const LOCAL_SHORTBREAD_STYLES = {
   light: 'map-styles/shortbread-neutrino.json',
@@ -10,6 +14,7 @@ const LOCAL_SHORTBREAD_STYLES = {
 } as const;
 
 const LOCAL_SHORTBREAD_SPRITE = 'map-styles/sprites/basics/sprites';
+const DEFAULT_SHORTBREAD_TILE_URL = 'https://tiles.versatiles.org/tiles/osm/{z}/{x}/{y}';
 const LOCAL_FONT_STACK = ['Arial', 'Segoe UI', 'Noto Sans', 'sans-serif'] as const;
 const LABEL_SOURCE_LAYERS = new Set(['boundary_labels', 'place_labels']);
 
@@ -135,6 +140,7 @@ function isAbortError(error: unknown, signal?: AbortSignal): boolean {
 export async function loadVietnamBasemapStyle(
   isDark: boolean,
   signal?: AbortSignal,
+  locale: Locale = 'vi',
 ): Promise<StyleSpecification> {
   const styleAsset = isDark ? LOCAL_SHORTBREAD_STYLES.dark : LOCAL_SHORTBREAD_STYLES.light;
 
@@ -149,6 +155,20 @@ export async function loadVietnamBasemapStyle(
       throw new Error('Kiểu bản đồ nền không đúng định dạng MapLibre Style v8.');
     }
 
+    // Keep the bundled Shortbread presentation while allowing the tile host to
+    // change independently. OSM tile hosts can be blocked by a visitor's DNS.
+    const shortbreadSource = style.sources['versatiles-shortbread'];
+    if (shortbreadSource?.type === 'vector') {
+      const configuredTileUrl = __BASEMAP_TILE_URL__.trim();
+      shortbreadSource.tiles = [configuredTileUrl || DEFAULT_SHORTBREAD_TILE_URL];
+      delete shortbreadSource.url;
+      if (!configuredTileUrl) {
+        // The hosted VersaTiles osm tileset also includes ESA WorldCover data.
+        shortbreadSource.attribution = `${shortbreadSource.attribution || ''} | `
+          + '<a href="https://esa-worldcover.org/">ESA WorldCover</a>';
+      }
+    }
+
     // The OSM style server only allows selected browser origins for style,
     // sprite and glyph resources. Styles and sprites are served locally, and
     // omitting `glyphs` makes MapLibre use the cross-platform local font stack.
@@ -160,7 +180,7 @@ export async function loadVietnamBasemapStyle(
       },
     ];
 
-    return applyVietnamSovereigntyPolicy(style);
+    return applyVietnamSovereigntyPolicy(applyBasemapPresentation(style, isDark, locale));
   } catch (error) {
     if (isAbortError(error, signal)) throw error;
 
