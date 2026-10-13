@@ -7,6 +7,11 @@ version: 2
 updates:
   - package-ecosystem: "npm"
     directory: "/client"
+    # Keep Node types aligned with the Node 22 runtime in deploy-frontend.yml.
+    ignore:
+      - dependency-name: "@types/node"
+        update-types:
+          - "version-update:semver-major"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -39,6 +44,10 @@ updates:
 
   - package-ecosystem: "npm"
     directory: "/"
+    ignore:
+      - dependency-name: "@types/node"
+        update-types:
+          - "version-update:semver-major"
     schedule:
       interval: "weekly"
       day: "monday"
