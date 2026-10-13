@@ -1,11 +1,14 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 
 // const BACKEND = 'http://localhost:5164';
 const BACKEND = 'https://reliefconnect-api.azurewebsites.net';
 
 // https://vite.dev/config/
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
+  define: {
+    __BASEMAP_TILE_URL__: JSON.stringify(loadEnv(mode, process.cwd(), 'VITE_').VITE_BASEMAP_TILE_URL || ''),
+  },
   plugins: [
     react(),
     // Fix: leaflet.markercluster is a UMD plugin whose browser-global branch calls
@@ -78,4 +81,4 @@ export default defineConfig({
       },
     },
   },
-})
+}))

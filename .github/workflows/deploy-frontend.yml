@@ -42,6 +42,7 @@ jobs:
         run: pnpm build
         env:
           VITE_API_URL: ${{ vars.VITE_API_URL }}
+          VITE_BASEMAP_TILE_URL: ${{ vars.VITE_BASEMAP_TILE_URL }}
           VITE_GOOGLE_CLIENT_ID: ${{ vars.VITE_GOOGLE_CLIENT_ID }}
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}

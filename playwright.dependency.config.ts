@@ -5,7 +5,9 @@ export default defineConfig({
   testMatch: [
     'map.spec.ts',
     'map-worker.spec.ts',
+    'map-availability.spec.ts',
     'map-sovereignty-policy.spec.ts',
+    'map-presentation.spec.ts',
     'theme-default.spec.ts',
     'admin-geodata.spec.ts',
   ],

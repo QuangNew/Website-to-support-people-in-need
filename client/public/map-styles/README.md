@@ -2,8 +2,24 @@
 
 The production frontend serves these style and sprite files from its own
 origin. This avoids relying on the origin allow-list used by the OpenStreetMap
-style server while the browser still requests interactive vector tiles from
-the official Shortbread tile endpoint.
+style server. At runtime, the app points the Shortbread vector source at
+`https://tiles.versatiles.org/tiles/osm/{z}/{x}/{y}` and adds the required ESA
+WorldCover attribution alongside OpenStreetMap. This keeps the existing
+Vietnam boundary and label filters while avoiding dependency on a single
+OSM tile hostname, which some networks block.
+
+Set the build variable `VITE_BASEMAP_TILE_URL` to use another compatible
+Shortbread tile template. GitHub's frontend deployment passes the repository
+variable with the same name to Vite. For a custom provider, retain its required
+attribution in these bundled styles. The public VersaTiles service has no uptime
+guarantee; a self-hosted Shortbread endpoint can use the same setting.
+
+The runtime presentation uses blue water, green vegetation and distinct road
+colors in both themes. Country labels follow the UI language (Vietnamese,
+English or Japanese). Since these Shortbread tiles do not include Vietnamese
+or Japanese names, country translations use the browser's `Intl.DisplayNames`
+with English-name aliases; other places prefer translated names and fall back
+to English before the native name. Sovereignty filters are applied afterward.
 
 Sources:
 
