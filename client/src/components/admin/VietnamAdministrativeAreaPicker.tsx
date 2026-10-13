@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
-import '@maplibre/maplibre-gl-leaflet';
+import { maplibreGL } from '../map/maplibre';
 import 'leaflet/dist/leaflet.css';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { AlertCircle, Database, LoaderCircle, MapPin } from 'lucide-react';
@@ -136,7 +136,7 @@ export default function VietnamAdministrativeAreaPicker({
     loadVietnamBasemapStyle(isDark, controller.signal)
       .then((style) => {
         if (controller.signal.aborted || !mapRef.current) return;
-        const layer = L.maplibreGL({ style });
+        const layer = maplibreGL({ style });
         layer.addTo(map);
         basemapRef.current = layer;
         boundaryLayerRef.current?.bringToFront();

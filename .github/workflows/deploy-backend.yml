@@ -40,7 +40,7 @@ jobs:
         run: dotnet build ${{ env.API_PROJECT }} --configuration Release --no-restore
 
       - name: Run unit tests
-        run: dotnet test src/ReliefConnect.Tests/ReliefConnect.Tests.csproj --configuration Release --no-build --verbosity normal
+        run: dotnet test src/ReliefConnect.Tests/ReliefConnect.Tests.csproj --configuration Release --verbosity normal
         continue-on-error: false
 
       - name: Publish (linux-x64, self-contained=false)

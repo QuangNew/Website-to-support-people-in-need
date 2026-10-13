@@ -4,7 +4,7 @@ import L from 'leaflet';
 import type {} from 'leaflet.markercluster';
 import 'leaflet/dist/leaflet.css';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import '@maplibre/maplibre-gl-leaflet';
+import { maplibreGL } from './maplibre';
 import 'leaflet.markercluster/dist/leaflet.markercluster.js';
 import 'leaflet.markercluster/dist/MarkerCluster.css';
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
@@ -260,7 +260,7 @@ export default function MapView() {
         map.attributionControl.setPrefix(false);
         map.attributionControl.addAttribution(TERRITORY_DATA_ATTRIBUTION);
 
-        const basemap = L.maplibreGL({
+        const basemap = maplibreGL({
           style: basemapStyle,
           maxZoom: 18,
         }).addTo(map);
