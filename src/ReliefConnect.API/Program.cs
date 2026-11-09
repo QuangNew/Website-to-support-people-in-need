@@ -582,7 +582,7 @@ static TimeSpan GetAuthUserStateCacheDuration(AuthUserStateCacheEntry userState)
 
 static async Task SeedDevelopmentAdminAsync(WebApplication app)
 {
-    if (!app.Configuration.GetValue("DevelopmentAdmin:Enabled", true))
+    if (!app.Configuration.GetValue("DevelopmentAdmin:Enabled", false))
     {
         Log.Information("Development admin seeding is disabled by configuration.");
         return;
@@ -594,8 +594,14 @@ static async Task SeedDevelopmentAdminAsync(WebApplication app)
 
     var email = app.Configuration["DevelopmentAdmin:Email"] ?? "admin_test@reliefconnect.vn";
     var userName = app.Configuration["DevelopmentAdmin:Username"] ?? "admin_test";
-    var password = app.Configuration["DevelopmentAdmin:Password"] ?? "Admin@123";
+    var password = app.Configuration["DevelopmentAdmin:Password"];
     var fullName = app.Configuration["DevelopmentAdmin:FullName"] ?? "Development Admin";
+
+    if (string.IsNullOrWhiteSpace(password))
+    {
+        logger.LogWarning("Development admin seeding requires an explicit DevelopmentAdmin:Password. No account was created or updated.");
+        return;
+    }
 
     try
     {

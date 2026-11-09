@@ -152,7 +152,7 @@ test.describe('Map detail and social reporting UI', () => {
     await expect(page.locator('.sidebar .sidebar-nav-danger')).toBeVisible();
     expect(authMeRequests).toBeGreaterThan(0);
 
-    const pingMarker = page.locator('button.map-marker[aria-label="Need urgent medical help"]');
+    const pingMarker = page.locator('button.map-marker[aria-label="need_help"]');
     await expect(pingMarker).toBeVisible({ timeout: 10000 });
     await pingMarker.click();
     await expect.poll(() => mapDetailRequests, { timeout: 10000 }).toBeGreaterThan(0);

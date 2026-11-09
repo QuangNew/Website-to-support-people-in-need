@@ -85,6 +85,19 @@ This keeps the frontend static, the backend server-hosted, and the database exte
 
 ## 8. Automated Test Coverage Areas
 
+Maintenance checks run on pull requests, pushes to `main`, manual dispatch,
+and Mondays at 09:00 Vietnam time. They audit both pnpm lockfiles, restore
+NuGet with transitive vulnerability warnings treated as errors, build the
+production frontend, and run the mocked core UI flows and backend unit tests.
+Run the UI suite locally with `pnpm test:dependencies`; it uses its own preview
+server and isolated API/storage settings, without creating database accounts.
+
+Development admin seeding is disabled by default. To enable it for an isolated
+development database, explicitly set `DevelopmentAdmin:Enabled` to `true` and
+provide `DevelopmentAdmin:Password` through user secrets or environment variables.
+There is no default password. Do not enable development seeding against the
+production database.
+
 The repository includes Playwright end-to-end suites for:
 
 - authentication,

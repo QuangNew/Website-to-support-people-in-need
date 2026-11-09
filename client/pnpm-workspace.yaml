@@ -1,0 +1,24 @@
+minimumReleaseAgeExclude:
+  - '@rolldown/binding-android-arm-eabi@1.2.18'
+  - '@rolldown/binding-android-arm64@1.2.18'
+  - '@rolldown/binding-darwin-arm64@1.2.18'
+  - '@rolldown/binding-darwin-x64@1.2.18'
+  - '@rolldown/binding-freebsd-x64@1.2.18'
+  - '@rolldown/binding-linux-arm-gnueabihf@1.2.18'
+  - '@rolldown/binding-linux-arm64-gnu@1.2.18'
+  - '@rolldown/binding-linux-arm64-musl@1.2.18'
+  - '@rolldown/binding-linux-ppc64-gnu@1.2.18'
+  - '@rolldown/binding-linux-s390x-gnu@1.2.18'
+  - '@rolldown/binding-linux-x64-gnu@1.2.18'
+  - '@rolldown/binding-linux-x64-musl@1.2.18'
+  - '@rolldown/binding-openharmony-arm64@1.2.18'
+  - '@rolldown/binding-win32-arm64-msvc@1.2.18'
+  - '@rolldown/binding-win32-x64-msvc@1.2.18'
+  - '@vitejs/plugin-react@6.3.0'
+  - rolldown@1.2.18
+  - vite@8.3.7
+# Remove vulnerable transitive versions even while upstream lint packages still
+# request minimatch 10. Keep these ranges until their minimum versions are safe.
+overrides:
+  'minimatch@>=7.0.0 <11.0.1': '11.0.5'
+  'zod@>=4.0.0 <4.6.6': '^4.6.7'

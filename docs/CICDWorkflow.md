@@ -474,7 +474,7 @@ Dev máy local
 
 **`client/.env.local`** (không commit):
 ```bash
-VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+VITE_SUPABASE_ANON_KEY="your-public-supabase-anon-key"
 ```
 
 **Kiểm tra `.gitignore` đã có các dòng cần thiết:**

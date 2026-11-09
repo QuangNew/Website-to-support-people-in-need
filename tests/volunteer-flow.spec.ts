@@ -61,7 +61,7 @@ test.describe('Volunteer accept and complete flow', () => {
     });
 
     // ── Mock: volunteer available tasks ──
-    await page.route('**/api/volunteer/available*', async (route) => {
+    await page.route('**/api/volunteer/tasks', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -70,7 +70,7 @@ test.describe('Volunteer accept and complete flow', () => {
     });
 
     // ── Mock: volunteer active tasks ──
-    await page.route('**/api/volunteer/active*', async (route) => {
+    await page.route('**/api/volunteer/active-tasks', async (route) => {
       if (acceptCalled) {
         await route.fulfill({
           status: 200,
@@ -83,7 +83,7 @@ test.describe('Volunteer accept and complete flow', () => {
     });
 
     // ── Mock: volunteer history ──
-    await page.route('**/api/volunteer/history*', async (route) => {
+    await page.route('**/api/volunteer/tasks/history', async (route) => {
       await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
     });
 
@@ -102,7 +102,7 @@ test.describe('Volunteer accept and complete flow', () => {
     });
 
     // ── Mock: volunteer accept ──
-    await page.route('**/api/volunteer/accept', async (route) => {
+    await page.route('**/api/volunteer/accept-task', async (route) => {
       acceptCalled = true;
       await route.fulfill({
         status: 200,
@@ -112,7 +112,7 @@ test.describe('Volunteer accept and complete flow', () => {
     });
 
     // ── Mock: volunteer complete ──
-    await page.route(/\/api\/volunteer\/complete\/\d+/, async (route) => {
+    await page.route(/\/api\/volunteer\/tasks\/\d+\/complete$/, async (route) => {
       completeCalled = true;
       completeBody = route.request().postDataJSON();
       await route.fulfill({
@@ -141,32 +141,24 @@ test.describe('Volunteer accept and complete flow', () => {
     const acceptBtn = panel.locator('.btn-success').filter({ hasText: /accept/i }).first();
     await expect(acceptBtn).toBeVisible({ timeout: 5000 });
     await acceptBtn.click();
-    expect(acceptCalled).toBe(true);
+    await expect.poll(() => acceptCalled).toBe(true);
 
     // ── Switch to active tasks tab ──
     const activeTab = panel.locator('button').filter({ hasText: /active/i }).first();
-    if (await activeTab.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await activeTab.click();
-      await page.waitForTimeout(500);
-    }
+    await expect(activeTab).toBeVisible();
+    await activeTab.click();
 
     // ── Complete the task ──
     const completeBtn = panel.locator('.btn-success').filter({ hasText: /complete/i }).first();
-    if (await completeBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await completeBtn.click();
-
-      // ── Fill completion notes in the modal ──
-      const modal = page.locator('[style*="z-index: 9999"]');
-      if (await modal.isVisible({ timeout: 3000 }).catch(() => false)) {
-        const textarea = modal.locator('textarea');
-        await textarea.fill('Successfully delivered medical supplies to the location');
-
-        const submitBtn = modal.locator('.btn-success').last();
-        await submitBtn.click();
-
-        expect(completeCalled).toBe(true);
-        expect(completeBody).not.toBeNull();
-      }
-    }
+    await expect(completeBtn).toBeVisible();
+    await completeBtn.click();
+    const textarea = page.locator('textarea').last();
+    await expect(textarea).toBeVisible();
+    await textarea.fill('Successfully delivered medical supplies to the location');
+    await page.locator('.btn-success').last().click();
+    await expect.poll(() => completeCalled).toBe(true);
+    expect(completeBody).toMatchObject({
+      completionNotes: 'Successfully delivered medical supplies to the location',
+    });
   });
 });

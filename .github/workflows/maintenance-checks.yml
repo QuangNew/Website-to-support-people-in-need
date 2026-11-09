@@ -1,0 +1,67 @@
+name: Maintenance checks
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    # Every Monday at 09:00 in Vietnam.
+    - cron: '0 2 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: maintenance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CI: 'true'
+      # The mocked flow tests share the production-preview server below.
+      UI_BASE_URL: http://127.0.0.1:4173
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - uses: pnpm/action-setup@v6.1.1
+        with:
+          version: '11.17.0'
+      - name: Install locked dependencies
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm --dir client install --frozen-lockfile
+      - name: Audit both dependency trees
+        run: |
+          pnpm audit
+          pnpm --dir client audit
+      - name: Install browser
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Build production frontend and test core flows
+        run: pnpm test:dependencies
+      - name: Upload browser failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: browser-test-results
+          path: test-results/
+          retention-days: 7
+
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+      - name: Restore and fail on vulnerable NuGet dependencies
+        run: dotnet restore src/ReliefConnect.slnx -p:NuGetAudit=true -p:NuGetAuditMode=all -warnaserror:NU1901,NU1902,NU1903,NU1904
+      - name: Build and run unit tests
+        run: dotnet test src/ReliefConnect.slnx --configuration Release --no-restore --verbosity minimal

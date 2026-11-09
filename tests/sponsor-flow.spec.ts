@@ -63,7 +63,7 @@ test.describe('Sponsor offer help flow', () => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify([mockCase]),
+        body: JSON.stringify({ sosCases: [mockCase], socialCases: [] }),
       });
     });
 
@@ -92,7 +92,7 @@ test.describe('Sponsor offer help flow', () => {
     });
 
     // ── Mock: sponsor offer help ──
-    await page.route('**/api/sponsor/offer', async (route) => {
+    await page.route('**/api/sponsor/offer-help', async (route) => {
       offerHelpCalled = true;
       offerBody = route.request().postDataJSON();
       await route.fulfill({
@@ -129,13 +129,12 @@ test.describe('Sponsor offer help flow', () => {
 
     // ── Submit the offer ──
     const sendBtn = page.locator('.btn-warning').filter({ hasText: /send|submit|offer/i }).last();
-    if (await sendBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await sendBtn.click();
-
-      // ── Verify API was called ──
-      await expect.poll(() => offerHelpCalled, { timeout: 5000 }).toBe(true);
-      expect(offerBody).not.toBeNull();
-      expect(offerBody!.pingId).toBe(601);
-    }
+    await expect(sendBtn).toBeVisible();
+    await sendBtn.click();
+    await expect.poll(() => offerHelpCalled).toBe(true);
+    expect(offerBody).toMatchObject({
+      pingId: 601,
+      message: 'We can provide temporary shelter and food packages for your family',
+    });
   });
 });
