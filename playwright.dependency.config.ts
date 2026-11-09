@@ -33,6 +33,7 @@ export default defineConfig({
     // Keep the mocked suite independent of production API and storage settings.
     env: {
       VITE_API_URL: 'http://127.0.0.1:5164/api',
+      VITE_BASEMAP_TILE_URL: '',
       VITE_SUPABASE_URL: '',
       VITE_SUPABASE_ANON_KEY: '',
     },

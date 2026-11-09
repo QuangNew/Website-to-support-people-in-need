@@ -1,5 +1,16 @@
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
+import { execFileSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
+
+function buildCommit(): string | null {
+  if (process.env.GITHUB_SHA) return process.env.GITHUB_SHA;
+  try {
+    return execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  } catch {
+    return null;
+  }
+}
 
 // const BACKEND = 'http://localhost:5164';
 const BACKEND = 'https://reliefconnect-api.azurewebsites.net';
@@ -11,6 +22,23 @@ export default defineConfig(({ mode }) => ({
   },
   plugins: [
     react(),
+    {
+      name: 'record-build-revision',
+      generateBundle() {
+        const manifest = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
+        const configuredTileUrl = loadEnv(mode, process.cwd(), 'VITE_').VITE_BASEMAP_TILE_URL?.trim();
+        this.emitFile({
+          type: 'asset',
+          fileName: 'build-info.json',
+          source: JSON.stringify({
+            commit: buildCommit(),
+            builtAt: new Date().toISOString(),
+            maplibreVersion: manifest.dependencies['maplibre-gl'],
+            basemapProvider: configuredTileUrl ? 'custom-shortbread' : 'versatiles-osm',
+          }),
+        });
+      },
+    },
     // Fix: leaflet.markercluster is a UMD plugin whose browser-global branch calls
     // factory(globalThis.L). Rolldown (Vite 8) outputs ESM chunks where `module` is
     // undefined, so the CJS branch is never taken and globalThis.L is never set →

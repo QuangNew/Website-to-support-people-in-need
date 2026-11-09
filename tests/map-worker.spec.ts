@@ -1,5 +1,15 @@
 import { expect, test } from '@playwright/test';
 
+test('publishes the actual map build revision for deployment checks', async ({ request }) => {
+  const response = await request.get('/build-info.json');
+  expect(response.ok()).toBe(true);
+  expect(response.headers()['content-type']).toContain('application/json');
+  const build = await response.json();
+  expect(build.commit).toMatch(/^[0-9a-f]{40}$/);
+  expect(build.basemapProvider).toBe('versatiles-osm');
+  expect(build.maplibreVersion).toMatch(/^6\./);
+});
+
 test('loads the map with a bundled worker', async ({ page }) => {
   const pageErrors: string[] = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));

@@ -1,4 +1,10 @@
 {
+  "routes": [
+    {
+      "route": "/build-info.json",
+      "headers": { "Cache-Control": "no-store" }
+    }
+  ],
   "navigationFallback": {
     "rewrite": "/index.html",
     "exclude": ["/assets/*", "/uploads/*", "*.{css,js,svg,png,jpg,ico,woff,woff2}"]

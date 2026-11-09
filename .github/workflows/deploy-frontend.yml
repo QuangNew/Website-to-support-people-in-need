@@ -52,6 +52,15 @@ jobs:
           echo "Checking critical files in dist/..."
           test -f client/dist/index.html || { echo "❌ index.html missing"; exit 1; }
           test -f client/dist/staticwebapp.config.json || { echo "❌ staticwebapp.config.json missing"; exit 1; }
+          node --input-type=module <<'NODE'
+          import { readFileSync, readdirSync } from 'node:fs';
+          const info = JSON.parse(readFileSync('client/dist/build-info.json', 'utf8'));
+          if (info.commit !== process.env.GITHUB_SHA) throw new Error('Build revision does not match the selected commit.');
+          if (!readdirSync('client/dist/assets').some(name => /^maplibre-gl-worker-.*\.js$/.test(name))) {
+            throw new Error('Bundled MapLibre worker is missing.');
+          }
+          console.log(`Verified build ${info.commit}: MapLibre ${info.maplibreVersion}, ${info.basemapProvider}`);
+          NODE
           echo "✅ Build output verified"
 
       - name: Deploy to Azure Static Web Apps
@@ -90,4 +99,6 @@ jobs:
             echo "| Upload | \`client/dist\` → Azure Static Web Apps |"
             echo ""
             echo "Redeploy: Actions → Deploy Frontend → Run workflow."
+            echo "Choose the updated main branch or a new release tag. Rerunning an old tag redeploys that old commit."
+            echo "Verify the live revision at /build-info.json after deployment."
           } >> "$GITHUB_STEP_SUMMARY"
